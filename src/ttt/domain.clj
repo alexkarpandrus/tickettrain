@@ -60,3 +60,12 @@
 (defn entity-in-scope?
   [entity scope]
   (boolean (some #(same-identity? % scope) (:scopes entity))))
+
+(defn display-id
+  [entity]
+  (or (:display-id entity) (:identifier entity)))
+
+(defn in-project?
+  [item project]
+  (let [project-ref (get-in item [:project :ref])]
+    (and project-ref (same-identity? project-ref (:ref project)))))

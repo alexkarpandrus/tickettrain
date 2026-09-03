@@ -77,8 +77,6 @@
 (defn resolve-project! [tracker-adapter project-ref]
   (or ((:resolve-project tracker-adapter) project-ref)
       (throw (ex-info (str "Tracker project not found: " project-ref) {:code :project-not-found}))))
-(defn in-project? [item project]
-  (let [item-project-ref (get-in item [:project :ref])] (and item-project-ref (domain/same-identity? item-project-ref (:ref project)))))
 (defn bounded-limit [value]
   (let [limit (or value 5)]
     (when-not (<= 1 limit 10) (throw (ex-info "--limit must be between 1 and 10." {:code :invalid-request}))) limit))
@@ -89,18 +87,18 @@
                     (when-not (domain/entity-in-scope? resolved scope)
                       (throw (ex-info "The project is outside the configured tracker scope." {:code :tracker-scope-mismatch :project (:ref resolved) :expected-scope scope}))) resolved))]
     (->> ((:search-parent-items tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
-         (filter #(or (nil? project) (in-project? % project))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
+         (filter #(or (nil? project) (domain/in-project? % project))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
 (defn search-projects [tracker-adapter query limit]
   (let [scope ((:configured-scope tracker-adapter))]
     (->> ((:search-projects tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
          (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
 (defn search-labels [tracker-adapter query options limit]
-  (let [scope-item-ref (:scope-item options) scope-item (when scope-item-ref ((:resolve-item tracker-adapter) scope-item-ref)) scope ((:configured-scope tracker-adapter))]
+  (let [scope-item-ref (:scope-item options) scope-item (when scope-item-ref ((:resolve-item tracker-adapter) scope-item-ref)) scope ((:configured-scope tracker-adapter)) label-scopes (if-let [scopes (seq (:scopes scope-item))] scopes [scope])]
     (when (and scope-item-ref (nil? scope-item)) (throw (ex-info (str "Tracker item not found: " scope-item-ref) {:code :tracker-item-not-found :item-ref scope-item-ref})))
     (when (and scope-item (not (domain/entity-in-scope? scope-item scope)))
       (throw (ex-info "The scope item is outside the configured tracker scope." {:code :tracker-scope-mismatch :item (:ref scope-item) :expected-scope scope})))
     (->> ((:search-labels tracker-adapter))
-         (filter #(or (empty? (:scopes %)) (domain/entity-in-scope? % scope)))
+         (filter #(or (empty? (:scopes %)) (some (fn [s] (domain/entity-in-scope? % s)) label-scopes)))
          (map #(assoc % :title (:display-id %))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
 (defn search-data [tracker-adapter options]
   (let [kind (require-option options :kind) query (require-option options :query) limit (bounded-limit (:limit options))]

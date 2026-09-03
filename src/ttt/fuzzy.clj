@@ -1,7 +1,8 @@
 (ns ttt.fuzzy
   (:require [babashka.deps :as deps]
             [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [ttt.domain :as domain]))
 
 (deps/add-deps
  {:deps {(symbol "clj-fuzzy/clj-fuzzy") {:mvn/version "0.4.1"}}})
@@ -97,10 +98,6 @@
           description-jaro)
        (min 25 (quot length-penalty 10)))))
 
-(defn issue-identifier
-  [issue]
-  (or (:display-id issue) (:identifier issue)))
-
 (defn rank-issues
   [query issues]
   (->> issues
@@ -110,5 +107,5 @@
                      (score-text query
                                  (:title issue)
                                  (:description issue)
-                                 (issue-identifier issue)))))
+                                 (domain/display-id issue)))))
        (sort-by (juxt (comp - :score) :title))))

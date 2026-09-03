@@ -93,9 +93,4 @@
                                  :marker (source-marker change-request)
                                  :link (source-link change-request)})))
          section (render-managed-section entries)]
-     (if parsed
-       (str (:before parsed) section (:after parsed))
-       (str (str/trimr existing)
-            (when-not (str/blank? existing) "\n\n")
-            section
-            "\n")))))
+     (markdown/upsert-section existing parsed section))))

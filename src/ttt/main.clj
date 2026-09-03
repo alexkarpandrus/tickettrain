@@ -5,7 +5,9 @@
             [ttt.adapters :as adapters]
             [ttt.agent :as agent]
             [ttt.config :as config]
+            [ttt.core :as core]
             [ttt.forge :as forge]
+            [ttt.shell :as shell]
             [ttt.tracker :as tracker]
             [ttt.ui :as ui]
             [ttt.workflow :as workflow]))
@@ -78,22 +80,11 @@
              first-positional)
         (assoc :parent first-positional)))))
 
-(defn ensure-selection-input!
-  [{:keys [parent project]}]
-  (when-not (or (seq parent) (seq project))
-    (throw (ex-info "Provide either --parent or --project."
-                    {:usage help-text}))))
 
 (defn exception-chain
   [ex]
   (take-while some? (iterate #(.getCause %) ex)))
 
-(defn first-detail
-  [value]
-  (some->> (str/split-lines (or value ""))
-           (map str/trim)
-           (remove str/blank?)
-           first))
 
 (defn print-error!
   [ex]
@@ -102,8 +93,8 @@
         command-error (some #(when-let [command (:command (ex-data %))]
                                {:command command
                                 :exit (:exit (ex-data %))
-                                :stderr (first-detail (:err (ex-data %)))
-                                :stdout (first-detail (:out (ex-data %)))})
+                                :stderr (shell/first-nonblank-line (:err (ex-data %)))
+                                :stdout (shell/first-nonblank-line (:out (ex-data %)))})
                             chain)
         tracker-error (some #(when-let [errors (:errors (ex-data %))]
                                (some-> errors first :message))
@@ -126,7 +117,7 @@
 
 (defn execute!
   [options]
-  (ensure-selection-input! options)
+  (core/ensure-selection-input! (assoc options :usage help-text))
   (let [app-config (config/load-config (:config-path options))
         runtime (adapters/runtime app-config forge/registry tracker/registry)]
     (workflow/execute! runtime options)))
@@ -152,11 +143,13 @@
         (println help-text)
         (execute! options)))
     (catch Exception ex
-      (print-error! ex)
-      (when-let [usage (:usage (ex-data ex))]
-        (binding [*out* *err*]
-          (println)
-          (println usage)))
+      (if (= :aborted (:code (ex-data ex)))
+        (println (ui/warning "⚠ Aborted."))
+        (do (print-error! ex)
+            (when-let [usage (:usage (ex-data ex))]
+              (binding [*out* *err*]
+                (println)
+                (println usage)))))
       1)))
 
 (defn -main

@@ -8,9 +8,9 @@
             [ttt.prompt :as prompt]
             [ttt.ui :as ui]))
 
-(defn ensure-selection-input! [{:keys [parent project]}]
-  (when-not (or (seq parent) (seq project)) (throw (ex-info "Provide either --parent or --project." {}))))
 (defn print-progress [message] (println (ui/progress (str "⏳ " message))))
+
+(defn abort! [] (throw (ex-info "Aborted." {:code :aborted})))
 (defn print-change-request-summary [branch change-request]
   (println (ui/label "🌿 Current branch:") (ui/strong branch))
   (println (ui/label "🔀 Change request:") (format "%s %s" (:display-id change-request) (:title change-request)))
@@ -19,8 +19,6 @@
 (defn entity-label [kind] (case kind :parent "parent item" :project "project"))
 (defn entity-title [item] (or (:title item) (:display-id item)))
 (defn present-text [value] (let [text (some-> value str str/trim)] (when-not (str/blank? text) text)))
-(defn in-project? [item project]
-  (let [project-ref (get-in item [:project :ref])] (and project-ref (domain/same-identity? project-ref (:ref project)))))
 (defn entity-prefix [item] (when-let [display-id (present-text (:display-id item))] (str (ui/strong display-id) "  ")))
 (defn choose-entity [items query options kind]
   (let [ranked (->> items (fuzzy/rank-issues query) (take (get-in options [:candidate-count] 5)) vec)]
@@ -34,7 +32,7 @@
 (defn choose-parent-item [runtime options project]
   (let [tracker (:tracker runtime) query (:parent options) exact ((:resolve-parent-item tracker) query)
         selected (if exact exact (do (print-progress "Searching tracker parent items...")
-                                     (choose-entity (cond->> ((:search-parent-items tracker)) project (filter #(in-project? % project))) query (candidate-options runtime options) :parent)))]
+                                     (choose-entity (cond->> ((:search-parent-items tracker)) project (filter #(domain/in-project? % project))) query (candidate-options runtime options) :parent)))]
     (core/assert-entity-scope! runtime selected :parent)
     (when project (core/assert-parent-project! selected project)) selected))
 (defn choose-project [runtime options]
@@ -84,11 +82,12 @@
         request {:action :create-new :context (:context selection) :title (final-title options change-request) :labels []}
         proposal (core/preview runtime source request) intent (:tracker-intent proposal) prompt? (not (:yes options))]
     (print-change-request-summary (:branch source) change-request) (print-preview selection change-request (:title intent) (:description intent))
-    (when (and prompt? (not (prompt/confirm? (:prompt-label selection)))) (println (ui/warning "⚠ Aborted.")) (System/exit 1))
+    (when (and prompt? (not (prompt/confirm? (:prompt-label selection)))) (abort!))
     (if (:dry-run options)
       (do (println (ui/warning "⚠ Dry run. No changes were made.")) (pprint/pprint (dry-run-payload (:repository source) change-request (:title intent) selection {:mode :existing-change-request})))
       (do (print-progress "Creating the tracker item...")
-          (let [{:keys [item change-request-update]} (core/apply! runtime proposal)]
+          (let [proposal* (core/preview runtime (core/inspect runtime) request)
+                {:keys [item change-request-update]} (core/apply! runtime proposal*)]
             (println (ui/success "✅ Created tracker item:") (str (ui/strong (:display-id item)) " " (:url item)))
             (println (ui/success "✅ Updated change request:") (str (:display-id change-request) " " (:title change-request-update))))))))
 (defn execute-no-change-request! [runtime options source]
@@ -99,15 +98,16 @@
     (println (ui/warning "⚠ No open change request found for this branch. ttt will create one."))
     (when resume-item (println (ui/label "♻ Resuming with existing tracker item:") (str (ui/strong (:display-id resume-item)) (when-let [item-title (:title resume-item)] (str "  " item-title)))) (print-resume-context resume-item))
     (println) (print-preview selection draft title description)
-    (when (and prompt? (not (prompt/confirm? "Create tracker item, rename the branch, and open a change request?"))) (println (ui/warning "⚠ Aborted.")) (System/exit 1))
+    (when (and prompt? (not (prompt/confirm? "Create tracker item, rename the branch, and open a change request?"))) (abort!))
     (if (:dry-run options)
       (let [branch-preview (str "<item-key>-" (git/slugify title))]
         (println (ui/warning "⚠ Dry run. No changes were made."))
         (pprint/pprint (dry-run-payload repository nil title selection {:mode :create-change-request :current-branch (:branch source) :new-branch (if resume-item (:branch source) branch-preview) :base-branch (:default-target-branch repository)})))
       (let [item (or resume-item (do (print-progress "Creating the tracker item...") (core/create-item! runtime (:context selection) {:title title :description description :labels []})))
             new-branch (if resume-item (:branch source) (git/branch-name-for-item item))]
+        (git/set-branch-ticket-id! new-branch (:display-id item))
         (when (not= (:branch source) new-branch) (print-progress (str "Renaming the branch to " new-branch "...")) (git/rename-branch! new-branch))
-        (git/set-branch-ticket-id! new-branch (:display-id item)) (print-progress "Pushing the branch to origin...") (git/push-branch! new-branch)
+        (print-progress "Pushing the branch to origin...") (git/push-branch! new-branch)
         (let [change-request-update (core/change-request-update runtime {:change-request draft} item (:context selection))]
           (print-progress "Opening the change request...")
           (let [created ((get-in runtime [:forge :create-change-request!]) {:title (:title change-request-update) :body (:body change-request-update) :base (:default-target-branch repository) :head new-branch})
@@ -120,5 +120,5 @@
             (println (ui/success "✅ Opened change request:") (str (:display-id change-request) " " (:url change-request)))))))))
 
 (defn execute! [runtime options]
-  (ensure-selection-input! options)
+  (core/ensure-selection-input! options)
   (let [source (core/inspect runtime)] (if (:change-request source) (execute-existing-change-request! runtime options source) (execute-no-change-request! runtime options source))))

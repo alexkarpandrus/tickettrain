@@ -1,6 +1,7 @@
 (ns ttt.git
   (:require [clojure.string :as str]
-            [ttt.shell :as shell]))
+            [ttt.shell :as shell]
+            [ttt.domain :as domain]))
 
 (def merge-subject-patterns
   [#"(?i)^merge pull request\b"
@@ -58,7 +59,7 @@
 
 (defn branch-name-for-item
   [item]
-  (let [identifier (slugify (or (:display-id item) (:identifier item)))
+  (let [identifier (slugify (domain/display-id item))
         title-slug (slugify (:title item))]
     (if (str/blank? title-slug)
       identifier
