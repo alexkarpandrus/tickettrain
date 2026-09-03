@@ -38,4 +38,4 @@ echo
 echo "Install the agent skill (Claude Code, Codex, Cursor, and more):"
 echo "  npx skills add alexkarpandrus/tickettrain"
 echo
-echo "Next: ensure 'bb' and 'gh' are on PATH, then run 'gh auth login' and 'ttt --llm'."
+echo "Next: run 'ttt setup' to configure Linear, then 'ttt --llm' for agent instructions."

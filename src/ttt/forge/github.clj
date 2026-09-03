@@ -208,3 +208,16 @@
    :update-change-request! update-change-request!
    :create-change-request! create-change-request!
    :prefix-change-request-title prefix-change-request-title})
+
+(defn gh-authed?
+  []
+  (try (shell/run "gh" "auth" "status")
+       true
+       (catch Exception _ false)))
+
+(defn setup
+  [_app-config]
+  (if (gh-authed?)
+    (println "✓ GitHub CLI: authenticated")
+    (throw (ex-info "GitHub CLI is not authenticated. Run `gh auth login`, then re-run `ttt setup`." {:code :aborted})))
+  nil)
