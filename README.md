@@ -20,7 +20,15 @@ One-liner:
 curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
 ```
 
-This clones `ttt` into `~/.local/share/tickettrain`, links `ttt` into `~/.local/bin`, and copies the portable skill (`skills/tickettrain/SKILL.md`, Anthropic/OpenAI SKILL.md format) into any existing harness skills directory. From a local checkout, run `./bin/install` instead.
+This clones `ttt` into `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
+
+Install the agent skill (Claude Code, Codex, Cursor, and more):
+
+```bash
+npx skills add alexkarpandrus/tickettrain
+```
+
+The skill ships as `skills/tickettrain/SKILL.md` (portable Anthropic/OpenAI format) and is installed via [skills.sh](https://www.skills.sh/). It works for private repos when GitHub CLI or Git credentials are available.
 
 ## Prerequisites
 
