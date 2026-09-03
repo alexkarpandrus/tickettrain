@@ -1,20 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE="${BASH_SOURCE[0]}"
-while [ -L "${SOURCE}" ]; do
-  SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
-  SOURCE="$(readlink "${SOURCE}")"
-  [[ "${SOURCE}" != /* ]] && SOURCE="${SCRIPT_DIR}/${SOURCE}"
+# One-liner install:
+#   curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
+# Or from a local clone:
+#   ./bin/install
+
+REPO_URL="https://github.com/alexkarpandrus/tickettrain.git"
+INSTALL_DIR="${TTT_INSTALL_DIR:-${HOME}/.local/share/tickettrain}"
+BIN_DIR="${HOME}/.local/bin"
+
+# When piped through `curl | bash`, BASH_SOURCE[0] is "bash" (no real file), so
+# we clone/update the repo. When run from a checkout, use the checkout itself.
+if [[ -f "${BASH_SOURCE[0]}" ]]; then
+  SOURCE="${BASH_SOURCE[0]}"
+  while [ -L "${SOURCE}" ]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+    SOURCE="$(readlink "${SOURCE}")"
+    [[ "${SOURCE}" != /* ]] && SOURCE="${SCRIPT_DIR}/${SOURCE}"
+  done
+  ROOT_DIR="$(cd -P "$(dirname "${SOURCE}")/.." && pwd)"
+else
+  if [[ -d "${INSTALL_DIR}/.git" ]]; then
+    git -C "${INSTALL_DIR}" pull --ff-only --quiet
+  else
+    git clone --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
+  fi
+  ROOT_DIR="${INSTALL_DIR}"
+fi
+
+mkdir -p "${BIN_DIR}"
+ln -sfn "${ROOT_DIR}/bin/ttt" "${BIN_DIR}/ttt"
+
+# Install the portable skill (Anthropic/OpenAI SKILL.md format) into any
+# existing harness skills directory. The canonical copy stays in the repo.
+SKILL_SRC="${ROOT_DIR}/skills/tickettrain/SKILL.md"
+for skills_root in "${HOME}/.claude/skills" "${HOME}/.codex/skills" "${HOME}/.agents/skills"; do
+  if [ -d "${skills_root}" ]; then
+    mkdir -p "${skills_root}/tickettrain"
+    cp -f "${SKILL_SRC}" "${skills_root}/tickettrain/SKILL.md"
+    echo "  skill -> ${skills_root}/tickettrain/SKILL.md"
+  fi
 done
 
-SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TARGET_DIR="${HOME}/.local/bin"
-TARGET="${TARGET_DIR}/ttt"
-
-mkdir -p "${TARGET_DIR}"
-ln -sfn "${ROOT_DIR}/bin/ttt" "${TARGET}"
-
-echo "Installed ttt -> ${TARGET}"
-echo "Current target: $(readlink "${TARGET}")"
+echo "Installed:"
+echo "  ttt   -> ${BIN_DIR}/ttt"
+echo "  skill -> ${ROOT_DIR}/skills/tickettrain/SKILL.md (canonical)"
+echo
+echo "Next: ensure 'bb' and 'gh' are on PATH, then run 'gh auth login' and 'ttt --llm'."
