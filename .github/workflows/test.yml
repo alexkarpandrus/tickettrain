@@ -28,3 +28,8 @@ jobs:
 
       - name: Run Tests
         run: ./bin/ttt-test
+
+      - name: Verify llm.txt is current
+        run: |
+          ./bin/ttt --llm > /tmp/llm.txt
+          diff -u llm.txt /tmp/llm.txt
