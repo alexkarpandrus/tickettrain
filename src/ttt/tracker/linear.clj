@@ -7,29 +7,15 @@
 
 (def endpoint "https://api.linear.app/graphql")
 
+(def issue-fragment
+  "id identifier title description url state { id name type } project { id name slugId url } team { id key name } parent { id identifier title url } labels { nodes { id name color team { id key name } } }")
+
 (def parent-issues-query
-  "query ParentIssues($teamId: String!, $first: Int!, $after: String) {
-     team(id: $teamId) {
-       id
-       name
-       key
-       issues(first: $first, after: $after) {
-         nodes {
-           id
-           identifier
-           title
-           description
-           url
-           state { id name type }
-           project { id name slugId url }
-           team { id key name }
-           parent { id identifier title url }
-           labels { nodes { id name color team { id key name } } }
-         }
-         pageInfo { hasNextPage endCursor }
-       }
-     }
-   }")
+  (str "query ParentIssues($teamId: String!, $first: Int!, $after: String) {"
+       "  team(id: $teamId) { id name key"
+       "    issues(first: $first, after: $after) {"
+       "      nodes { " issue-fragment " }"
+       "      pageInfo { hasNextPage endCursor } } } }"))
 
 (def projects-query
   "query Projects($first: Int!, $after: String) {
@@ -63,20 +49,8 @@
    }")
 
 (def issue-by-identifier-query
-  "query IssueByIdentifier($issueId: String!) {
-     issue(id: $issueId) {
-       id
-       identifier
-       title
-       description
-       url
-       state { id name type }
-       project { id name slugId url }
-       team { id key name }
-       parent { id identifier title url }
-       labels { nodes { id name color team { id key name } } }
-     }
-   }")
+  (str "query IssueByIdentifier($issueId: String!) {"
+       "  issue(id: $issueId) { " issue-fragment " } }"))
 
 (def viewer-query
   "query Viewer { viewer { id name email } }")
@@ -91,42 +65,12 @@
    }")
 
 (def create-issue-mutation
-  "mutation CreateIssue($input: IssueCreateInput!) {
-     issueCreate(input: $input) {
-       success
-       issue {
-         id
-         identifier
-         title
-         description
-         url
-         state { id name type }
-         project { id name slugId url }
-         team { id key name }
-         parent { id identifier title url }
-         labels { nodes { id name color team { id key name } } }
-       }
-     }
-   }")
+  (str "mutation CreateIssue($input: IssueCreateInput!) {"
+       "  issueCreate(input: $input) { success issue { " issue-fragment " } } }"))
 
 (def update-issue-mutation
-  "mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
-     issueUpdate(id: $id, input: $input) {
-       success
-       issue {
-         id
-         identifier
-         title
-         description
-         url
-         state { id name type }
-         project { id name slugId url }
-         team { id key name }
-         parent { id identifier title url }
-         labels { nodes { id name color team { id key name } } }
-       }
-     }
-   }")
+  (str "mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {"
+       "  issueUpdate(id: $id, input: $input) { success issue { " issue-fragment " } } }"))
 
 (defn tracker-config
   [app-config]
@@ -150,23 +94,25 @@
                       {:errors errors})))
     (:data body)))
 
+(defn paginate
+  [app-config query variables page-path limit]
+  (let [page-size (min 100 limit)]
+    (loop [after nil
+           acc []]
+      (let [response (graphql! app-config query (merge variables {:first page-size :after after}))
+            page-info (get-in response (conj page-path :pageInfo))
+            items (get-in response (conj page-path :nodes))
+            next-acc (into acc (or items []))]
+        (cond
+          (not (:hasNextPage page-info)) next-acc
+          (>= (count next-acc) limit) (take limit next-acc)
+          :else (recur (:endCursor page-info) next-acc))))))
+
 (defn parent-items
   [app-config]
   (let [team-id (:team-id (tracker-config app-config))
-        page-size (min 100 (get-in app-config [:search :parent-fetch-limit] 100))]
-    (loop [after nil
-           acc []]
-      (let [response (graphql! app-config
-                               parent-issues-query
-                               {:teamId team-id
-                                :first page-size
-                                :after after})
-            items (get-in response [:team :issues :nodes])
-            page-info (get-in response [:team :issues :pageInfo])
-            next-acc (into acc (or items []))]
-        (if (:hasNextPage page-info)
-          (recur (:endCursor page-info) next-acc)
-          next-acc)))))
+        limit (get-in app-config [:search :parent-fetch-limit] 100)]
+    (paginate app-config parent-issues-query {:teamId team-id} [:team :issues] limit)))
 
 (defn normalize-project
   [project]
@@ -227,36 +173,13 @@
 
 (defn projects
   [app-config]
-  (let [page-size (min 100 (get-in app-config [:search :project-fetch-limit] 100))]
-    (loop [after nil
-           acc []]
-      (let [response (graphql! app-config
-                               projects-query
-                               {:first page-size
-                                :after after})
-            items (map #(assoc % :title (:name %) :kind :project)
-                       (get-in response [:projects :nodes]))
-            page-info (get-in response [:projects :pageInfo])
-            next-acc (into acc (or items []))]
-        (if (:hasNextPage page-info)
-          (recur (:endCursor page-info) next-acc)
-          next-acc)))))
+  (let [limit (get-in app-config [:search :project-fetch-limit] 100)]
+    (map #(assoc % :title (:name %) :kind :project)
+         (paginate app-config projects-query {} [:projects] limit))))
 
 (defn labels
   [app-config]
-  (let [page-size 100]
-    (loop [after nil
-           acc []]
-      (let [response (graphql! app-config
-                               issue-labels-query
-                               {:first page-size
-                                :after after})
-            items (remove :isGroup (get-in response [:issueLabels :nodes]))
-            page-info (get-in response [:issueLabels :pageInfo])
-            next-acc (into acc (or items []))]
-        (if (:hasNextPage page-info)
-          (recur (:endCursor page-info) next-acc)
-          next-acc)))))
+  (remove :isGroup (paginate app-config issue-labels-query {} [:issueLabels] 100)))
 
 (defn normalized-parent-items
   [app-config]

@@ -14,11 +14,6 @@
 (def default-dotenv-path
   (str (fs/file (app-home) ".env")))
 
-(def placeholder-values
-  #{"YOUR_LINEAR_API_KEY"
-    "YOUR_LINEAR_TEAM_ID"
-    "https://linear.app/YOUR_WORKSPACE"})
-
 (def default-change-request-config
   {:body-begin-marker "<!-- ttt:begin -->"
    :body-end-marker "<!-- ttt:end -->"
@@ -89,7 +84,7 @@
   ([path]
    (let [config-path (fs/file path)
          dotenv (load-dotenv)
-         env-config (env-overrides dotenv)]
+         env-config (env-overrides (merge (System/getenv) dotenv))]
      (when-not (fs/exists? config-path)
        (throw (ex-info (str "Config file not found: " path)
                        {:path path})))
@@ -129,8 +124,7 @@
 (defn placeholder?
   [value]
   (and (string? value)
-       (or (contains? placeholder-values value)
-           (str/includes? value "YOUR_"))))
+       (str/includes? value "YOUR_")))
 
 (defn missing-setting?
   [value]

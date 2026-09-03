@@ -88,3 +88,12 @@
 (defn link
   [label destination]
   (str "[" (escape-label label) "](" (escape-destination destination) ")"))
+
+(defn upsert-section
+  [existing parsed section]
+  (if parsed
+    (str (:before parsed) section (:after parsed))
+    (str (str/trimr existing)
+         (when-not (str/blank? existing) "\n\n")
+         section
+         "\n")))

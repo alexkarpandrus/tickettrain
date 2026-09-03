@@ -12,6 +12,12 @@
   [runtime]
   ((get-in runtime [:tracker :configured-scope])))
 
+(defn ensure-selection-input!
+  [{:keys [parent project] :as options}]
+  (when-not (or (seq parent) (seq project))
+    (throw (ex-info "Provide either --parent or --project."
+                    (when-let [usage (:usage options)] {:usage usage})))))
+
 (defn assert-entity-scope!
   [runtime entity entity-kind]
   (let [scope (configured-scope runtime)]

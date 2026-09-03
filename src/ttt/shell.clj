@@ -6,7 +6,7 @@
   [args]
   (str/join " " args))
 
-(defn- first-nonblank-line
+(defn first-nonblank-line
   [text]
   (some->> (str/split-lines (or text ""))
            (map str/trim)

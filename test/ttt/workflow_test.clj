@@ -40,3 +40,20 @@
   (let [calls (atom []) output (with-redefs [workflow/draft-change-request (fn [_] {:title "Retry" :body "Body"}) git/branch-ticket-id (fn [_] nil) git/branch-item-identifier (fn [_] nil)]
                                 (with-out-str (workflow/execute-no-change-request! (runtime calls no-change-request-source) {:parent "APP-100" :yes true :dry-run true} no-change-request-source)))]
     (is (empty? @calls)) (is (str/includes? output "create-change-request"))))
+
+(deftest no-change-request-apply-mutates-in-order
+  (let [calls (atom [])]
+    (with-redefs [workflow/draft-change-request (fn [_] {:title "Retry" :body "Body"})
+                  git/branch-ticket-id (fn [_] nil)
+                  git/branch-item-identifier (fn [_] nil)
+                  git/set-branch-ticket-id! (fn [branch id] (swap! calls conj [:set-ticket branch id]))
+                  git/rename-branch! (fn [branch] (swap! calls conj [:rename branch]))
+                  git/push-branch! (fn [branch] (swap! calls conj [:push branch]))]
+      (with-out-str (workflow/execute-no-change-request! (runtime calls no-change-request-source) {:parent "APP-100" :yes true} no-change-request-source)))
+    (is (= [:tracker-create
+            [:set-ticket "app-200-retry" "APP-200"]
+            [:rename "app-200-retry"]
+            [:push "app-200-retry"]
+            :forge-create
+            :tracker-update]
+           @calls))))

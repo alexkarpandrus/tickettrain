@@ -13,10 +13,6 @@
   [context]
   (or (:label context) "Parent"))
 
-(defn item-display-id
-  [item]
-  (or (:display-id item) (:identifier item)))
-
 (defn context-title
   [context]
   (or (when (= :project (:kind context))
@@ -90,7 +86,7 @@
            (str "<!-- ttt:item "
                 (domain/identity-key item-ref)
                 " -->\n"))
-         "- Issue: " (markdown/link (item-display-id item) (:url item)) "\n"
+         "- Issue: " (markdown/link (domain/display-id item) (:url item)) "\n"
          (when context
            (str "- " (markdown/escape-label (context-label context)) ": "
                 (markdown/link (context-title context) (:url context)) "\n"))
@@ -101,12 +97,7 @@
   (let [existing (or body "")
         parsed (parse-managed existing app-config)
         section (managed-section app-config item context)]
-    (if parsed
-      (str (:before parsed) section (:after parsed))
-      (str (str/trimr existing)
-           (when (seq existing) "\n\n")
-           section
-           "\n"))))
+    (markdown/upsert-section existing parsed section)))
 
 (defn strip-managed-section
   [body app-config]
