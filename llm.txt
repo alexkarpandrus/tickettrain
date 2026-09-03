@@ -24,6 +24,9 @@ Non-interactive API (schema v2):
   ttt apply --request JSON --approve PROPOSAL_ID
   ttt apply --request-file PATH --approve PROPOSAL_ID
 
+Setup:
+  ttt setup          Configure Linear (key, team, workspace) and check gh auth
+
 Interactive workflow:
   ttt --interactive --parent "parent item key or fuzzy text"
   ttt -i --project "project name or slug"

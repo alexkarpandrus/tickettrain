@@ -3,4 +3,5 @@
 
 (def registry
   {:github {:build github/neutral-adapter
-            :validate-config! github/assert-ready!}})
+            :validate-config! github/assert-ready!
+            :setup github/setup}})

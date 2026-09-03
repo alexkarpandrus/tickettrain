@@ -3,4 +3,5 @@
 
 (def registry
   {:linear {:build linear/neutral-adapter
-            :validate-config! linear/assert-ready!}})
+            :validate-config! linear/assert-ready!
+            :setup linear/setup}})

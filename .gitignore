@@ -1,4 +1,5 @@
 .env
+config/ttt.local.edn
 .cpcache/
 /.clj-kondo/
 /.lsp/
