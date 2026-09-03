@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "${SOURCE}" ]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE="$(readlink "${SOURCE}")"
+  [[ "${SOURCE}" != /* ]] && SOURCE="${SCRIPT_DIR}/${SOURCE}"
+done
+
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export TTT_HOME="${ROOT_DIR}"
+
+if command -v bb >/dev/null 2>&1; then
+  BB_BIN="$(command -v bb)"
+elif [ -x "${HOME}/.local/bin/bb" ]; then
+  BB_BIN="${HOME}/.local/bin/bb"
+else
+  echo "bb is not installed. Install babashka or set BB_BIN." >&2
+  exit 1
+fi
+
+exec "${BB_BIN}" --config "${ROOT_DIR}/bb.edn" --deps-root "${ROOT_DIR}" -m ttt.main "$@"

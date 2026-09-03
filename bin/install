@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "${SOURCE}" ]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE="$(readlink "${SOURCE}")"
+  [[ "${SOURCE}" != /* ]] && SOURCE="${SCRIPT_DIR}/${SOURCE}"
+done
+
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TARGET_DIR="${HOME}/.local/bin"
+TARGET="${TARGET_DIR}/ttt"
+
+mkdir -p "${TARGET_DIR}"
+ln -sfn "${ROOT_DIR}/bin/ttt" "${TARGET}"
+
+echo "Installed ttt -> ${TARGET}"
+echo "Current target: $(readlink "${TARGET}")"

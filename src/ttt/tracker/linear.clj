@@ -1,0 +1,461 @@
+(ns ttt.tracker.linear
+  (:require [babashka.http-client :as http]
+            [cheshire.core :as json]
+            [clojure.string :as str]
+            [ttt.config :as config]
+            [ttt.domain :as domain]))
+
+(def endpoint "https://api.linear.app/graphql")
+
+(def parent-issues-query
+  "query ParentIssues($teamId: String!, $first: Int!, $after: String) {
+     team(id: $teamId) {
+       id
+       name
+       key
+       issues(first: $first, after: $after) {
+         nodes {
+           id
+           identifier
+           title
+           description
+           url
+           state { id name type }
+           project { id name slugId url }
+           team { id key name }
+           parent { id identifier title url }
+           labels { nodes { id name color team { id key name } } }
+         }
+         pageInfo { hasNextPage endCursor }
+       }
+     }
+   }")
+
+(def projects-query
+  "query Projects($first: Int!, $after: String) {
+     projects(first: $first, after: $after) {
+       nodes {
+         id
+         name
+         description
+         url
+         slugId
+         teams { nodes { id key name } }
+       }
+       pageInfo { hasNextPage endCursor }
+     }
+   }")
+
+(def issue-labels-query
+  "query IssueLabels($first: Int!, $after: String) {
+     issueLabels(first: $first, after: $after) {
+       nodes {
+         id
+         name
+         description
+         color
+         isGroup
+         team { id key name }
+         parent { id name }
+       }
+       pageInfo { hasNextPage endCursor }
+     }
+   }")
+
+(def issue-by-identifier-query
+  "query IssueByIdentifier($issueId: String!) {
+     issue(id: $issueId) {
+       id
+       identifier
+       title
+       description
+       url
+       state { id name type }
+       project { id name slugId url }
+       team { id key name }
+       parent { id identifier title url }
+       labels { nodes { id name color team { id key name } } }
+     }
+   }")
+
+(def viewer-query
+  "query Viewer { viewer { id name email } }")
+
+(def team-states-query
+  "query TeamStates($teamId: String!) {
+     team(id: $teamId) {
+       id
+       name
+       states { nodes { id name type } }
+     }
+   }")
+
+(def create-issue-mutation
+  "mutation CreateIssue($input: IssueCreateInput!) {
+     issueCreate(input: $input) {
+       success
+       issue {
+         id
+         identifier
+         title
+         description
+         url
+         state { id name type }
+         project { id name slugId url }
+         team { id key name }
+         parent { id identifier title url }
+         labels { nodes { id name color team { id key name } } }
+       }
+     }
+   }")
+
+(def update-issue-mutation
+  "mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
+     issueUpdate(id: $id, input: $input) {
+       success
+       issue {
+         id
+         identifier
+         title
+         description
+         url
+         state { id name type }
+         project { id name slugId url }
+         team { id key name }
+         parent { id identifier title url }
+         labels { nodes { id name color team { id key name } } }
+       }
+     }
+   }")
+
+(defn tracker-config
+  [app-config]
+  (config/tracker-settings app-config))
+
+(defn graphql!
+  [app-config query variables]
+  (let [response (http/post endpoint
+                            {:headers {"Authorization" (:api-key (tracker-config app-config))
+                                       "Content-Type" "application/json"}
+                             :body (json/generate-string {:query query
+                                                          :variables variables})
+                             :throw false})
+        status (:status response)
+        body (json/parse-string (:body response) true)]
+    (when-not (= 200 status)
+      (throw (ex-info (str "Linear API request failed with status " status ".")
+                      {:status status})))
+    (when-let [errors (seq (:errors body))]
+      (throw (ex-info (str "Linear GraphQL error: " (:message (first errors)))
+                      {:errors errors})))
+    (:data body)))
+
+(defn parent-items
+  [app-config]
+  (let [team-id (:team-id (tracker-config app-config))
+        page-size (min 100 (get-in app-config [:search :parent-fetch-limit] 100))]
+    (loop [after nil
+           acc []]
+      (let [response (graphql! app-config
+                               parent-issues-query
+                               {:teamId team-id
+                                :first page-size
+                                :after after})
+            items (get-in response [:team :issues :nodes])
+            page-info (get-in response [:team :issues :pageInfo])
+            next-acc (into acc (or items []))]
+        (if (:hasNextPage page-info)
+          (recur (:endCursor page-info) next-acc)
+          next-acc)))))
+
+(defn normalize-project
+  [project]
+  (let [teams (get-in project [:teams :nodes])]
+    {:ref (domain/identity :linear :project (:id project))
+     :display-id (or (:slugId project) (:name project))
+     :title (:name project)
+     :kind :project
+     :url (:url project)
+     :scopes (mapv #(domain/scope-identity :linear (:id %)) teams)}))
+
+(defn normalize-label
+  [label]
+  (let [team (:team label)]
+    {:ref (domain/identity :linear :label (:id label))
+     :display-id (:name label)
+     :scopes (if team
+               [(domain/scope-identity :linear (:id team))]
+               [])}))
+
+(defn normalize-state
+  [state]
+  (when state
+    (cond-> {:name (:name state)}
+      (:id state) (assoc :id (:id state))
+      (:type state) (assoc :type (:type state)))))
+
+(defn normalize-item-summary
+  [item]
+  (when item
+    {:ref (domain/identity :linear :tracker-item (:id item))
+     :display-id (:identifier item)
+     :title (:title item)
+     :url (:url item)
+     :state (normalize-state (:state item))}))
+
+(defn normalize-item
+  [item]
+  (when item
+    (let [team (:team item)]
+      {:ref (domain/identity :linear :tracker-item (:id item))
+       :display-id (:identifier item)
+       :title (:title item)
+       :description (:description item)
+       :url (:url item)
+       :state (normalize-state (:state item))
+       :scopes (if team
+                 [(domain/scope-identity :linear (:id team))]
+                 [])
+       :project (some-> (:project item) normalize-project)
+       :parent (some-> (:parent item) normalize-item-summary)
+       :labels (mapv normalize-label (get-in item [:labels :nodes]))})))
+
+(defn exact-match?
+  [left right]
+  (= (str/lower-case (str/trim (or left "")))
+     (str/lower-case (str/trim (or right "")))))
+
+(defn projects
+  [app-config]
+  (let [page-size (min 100 (get-in app-config [:search :project-fetch-limit] 100))]
+    (loop [after nil
+           acc []]
+      (let [response (graphql! app-config
+                               projects-query
+                               {:first page-size
+                                :after after})
+            items (map #(assoc % :title (:name %) :kind :project)
+                       (get-in response [:projects :nodes]))
+            page-info (get-in response [:projects :pageInfo])
+            next-acc (into acc (or items []))]
+        (if (:hasNextPage page-info)
+          (recur (:endCursor page-info) next-acc)
+          next-acc)))))
+
+(defn labels
+  [app-config]
+  (let [page-size 100]
+    (loop [after nil
+           acc []]
+      (let [response (graphql! app-config
+                               issue-labels-query
+                               {:first page-size
+                                :after after})
+            items (remove :isGroup (get-in response [:issueLabels :nodes]))
+            page-info (get-in response [:issueLabels :pageInfo])
+            next-acc (into acc (or items []))]
+        (if (:hasNextPage page-info)
+          (recur (:endCursor page-info) next-acc)
+          next-acc)))))
+
+(defn normalized-parent-items
+  [app-config]
+  (mapv normalize-item (parent-items app-config)))
+
+(defn normalized-projects
+  [app-config]
+  (mapv normalize-project (projects app-config)))
+
+(defn normalized-labels
+  [app-config]
+  (mapv normalize-label
+        (remove :isGroup (labels app-config))))
+
+(defn normalized-project-by-ref
+  [app-config project-ref]
+  (->> (normalized-projects app-config)
+       (filter #(or (exact-match? (get-in % [:ref :id]) project-ref)
+                    (exact-match? (:display-id %) project-ref)
+                    (exact-match? (:title %) project-ref)))
+       first))
+
+(defn normalized-item-by-identifier
+  [app-config item-id]
+  (some-> (get (graphql! app-config
+                         issue-by-identifier-query
+                         {:issueId item-id})
+               :issue)
+          normalize-item))
+
+(defn normalized-label-compatible-with-scope?
+  [label scope]
+  (or (empty? (:scopes label))
+      (domain/entity-in-scope? label scope)))
+
+(defn normalized-label-by-ref
+  [app-config label-ref scope]
+  (let [matches (->> (normalized-labels app-config)
+                     (filter #(normalized-label-compatible-with-scope? % scope))
+                     (filter #(or (exact-match? (get-in % [:ref :id]) label-ref)
+                                  (exact-match? (:display-id %) label-ref)))
+                     vec)]
+    (case (count matches)
+      0 nil
+      1 (first matches)
+      (throw (ex-info (str "Linear label reference is ambiguous: " label-ref)
+                      {:code :ambiguous-label
+                       :label label-ref
+                       :matches (mapv #(select-keys % [:ref :display-id]) matches)})))))
+
+(defn resolve-normalized-labels
+  [app-config label-refs scope]
+  (mapv (fn [label-ref]
+          (or (normalized-label-by-ref app-config label-ref scope)
+              (throw (ex-info (str "Linear label not found: " label-ref)
+                              {:code :label-not-found
+                               :label label-ref}))))
+        (distinct (or label-refs []))))
+
+(defn viewer
+  [app-config]
+  (get (graphql! app-config viewer-query {}) :viewer))
+
+(defn assignee-id
+  [app-config]
+  (let [configured (:assignee-id (tracker-config app-config))]
+    (cond
+      (nil? configured) nil
+      (str/blank? (str configured)) nil
+      (= "self" (str/lower-case (str configured))) (:id (viewer app-config))
+      :else configured)))
+
+(defn team-states
+  [app-config team-id]
+  (get-in (graphql! app-config
+                    team-states-query
+                    {:teamId team-id})
+          [:team :states :nodes]))
+
+(defn state-id
+  [app-config team-id]
+  (let [{:keys [state-id state-name]} (tracker-config app-config)]
+    (cond
+      (and state-id (not (str/blank? (str state-id))))
+      state-id
+
+      (and state-name (not (str/blank? (str state-name))))
+      (let [match (->> (team-states app-config team-id)
+                       (filter #(= (str/lower-case (:name %))
+                                   (str/lower-case (str state-name))))
+                       first)]
+        (when-not match
+          (throw (ex-info
+                  (str "Linear workflow state not found: " state-name)
+                  {:team-id team-id
+                   :state-name state-name})))
+        (:id match))
+
+      :else nil)))
+
+(defn create-item!
+  [app-config {:keys [parent project]} title description label-ids]
+  (let [team-id (or (get-in parent [:team :id])
+                    (:team-id (tracker-config app-config)))
+        assignee (assignee-id app-config)
+        state (state-id app-config team-id)
+        input (cond-> {:teamId team-id
+                       :title title
+                       :description description}
+                parent (assoc :parentId (:id parent))
+                project (assoc :projectId (:id project))
+                (seq label-ids) (assoc :labelIds (vec label-ids))
+                assignee (assoc :assigneeId assignee)
+                state (assoc :stateId state))
+        response (graphql! app-config create-issue-mutation {:input input})
+        item (get-in response [:issueCreate :issue])
+        success? (get-in response [:issueCreate :success])]
+    (when-not success?
+      (throw (ex-info "Linear issueCreate returned success=false" {})))
+    item))
+
+(defn update-item!
+  [app-config item-id input]
+  (let [response (graphql! app-config
+                           update-issue-mutation
+                           {:id item-id
+                            :input input})
+        success? (get-in response [:issueUpdate :success])]
+    (when-not success?
+      (throw (ex-info "Linear issueUpdate returned success=false" {})))
+    (get-in response [:issueUpdate :issue])))
+
+(defn configured-scope
+  [app-config]
+  (domain/scope-identity :linear (:team-id (tracker-config app-config))))
+
+(defn assert-ready!
+  [app-config]
+  (config/assert-settings! :linear
+                           (tracker-config app-config)
+                           [:api-key :team-id :workspace-url]))
+
+(defn provider-id
+  [entity]
+  (if (map? entity)
+    (or (get-in entity [:ref :id]) (:id entity))
+    entity))
+
+(defn label-ids
+  [labels]
+  (mapv provider-id labels))
+
+(defn provider-context
+  [app-config {:keys [parent project]}]
+  (cond-> {}
+    parent (assoc :parent {:id (provider-id parent)
+                           :team {:id (:team-id (tracker-config app-config))}})
+    project (assoc :project {:id (provider-id project)})))
+
+(defn create-item-from-intent!
+  [app-config context {:keys [title description labels]}]
+  (some-> (create-item! app-config
+                        (provider-context app-config context)
+                        title
+                        description
+                        (label-ids labels))
+          normalize-item))
+
+(defn update-item-from-intent!
+  [app-config item {:keys [description labels]}]
+  (some-> (update-item! app-config
+                        (provider-id item)
+                        {:description description
+                         :labelIds (label-ids labels)})
+          normalize-item))
+
+(def capabilities
+  #{:configured-scope
+    :search-parent-items
+    :resolve-parent-item
+    :resolve-item
+    :search-projects
+    :resolve-project
+    :search-labels
+    :resolve-labels
+    :create-item!
+    :update-item!})
+
+(defn neutral-adapter
+  [app-config]
+  {:provider :linear
+   :capabilities capabilities
+   :configured-scope #(configured-scope app-config)
+   :search-parent-items #(normalized-parent-items app-config)
+   :resolve-parent-item #(normalized-item-by-identifier app-config %)
+   :resolve-item #(normalized-item-by-identifier app-config %)
+   :search-projects #(normalized-projects app-config)
+   :resolve-project #(normalized-project-by-ref app-config %)
+   :search-labels #(normalized-labels app-config)
+   :resolve-labels #(resolve-normalized-labels app-config %1 %2)
+   :create-item! #(create-item-from-intent! app-config %1 %2)
+   :update-item! #(update-item-from-intent! app-config %1 %2)})

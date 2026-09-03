@@ -1,0 +1,6 @@
+{:paths ["src" "test"]
+ :min-bb-version "1.12.217"
+ :tasks
+ {test
+  {:doc "Run unit tests"
+   :task (shell "./bin/ttt-test")}}}

@@ -1,0 +1,5 @@
+.env
+.cpcache/
+/.clj-kondo/
+/.lsp/
+/.rpiv/

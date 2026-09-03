@@ -1,0 +1,19 @@
+{:tracker
+ {:api-key "YOUR_LINEAR_API_KEY"
+  :team-id "YOUR_LINEAR_TEAM_ID"
+  :assignee-id "self"
+  :state-name "In Review"
+  :workspace-url "https://linear.app/YOUR_WORKSPACE"}
+
+ :forge
+ {:provider :github}
+
+ :change-request
+ {:body-begin-marker "<!-- ttt:begin -->"
+  :body-end-marker "<!-- ttt:end -->"
+  :section-title "Linear"}
+
+ :search
+ {:candidate-count 5
+  :parent-fetch-limit 100
+  :project-fetch-limit 100}}
