@@ -184,7 +184,7 @@
                                (some-> errors first :message))
                             chain)]
     (binding [*out* *err*]
-      (println (ui/error (str "❌ " (.getMessage ex))))
+      (println (ui/error (str "Error: " (.getMessage ex))))
       (doseq [cause (rest chain)]
         (println (ui/muted (str "Caused by: " (.getMessage cause)))))
       (when tracker-error
@@ -228,7 +228,7 @@
         (execute! options)))
     (catch Exception ex
       (if (= :aborted (:code (ex-data ex)))
-        (println (ui/warning "⚠ Aborted."))
+        (println (ui/warning "Aborted."))
         (do (print-error! ex)
             (when-let [usage (:usage (ex-data ex))]
               (binding [*out* *err*]
@@ -243,7 +243,7 @@
     nil
     (catch Exception ex
       (if (= :aborted (:code (ex-data ex)))
-        (binding [*out* *err*] (println (ui/warning (str "⚠ " (.getMessage ex)))))
+        (binding [*out* *err*] (println (ui/warning (.getMessage ex))))
         (print-error! ex))
       1)))
 

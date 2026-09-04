@@ -218,6 +218,6 @@
 (defn setup
   [_app-config]
   (if (gh-authed?)
-    (println "✓ GitHub CLI: authenticated")
+    (println "GitHub CLI: authenticated")
     (throw (ex-info "GitHub CLI is not authenticated. Run `gh auth login`, then re-run `ttt setup`." {:code :aborted})))
   nil)
