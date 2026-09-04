@@ -374,7 +374,7 @@
       (valid-config-value? env-key) env-key
       (valid-config-value? configured) configured
       :else
-      (let [entered (prompt/ask "Linear API key (create at https://linear.app/settings/api): ")]
+      (let [entered (prompt/ask "Linear API key (create at https://linear.app/settings/account/security/api-keys/new): ")]
         (when (str/blank? entered)
           (throw (ex-info "No Linear API key provided." {:code :aborted})))
         entered))))
