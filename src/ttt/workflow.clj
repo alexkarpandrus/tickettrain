@@ -84,7 +84,7 @@
     (print-change-request-summary (:branch source) change-request) (print-preview selection change-request (:title intent) (:description intent))
     (when (and prompt? (not (prompt/confirm? (:prompt-label selection)))) (abort!))
     (if (:dry-run options)
-      (do (println (ui/warning "⚠ Dry run. No changes were made.")) (pprint/pprint (dry-run-payload (:repository source) change-request (:title intent) selection {:mode :existing-change-request})))
+      (do (println (ui/warning "Dry run. No changes were made.")) (pprint/pprint (dry-run-payload (:repository source) change-request (:title intent) selection {:mode :existing-change-request})))
       (do (print-progress "Creating the tracker item...")
           (let [proposal* (core/preview runtime (core/inspect runtime) request)
                 {:keys [item change-request-update]} (core/apply! runtime proposal*)]
@@ -95,13 +95,13 @@
         description (core/base-item-description (:config runtime) draft) prompt? (not (:yes options))
         resume-item (when-let [item (existing-branch-item runtime (:branch source))] (assert-resume-context! item (:context selection))) repository (:repository source)]
     (println (ui/label "🌿 Current branch:") (ui/strong (:branch source)))
-    (println (ui/warning "⚠ No open change request found for this branch. ttt will create one."))
+    (println (ui/warning "No open change request found for this branch. ttt will create one."))
     (when resume-item (println (ui/label "♻ Resuming with existing tracker item:") (str (ui/strong (:display-id resume-item)) (when-let [item-title (:title resume-item)] (str "  " item-title)))) (print-resume-context resume-item))
     (println) (print-preview selection draft title description)
     (when (and prompt? (not (prompt/confirm? "Create tracker item, rename the branch, and open a change request?"))) (abort!))
     (if (:dry-run options)
       (let [branch-preview (str "<item-key>-" (git/slugify title))]
-        (println (ui/warning "⚠ Dry run. No changes were made."))
+        (println (ui/warning "Dry run. No changes were made."))
         (pprint/pprint (dry-run-payload repository nil title selection {:mode :create-change-request :current-branch (:branch source) :new-branch (if resume-item (:branch source) branch-preview) :base-branch (:default-target-branch repository)})))
       (let [item (or resume-item (do (print-progress "Creating the tracker item...") (core/create-item! runtime (:context selection) {:title title :description description :labels []})))
             new-branch (if resume-item (:branch source) (git/branch-name-for-item item))]

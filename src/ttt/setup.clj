@@ -20,5 +20,5 @@
         deltas (merge forge-delta tracker-delta)]
     (when (seq deltas)
       (let [path (config/write-local-config! deltas)]
-        (println (ui/success (str "✓ Wrote config to " path)))))
+        (println (ui/success (str "Wrote config to " path)))))
     (println (ui/success "Setup complete. Run `ttt version` to verify."))))

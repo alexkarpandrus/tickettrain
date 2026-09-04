@@ -409,9 +409,9 @@
         viewer (get (graphql! cfg viewer-query {}) :viewer)
         team (pick-team cfg)
         url-key (get-in viewer [:organization :urlKey])]
-    (println (str "✓ Linear user: " (:email viewer)))
-    (println (str "✓ Workspace: https://linear.app/" url-key))
-    (println (str "✓ Team: " (:name team) " (" (:key team) ")"))
+    (println (str "Linear user: " (:email viewer)))
+    (println (str "Workspace: https://linear.app/" url-key))
+    (println (str "Team: " (:name team) " (" (:key team) ")"))
     {:tracker {:api-key api-key
                :team-id (:id team)
                :workspace-url (str "https://linear.app/" url-key)
