@@ -2,7 +2,7 @@
   (:require
             [clojure.test :refer [deftest is]]
             [ttt.domain :as domain]
-            [ttt.tracker.linear :as linear]))
+            [ttt.providers.tracker.linear :as linear]))
 
 (def config
   {:tracker {:provider :linear
@@ -61,6 +61,13 @@
                       (domain/scope-identity :linear "team-1"))
                     items))
         (is (= [nil "cursor-1"] (mapv :after @calls)))))))
+
+(deftest paginate-stops-when-page-claims-more-without-a-cursor
+  (with-redefs [linear/graphql! (fn [_ _ variables]
+                                  (is (nil? (:after variables)))
+                                  {:team {:issues {:nodes [{:id "i1" :identifier "APP-1" :team {:id "team-1"}}]
+                                                   :pageInfo {:hasNextPage true :endCursor nil}}}})]
+    (is (= ["APP-1"] (mapv :display-id (linear/normalized-parent-items config))))))
 
 (deftest projects-page-and-normalize-scopes
   (with-redefs [linear/graphql! (fn [_ _ variables]

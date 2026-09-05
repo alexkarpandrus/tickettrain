@@ -1,4 +1,4 @@
-(ns ttt.ui)
+(ns ttt.cli.ui)
 
 (def ansi-codes
   {:reset "\u001b[0m"

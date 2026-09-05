@@ -1,6 +1,6 @@
-(ns ttt.prompt
+(ns ttt.cli.prompt
   (:require [clojure.string :as str]
-            [ttt.ui :as ui]))
+            [ttt.cli.ui :as ui]))
 
 (defn ask
   [message]

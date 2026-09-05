@@ -1,4 +1,4 @@
-(ns ttt.markdown
+(ns ttt.text.markdown
   (:require [clojure.string :as str]))
 
 (defn marker-count

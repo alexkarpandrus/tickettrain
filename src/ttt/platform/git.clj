@@ -1,6 +1,6 @@
-(ns ttt.git
+(ns ttt.platform.git
   (:require [clojure.string :as str]
-            [ttt.shell :as shell]
+            [ttt.platform.shell :as shell]
             [ttt.domain :as domain]))
 
 (def merge-subject-patterns

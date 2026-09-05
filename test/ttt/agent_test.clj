@@ -1,6 +1,6 @@
 (ns ttt.agent-test
   (:require [clojure.test :refer [deftest is]]
-            [ttt.agent :as agent]
+            [ttt.cli.agent :as agent]
             [ttt.domain :as domain]))
 
 (def scope (domain/scope-identity :linear "team-1"))

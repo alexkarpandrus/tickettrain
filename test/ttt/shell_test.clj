@@ -1,6 +1,6 @@
 (ns ttt.shell-test
   (:require [clojure.test :refer [deftest is]]
-            [ttt.shell :as shell]))
+            [ttt.platform.shell :as shell]))
 
 (deftest failure-message-prefers-stderr
   (is (= "gh pr create failed (exit 1): pull request already exists"

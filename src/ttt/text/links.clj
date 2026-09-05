@@ -1,7 +1,7 @@
-(ns ttt.links
+(ns ttt.text.links
   (:require [clojure.string :as str]
             [ttt.domain :as domain]
-            [ttt.markdown :as markdown]))
+            [ttt.text.markdown :as markdown]))
 
 (def section-title "Pull requests")
 (def heading (str "## " section-title))
@@ -12,7 +12,7 @@
 
 (def malformed-options
   {:code :malformed-managed-section
-   :message "The tracker description has malformed or duplicate ttt sections."})
+   :message "The tracker description has malformed or duplicate ttt sections. Keep hand-authored content outside the `## Pull requests` section."})
 
 (defn source-link
   [change-request]

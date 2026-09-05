@@ -1,6 +1,6 @@
 (ns ttt.fuzzy-test
   (:require [clojure.test :refer [deftest is]]
-            [ttt.fuzzy :as fuzzy]))
+            [ttt.text.fuzzy :as fuzzy]))
 
 (deftest rank-issues-prefers-identifier-and-title-match
   (let [issues [{:identifier "OPS-10" :title "Data warehouse cleanup"}

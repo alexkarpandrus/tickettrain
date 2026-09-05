@@ -3,14 +3,19 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
-            [ttt.agent :as agent]
+            [ttt.cli.agent :as agent]
             [ttt.config :as config]
-            [ttt.main :as main]
-            [ttt.workflow :as workflow]))
+            [ttt.cli.main :as main]
+            [ttt.cli.workflow :as workflow]))
 
 (deftest parse-args-handles-interactive-options
   (let [parsed (main/parse-args ["--parent" "APP-100" "--yes" "--dry-run"])]
     (is (= "APP-100" (:parent parsed))) (is (:yes parsed)) (is (:dry-run parsed))))
+
+(deftest value-flags-are-not-misread-as-parent
+  (let [parsed (main/parse-args ["--interactive" "--title" "Fix bug"])]
+    (is (nil? (:parent parsed)))
+    (is (= "Fix bug" (:title parsed)))))
 (deftest help-publishes-v2-neutral-contract
   (is (str/includes? main/help-text "schema v2"))
   (is (str/includes? main/help-text "item|project|label")))
