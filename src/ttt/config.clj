@@ -14,6 +14,9 @@
 (def default-dotenv-path
   (str (fs/file (app-home) ".env")))
 
+(def default-local-config-path
+  (str (fs/file (app-home) "config" "ttt.local.edn")))
+
 (def default-change-request-config
   {:body-begin-marker "<!-- ttt:begin -->"
    :body-end-marker "<!-- ttt:end -->"
@@ -79,16 +82,31 @@
                         left right))]
     (reduce merge-entry {} maps)))
 
+(defn read-edn-map
+  [path]
+  (when (fs/exists? path)
+    (edn/read-string (slurp path))))
+
+(defn write-local-config!
+  [config-map]
+  (let [path (fs/file default-local-config-path)]
+    (fs/create-dirs (fs/parent path))
+    (spit path (pr-str config-map))
+    (try (fs/set-posix-file-permissions path "rw-------")
+         (catch Exception _ nil))
+    path))
+
 (defn load-config
   ([] (load-config default-config-path))
   ([path]
    (let [config-path (fs/file path)
          dotenv (load-dotenv)
-         env-config (env-overrides (merge (System/getenv) dotenv))]
+         env-config (env-overrides (merge (into {} (System/getenv)) dotenv))]
      (when-not (fs/exists? config-path)
        (throw (ex-info (str "Config file not found: " path)
                        {:path path})))
-     (-> (deep-merge (edn/read-string (slurp config-path))
+     (-> (deep-merge (read-edn-map config-path)
+                     (read-edn-map default-local-config-path)
                      env-config)
          normalize-config))))
 

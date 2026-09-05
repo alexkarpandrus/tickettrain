@@ -66,6 +66,13 @@
                      :role role
                      :provider provider-id
                      :field :validate-config!})))
+  (when (and (:setup descriptor)
+             (not (fn? (:setup descriptor))))
+    (throw (ex-info "The provider registry descriptor setup hook must be a function."
+                    {:code :invalid-adapter-descriptor
+                     :role role
+                     :provider provider-id
+                     :field :setup})))
   descriptor)
 
 (defn build

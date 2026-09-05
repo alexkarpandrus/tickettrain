@@ -3,7 +3,8 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.config :as config]
-            [ttt.domain :as domain]))
+            [ttt.domain :as domain]
+            [ttt.prompt :as prompt]))
 
 (def endpoint "https://api.linear.app/graphql")
 
@@ -53,7 +54,10 @@
        "  issue(id: $issueId) { " issue-fragment " } }"))
 
 (def viewer-query
-  "query Viewer { viewer { id name email } }")
+  "query Viewer { viewer { id name email organization { urlKey } } }")
+
+(def teams-query
+  "query Teams { teams { nodes { id name key } } }")
 
 (def team-states-query
   "query TeamStates($teamId: String!) {
@@ -355,6 +359,64 @@
                         {:description description
                          :labelIds (label-ids labels)})
           normalize-item))
+
+(defn valid-config-value?
+  [v]
+  (and (some? v)
+       (not (config/placeholder? v))
+       (not (str/blank? (str v)))))
+
+(defn collect-api-key
+  [app-config]
+  (let [env-key (System/getenv "LINEAR_API_KEY")
+        configured (get-in app-config [:tracker :api-key])]
+    (cond
+      (valid-config-value? env-key) env-key
+      (valid-config-value? configured) configured
+      :else
+      (let [entered (prompt/ask "Linear API key (create at https://linear.app/settings/account/security/api-keys/new): ")]
+        (when (str/blank? entered)
+          (throw (ex-info "No Linear API key provided." {:code :aborted})))
+        entered))))
+
+(defn teams
+  [app-config]
+  (get-in (graphql! app-config teams-query {}) [:teams :nodes]))
+
+(defn pick-team
+  [app-config]
+  (let [available (teams app-config)
+        configured (get-in app-config [:tracker :team-id])]
+    (cond
+      (and (valid-config-value? configured)
+           (some #(= configured (:id %)) available))
+      (first (filter #(= configured (:id %)) available))
+
+      (empty? available)
+      (throw (ex-info "No Linear teams found for this API key." {:code :setup-no-teams}))
+
+      :else
+      (do
+        (println "Teams:")
+        (doseq [[i team] (map-indexed vector available)]
+          (println (str "  " (inc i) ") " (:name team) " (" (:key team) ")")))
+        (nth available (prompt/choose-index (count available) "team"))))))
+
+(defn setup
+  [app-config]
+  (let [api-key (collect-api-key app-config)
+        cfg (assoc-in app-config [:tracker :api-key] api-key)
+        viewer (get (graphql! cfg viewer-query {}) :viewer)
+        team (pick-team cfg)
+        url-key (get-in viewer [:organization :urlKey])]
+    (println (str "Linear user: " (:email viewer)))
+    (println (str "Workspace: https://linear.app/" url-key))
+    (println (str "Team: " (:name team) " (" (:key team) ")"))
+    {:tracker {:api-key api-key
+               :team-id (:id team)
+               :workspace-url (str "https://linear.app/" url-key)
+               :assignee-id "self"
+               :state-name "In Review"}}))
 
 (def capabilities
   #{:configured-scope

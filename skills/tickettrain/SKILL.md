@@ -11,6 +11,7 @@ description: Link a GitHub pull request to a Linear issue and keep them in sync.
 
 - `ttt --llm` — print the full agent instructions (read this first when unsure).
 - `ttt version` — self-check and capability list.
+- `ttt setup` — configure providers (Linear key/team/workspace, gh auth); run once after install.
 
 ## Quick reference
 
