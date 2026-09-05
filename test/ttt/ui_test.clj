@@ -1,7 +1,7 @@
 (ns ttt.ui-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [ttt.ui :as ui]))
+            [ttt.cli.ui :as ui]))
 
 (deftest style-is-plain-when-colors-are-disabled
   (with-redefs [ui/color-enabled? (fn [] false)]

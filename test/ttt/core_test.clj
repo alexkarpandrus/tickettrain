@@ -1,7 +1,7 @@
 (ns ttt.core-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [ttt.change-request :as change-request]
+            [ttt.text.change-request :as change-request]
             [ttt.core :as core]
             [ttt.domain :as domain]))
 

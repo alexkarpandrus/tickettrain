@@ -1,7 +1,7 @@
 (ns ttt.pr-body-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [ttt.change-request :as change-request]
+            [ttt.text.change-request :as change-request]
             [ttt.domain :as domain]))
 
 (def config

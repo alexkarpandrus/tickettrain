@@ -1,5 +1,5 @@
-(ns ttt.tracker
-  (:require [ttt.tracker.linear :as linear]))
+(ns ttt.providers.tracker
+  (:require [ttt.providers.tracker.linear :as linear]))
 
 (def registry
   {:linear {:build linear/neutral-adapter

@@ -1,7 +1,7 @@
 (ns ttt.git-test
   (:require [clojure.test :refer [deftest is]]
-            [ttt.git :as git]
-            [ttt.shell :as shell]))
+            [ttt.platform.git :as git]
+            [ttt.platform.shell :as shell]))
 
 (deftest slugify-normalizes-title
   (is (= "split-mdps-into-separate-topics-per-data-type"

@@ -2,7 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [ttt.domain :as domain]
-            [ttt.links :as links]))
+            [ttt.text.links :as links]))
 
 (def pull-request
   {:ref (domain/contained-identity :github :change-request "org/repo" 7)

@@ -96,12 +96,17 @@
          (catch Exception _ nil))
     path))
 
+(defn merge-env-config
+  "Merge .env values under the real process environment; real env wins."
+  [dotenv system-env]
+  (merge dotenv system-env))
+
 (defn load-config
   ([] (load-config default-config-path))
   ([path]
    (let [config-path (fs/file path)
          dotenv (load-dotenv)
-         env-config (env-overrides (merge (into {} (System/getenv)) dotenv))]
+         env-config (env-overrides (merge-env-config dotenv (into {} (System/getenv))))]
      (when-not (fs/exists? config-path)
        (throw (ex-info (str "Config file not found: " path)
                        {:path path})))
