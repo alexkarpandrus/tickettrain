@@ -89,3 +89,10 @@
          Exception
          #"missing required capabilities"
          (adapters/build {:forge {:provider :broken}} :forge registry)))))
+
+(deftest load-config-merges-system-env-without-throwing
+  (let [tmp (java.io.File/createTempFile "ttt-config" ".edn")]
+    (spit tmp "{:tracker {:provider :linear :api-key \"k\" :team-id \"t\" :workspace-url \"https://linear.app/acme\"}}")
+    (try
+      (is (= :linear (get-in (config/load-config (.getPath tmp)) [:tracker :provider])))
+      (finally (.delete tmp)))))

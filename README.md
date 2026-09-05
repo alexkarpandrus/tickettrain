@@ -46,7 +46,13 @@ gh auth login
 
 ## Configure
 
-`ttt` loads `.env` first if present, then applies values from the EDN config.
+Run `ttt setup` to configure Linear interactively — it validates your API key, auto-discovers the workspace, and lets you pick a team:
+
+```bash
+ttt setup
+```
+
+It writes to `config/ttt.local.edn` (gitignored, `chmod 600`). To configure manually instead, `ttt` loads `.env` first, then the EDN config:
 
 Supported `.env` keys:
 

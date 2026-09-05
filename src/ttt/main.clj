@@ -8,6 +8,7 @@
             [ttt.core :as core]
             [ttt.forge :as forge]
             [ttt.shell :as shell]
+            [ttt.setup :as setup]
             [ttt.tracker :as tracker]
             [ttt.ui :as ui]
             [ttt.workflow :as workflow]))
@@ -25,6 +26,9 @@
     "  ttt preview --request-file PATH"
     "  ttt apply --request JSON --approve PROPOSAL_ID"
     "  ttt apply --request-file PATH --approve PROPOSAL_ID"
+    ""
+    "Setup:"
+    "  ttt setup          Configure Linear (key, team, workspace) and check gh auth"
     ""
     "Interactive workflow:"
     "  ttt --interactive --parent \"parent item key or fuzzy text\""
@@ -180,7 +184,7 @@
                                (some-> errors first :message))
                             chain)]
     (binding [*out* *err*]
-      (println (ui/error (str "❌ " (.getMessage ex))))
+      (println (ui/error (str "Error: " (.getMessage ex))))
       (doseq [cause (rest chain)]
         (println (ui/muted (str "Caused by: " (.getMessage cause)))))
       (when tracker-error
@@ -224,7 +228,7 @@
         (execute! options)))
     (catch Exception ex
       (if (= :aborted (:code (ex-data ex)))
-        (println (ui/warning "⚠ Aborted."))
+        (println (ui/warning "Aborted."))
         (do (print-error! ex)
             (when-let [usage (:usage (ex-data ex))]
               (binding [*out* *err*]
@@ -232,11 +236,25 @@
                 (println usage)))))
       1)))
 
+(defn run-setup!
+  []
+  (try
+    (setup/setup!)
+    nil
+    (catch Exception ex
+      (if (= :aborted (:code (ex-data ex)))
+        (binding [*out* *err*] (println (ui/warning (.getMessage ex))))
+        (print-error! ex))
+      1)))
+
 (defn -main
   [& args]
   (cond
     (some #{"--llm"} args)
     (println (llm-doc))
+    (= "setup" (first args))
+    (when-let [exit (run-setup!)]
+      (System/exit exit))
 
     (contains? machine-commands (first args))
     (let [exit (run-agent! args)]
