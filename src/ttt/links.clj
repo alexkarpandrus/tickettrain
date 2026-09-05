@@ -3,19 +3,16 @@
             [ttt.domain :as domain]
             [ttt.markdown :as markdown]))
 
-(def begin-marker "<!-- ttt:pull-requests:begin -->")
-(def end-marker "<!-- ttt:pull-requests:end -->")
 (def section-title "Pull requests")
-(def source-marker-pattern #"^<!-- ttt:source (\S+) -->$")
+(def heading (str "## " section-title))
+
+(def legacy-begin-marker "<!-- ttt:pull-requests:begin -->")
+(def legacy-end-marker "<!-- ttt:pull-requests:end -->")
+(def legacy-source-pattern #"^<!-- ttt:source (\S+) -->$")
+
 (def malformed-options
   {:code :malformed-managed-section
-   :message "The tracker description has malformed or duplicate ttt markers."})
-
-(defn source-marker
-  [change-request]
-  (str "<!-- ttt:source "
-       (domain/identity-key (:ref change-request))
-       " -->"))
+   :message "The tracker description has malformed or duplicate ttt sections."})
 
 (defn source-link
   [change-request]
@@ -26,37 +23,34 @@
 
 (defn malformed!
   []
-  (throw (ex-info (:message malformed-options)
-                  {:code (:code malformed-options)})))
+  (throw (ex-info (:message malformed-options) {:code (:code malformed-options)})))
 
 (defn parse-entry
-  [[marker link]]
-  (let [[_ key] (re-matches source-marker-pattern marker)
-        source (some-> key domain/key-identity)]
-    (when-not (and source (markdown/prefixed-link? link "- "))
-      (malformed!))
-    {:source source
-     :marker marker
-     :link link}))
+  [line]
+  (when-not (str/starts-with? line "- ")
+    (malformed!))
+  (let [link (subs line 2)]
+    (if-let [url (markdown/link-destination link)]
+      {:url url :link line}
+      (malformed!))))
+
+(defn strip-legacy-markers
+  [text]
+  (-> (or text "")
+      (str/replace legacy-begin-marker "")
+      (str/replace legacy-end-marker "")
+      (str/replace #"\n{3,}" "\n\n")))
 
 (defn parse-managed
   [description]
-  (when-let [section (markdown/parse-section description
-                                             begin-marker
-                                             end-marker
-                                             malformed-options)]
-    (let [lines (->> (str/split-lines (:content section))
-                     (remove str/blank?)
-                     vec)
-          [heading & entry-lines] lines]
-      (when-not (and (= (str "## " section-title) heading)
-                     (even? (count entry-lines)))
-        (malformed!))
-      (let [entries (mapv parse-entry (partition 2 entry-lines))
-            sources (map (comp domain/identity-data :source) entries)]
-        (when-not (= (count sources) (count (distinct sources)))
-          (malformed!))
-        (assoc section :entries entries)))))
+  (let [cleaned (strip-legacy-markers description)]
+    (when-let [section (markdown/heading-section cleaned heading malformed-options)]
+      (let [lines (->> (str/split-lines (:content section))
+                       (drop 1)
+                       (remove str/blank?)
+                       (remove #(re-matches legacy-source-pattern %))
+                       vec)]
+        (assoc section :entries (mapv parse-entry lines))))))
 
 (defn managed-entries
   [description]
@@ -64,33 +58,26 @@
 
 (defn render-managed-section
   [entries]
-  (str begin-marker "\n"
-       "## " section-title "\n\n"
-       (str/join "\n" (mapcat (juxt :marker :link) entries)) "\n"
-       end-marker))
+  (str heading "\n\n"
+       (str/join "\n" (map :link entries))))
 
 (defn normalized-change-request
   [repo-slug change-request]
   (assoc change-request
-         :ref (domain/contained-identity :github
-                                         :change-request
-                                         repo-slug
-                                         (:number change-request))
+         :ref (domain/contained-identity :github :change-request repo-slug (:number change-request))
          :display-id (str repo-slug "#" (:number change-request))))
 
 (defn upsert-change-request
   ([description repo-slug change-request]
-   (upsert-change-request description
-                          (normalized-change-request repo-slug change-request)))
+   (upsert-change-request description (normalized-change-request repo-slug change-request)))
   ([description change-request]
-   (let [existing (or description "")
-         parsed (parse-managed existing)
-         source (:ref change-request)
+   (let [cleaned (strip-legacy-markers (or description ""))
+         parsed (parse-managed cleaned)
+         link (source-link change-request)
+         url (markdown/escape-destination (:url change-request))
          entries (->> (or (:entries parsed) [])
-                      (remove #(domain/same-identity? source (:source %)))
+                      (remove #(= url (:url %)))
                       vec
-                      (#(conj % {:source source
-                                 :marker (source-marker change-request)
-                                 :link (source-link change-request)})))
+                      (#(conj % {:url url :link link})))
          section (render-managed-section entries)]
-     (markdown/upsert-section existing parsed section))))
+     (markdown/upsert-section cleaned parsed section))))

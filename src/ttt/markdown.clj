@@ -27,6 +27,28 @@
          :content (subs value (+ begin-index (count begin-marker)) end-index)
          :after (subs value (+ end-index (count end-marker)))}))))
 
+(defn heading-section
+  [text heading {:keys [code message]}]
+  (let [value (or text "")
+        heading-re (re-pattern (str "(?m)^" (java.util.regex.Pattern/quote (str heading)) "[ \\t]*$"))
+        matcher (re-matcher heading-re value)]
+    (when (.find matcher)
+      (let [start-idx (.start matcher)
+            heading-end (.end matcher)]
+        (when (.find matcher)
+          (throw (ex-info message {:code code})))
+        (let [rest (subs value heading-end)
+              next-re (re-pattern "(?m)^#{1,6}[ \\t]+")
+              nm (re-matcher next-re rest)]
+          (if (.find nm)
+            (let [end-idx (+ heading-end (.start nm))]
+              {:before (subs value 0 start-idx)
+               :content (subs value start-idx end-idx)
+               :after (subs value end-idx)})
+            {:before (subs value 0 start-idx)
+             :content (subs value start-idx)
+             :after ""}))))))
+
 (defn escape-label
   [value]
   (str/escape (str value)
@@ -84,6 +106,22 @@
   [line prefix]
   (and (str/starts-with? line prefix)
        (link-text? (subs line (count prefix)))))
+
+(defn link-destination
+  [value]
+  (when (and (str/starts-with? value "[")
+             (str/ends-with? value ")"))
+    (when-let [closing-index
+               (first (for [index (range 1 (dec (count value)))
+                            :when (and (= \] (.charAt value index))
+                                       (not (escaped-at? value index))
+                                       (= \( (.charAt value (inc index))))]
+                        index))]
+      (let [label (subs value 1 closing-index)
+            destination (subs value (+ closing-index 2) (dec (count value)))]
+        (when (and (escaped-label? label)
+                   (not-any? #{\( \) \newline \return} destination))
+          destination)))))
 
 (defn link
   [label destination]
