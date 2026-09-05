@@ -10,7 +10,25 @@
 6. Updates the GitHub PR body with a link to the new Linear issue.
 7. If no PR exists yet, renames the branch, pushes it, and opens the PR.
 
-Install `ttt` from this repo, then run `ttt` inside the target application repo where you want to create the PR and Linear issue.
+`ttt` runs inside the target application repo where you want to create the PR and Linear issue.
+
+## Install
+
+One-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
+```
+
+This clones `ttt` into `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
+
+Install the agent skill (Claude Code, Codex, Cursor, and more):
+
+```bash
+npx skills add alexkarpandrus/tickettrain
+```
+
+The skill ships as `skills/tickettrain/SKILL.md` (portable Anthropic/OpenAI format) and is installed via [skills.sh](https://www.skills.sh/). It works for private repos when GitHub CLI or Git credentials are available.
 
 ## Prerequisites
 
@@ -54,10 +72,10 @@ Set `:tracker :state-name` to a workflow state like `"In Review"` or use `:track
 
 ## Usage
 
-Install the command once:
+Print the agent instructions (the same content as `llm.txt`):
 
 ```bash
-/path/to/ttt/bin/install
+ttt --llm
 ```
 
 Then run `ttt` from inside the git repository you want to operate on. The prompt-driven workflow is explicit: pass `-i` or `--interactive`.

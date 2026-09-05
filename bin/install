@@ -1,20 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE="${BASH_SOURCE[0]}"
-while [ -L "${SOURCE}" ]; do
-  SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
-  SOURCE="$(readlink "${SOURCE}")"
-  [[ "${SOURCE}" != /* ]] && SOURCE="${SCRIPT_DIR}/${SOURCE}"
-done
+# One-liner install:
+#   curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
+# Or from a local clone:
+#   ./bin/install
 
-SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TARGET_DIR="${HOME}/.local/bin"
-TARGET="${TARGET_DIR}/ttt"
+REPO_URL="https://github.com/alexkarpandrus/tickettrain.git"
+INSTALL_DIR="${TTT_INSTALL_DIR:-${HOME}/.local/share/tickettrain}"
+BIN_DIR="${HOME}/.local/bin"
 
-mkdir -p "${TARGET_DIR}"
-ln -sfn "${ROOT_DIR}/bin/ttt" "${TARGET}"
+# When piped through `curl | bash`, BASH_SOURCE[0] is "bash" (no real file), so
+# we clone/update the repo. When run from a checkout, use the checkout itself.
+if [[ -f "${BASH_SOURCE[0]}" ]]; then
+  SOURCE="${BASH_SOURCE[0]}"
+  while [ -L "${SOURCE}" ]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+    SOURCE="$(readlink "${SOURCE}")"
+    [[ "${SOURCE}" != /* ]] && SOURCE="${SCRIPT_DIR}/${SOURCE}"
+  done
+  ROOT_DIR="$(cd -P "$(dirname "${SOURCE}")/.." && pwd)"
+else
+  if [[ -d "${INSTALL_DIR}/.git" ]]; then
+    git -C "${INSTALL_DIR}" pull --ff-only --quiet
+  else
+    git clone --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
+  fi
+  ROOT_DIR="${INSTALL_DIR}"
+fi
 
-echo "Installed ttt -> ${TARGET}"
-echo "Current target: $(readlink "${TARGET}")"
+mkdir -p "${BIN_DIR}"
+ln -sfn "${ROOT_DIR}/bin/ttt" "${BIN_DIR}/ttt"
+
+echo "Installed:"
+echo "  ttt -> ${BIN_DIR}/ttt"
+echo
+echo "Install the agent skill (Claude Code, Codex, Cursor, and more):"
+echo "  npx skills add alexkarpandrus/tickettrain"
+echo
+echo "Next: ensure 'bb' and 'gh' are on PATH, then run 'gh auth login' and 'ttt --llm'."
