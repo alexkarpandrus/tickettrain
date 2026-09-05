@@ -21,4 +21,4 @@ else
   exit 1
 fi
 
-exec "${BB_BIN}" --config "${ROOT_DIR}/bb.edn" --deps-root "${ROOT_DIR}" -m ttt.main "$@"
+exec "${BB_BIN}" --config "${ROOT_DIR}/bb.edn" --deps-root "${ROOT_DIR}" -m ttt.cli.main "$@"

@@ -1,14 +1,14 @@
 # Adding Trackers and Forges
 
-`ttt` separates provider-neutral orchestration from concrete tracker and forge transports. A bundled provider registers a descriptor and returns a plain capability map; it does not add provider branches to `ttt.core`, `ttt.agent`, or `ttt.workflow`.
+`ttt` separates provider-neutral orchestration from concrete tracker and forge transports. A bundled provider registers a descriptor and returns a plain capability map; it does not add provider branches to `ttt.core`, `ttt.cli.agent`, or `ttt.cli.workflow`.
 
 ## Architecture
 
-1. `ttt.main` and `ttt.agent` load normalized configuration.
+1. `ttt.cli.main` and `ttt.cli.agent` load normalized configuration.
 2. `ttt.adapters/runtime` resolves registry descriptors, validates local configuration, builds adapters, and verifies capabilities.
 3. `ttt.core` plans and applies neutral item/change-request operations.
-4. `ttt.agent` owns schema-v2 JSON, proposal hashes, search, and approval gating.
-5. `ttt.workflow` owns prompts, dry-runs, progress output, and local Git operations.
+4. `ttt.cli.agent` owns schema-v2 JSON, proposal hashes, search, and approval gating.
+5. `ttt.cli.workflow` owns prompts, dry-runs, progress output, and local Git operations.
 6. Concrete adapters own GraphQL, subprocess calls, native IDs, and native payloads.
 
 The core must not know GraphQL, `gh`, Linear payload fields, GitHub routes, Jira, or GitLab.
@@ -60,11 +60,11 @@ Shared code passes normalized label entities. Only the concrete tracker translat
 
 ## Registering a bundled provider
 
-1. Add a concrete namespace under `src/ttt/forge/` or `src/ttt/tracker/`.
+1. Add a concrete namespace under `src/ttt/providers/forge/` or `src/ttt/providers/tracker/`.
 2. Normalize every resource to `:ref`, `:display-id`, and neutral presentation fields.
 3. Add `:scopes` to tracker entities used by shared code.
 4. Implement and declare the complete role capability set.
-5. Add its descriptor to `ttt.forge/registry` or `ttt.tracker/registry`.
+5. Add its descriptor to `ttt.providers.forge/registry` or `ttt.providers.tracker/registry`.
 6. Add provider unit tests and a local-stub provider contract test.
 7. Do not change `ttt.core` for provider-specific behavior.
 

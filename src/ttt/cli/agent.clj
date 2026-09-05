@@ -1,4 +1,4 @@
-(ns ttt.agent
+(ns ttt.cli.agent
   (:require [babashka.cli :as cli]
             [cheshire.core :as json]
             [clojure.string :as str]
@@ -6,9 +6,9 @@
             [ttt.config :as config]
             [ttt.core :as core]
             [ttt.domain :as domain]
-            [ttt.forge :as forge]
-            [ttt.fuzzy :as fuzzy]
-            [ttt.tracker :as tracker]))
+            [ttt.providers.forge :as forge]
+            [ttt.text.fuzzy :as fuzzy]
+            [ttt.providers.tracker :as tracker]))
 
 (def schema-version 2)
 (def max-request-bytes 65536)

@@ -1,4 +1,4 @@
-(ns ttt.fuzzy
+(ns ttt.text.fuzzy
   (:require [babashka.deps :as deps]
             [clojure.set :as set]
             [clojure.string :as str]

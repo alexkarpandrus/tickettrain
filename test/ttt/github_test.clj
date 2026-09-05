@@ -1,7 +1,7 @@
 (ns ttt.github-test
   (:require [clojure.test :refer [deftest is]]
             [ttt.domain :as domain]
-            [ttt.forge.github :as github]))
+            [ttt.providers.forge.github :as github]))
 
 (deftest prefix-change-request-title-adds-ticket-prefix
   (is (= "[APP-44] Title"

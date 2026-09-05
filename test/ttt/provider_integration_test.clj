@@ -3,10 +3,10 @@
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
             [ttt.core :as core]
-            [ttt.forge :as forge]
-            [ttt.shell :as shell]
-            [ttt.tracker :as tracker]
-            [ttt.tracker.linear :as linear]))
+            [ttt.providers.forge :as forge]
+            [ttt.platform.shell :as shell]
+            [ttt.providers.tracker :as tracker]
+            [ttt.providers.tracker.linear :as linear]))
 
 (def config {:tracker {:provider :linear :api-key "test-token" :team-id "team-1" :workspace-url "https://linear.app/acme"}
              :forge {:provider :github}

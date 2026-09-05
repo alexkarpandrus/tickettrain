@@ -1,8 +1,8 @@
 (ns ttt.core
   (:require [clojure.string :as str]
-            [ttt.change-request :as change-request]
+            [ttt.text.change-request :as change-request]
             [ttt.domain :as domain]
-            [ttt.links :as links]))
+            [ttt.text.links :as links]))
 
 (defn inspect
   [runtime]

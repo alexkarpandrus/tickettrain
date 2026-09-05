@@ -96,3 +96,8 @@
     (try
       (is (= :linear (get-in (config/load-config (.getPath tmp)) [:tracker :provider])))
       (finally (.delete tmp)))))
+
+(deftest real-environment-overrides-dotenv
+  (is (= {"LINEAR_API_KEY" "real"}
+         (config/merge-env-config {"LINEAR_API_KEY" "dotenv"} {"LINEAR_API_KEY" "real"})))
+  (is (= {"LINEAR_API_KEY" "dotenv"} (config/merge-env-config {"LINEAR_API_KEY" "dotenv"} {}))))
