@@ -1,6 +1,6 @@
 # tickettrain
 
-`ttt` (tickettrain) links the current GitHub pull request with Linear issues. Install it from the `tickettrain` repository, then run it inside the target application repository.
+`ttt` (tickettrain) links the current GitHub pull request with Linear issues. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Run it inside the target application repository.
 
 ## Preconditions
 
@@ -11,17 +11,35 @@
 
 Config is loaded from `<ttt-repo>/.env` and `config/ttt.edn`, not from the target application repository.
 
-## Default non-interactive API (schema v2)
+## Commands and flags
 
-Each command prints one provider-neutral JSON envelope with `schemaVersion: 2`.
+ttt
 
-```bash
-ttt version
-ttt inspect
-ttt search --kind item --query "retry handling" --limit 5
-ttt search --kind project --query "reliability" --limit 5
-ttt search --kind label --query "backend" --scope-item APP-123 --limit 5
-```
+Non-interactive API (schema v2):
+  ttt version
+  ttt inspect
+  ttt search --kind item|project|label --query TEXT
+  ttt preview --request JSON
+  ttt preview --request-file PATH
+  ttt apply --request JSON --approve PROPOSAL_ID
+  ttt apply --request-file PATH --approve PROPOSAL_ID
+
+Interactive workflow:
+  ttt --interactive --parent "parent item key or fuzzy text"
+  ttt -i --project "project name or slug"
+
+Interactive options:
+  -i, --interactive Run the prompt-driven workflow
+  --config PATH     Config file path
+  --parent TEXT     Parent item key or fuzzy search text
+  --project TEXT    Project name or slug for a top-level item
+  --title TEXT      Override the tracker item title
+  --yes             Skip the final confirmation prompt
+  --dry-run         Print actions without creating or updating anything
+  --help            Show this help
+  --llm             Print agent instructions (llm.txt) and exit
+
+## Request JSON
 
 ```json
 {"action":"link_existing","item":"APP-123","labels":["Bug"]}
@@ -37,46 +55,16 @@ ttt apply --request-file REQUEST_FILE_PATH --approve lp2_...
 ```
 
 Rules:
-
 - Provide exactly one of `--request` or `--request-file`; use an owner-only file for untrusted content.
-- `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command.
+- `version`, `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command.
 - `apply` recomputes the proposal and rejects stale or mismatched approval.
 - `link_existing` accepts `item`; v1 `issue` input is not supported.
 - Labels are existing neutral tracker entities in the selected scope.
 - Responses use `repository`, `changeRequest`, `item`, `trackerIntent`, and `changeRequestUpdate`.
 
-## Explicit interactive workflow
-
-Use `-i` or `--interactive` for the prompt-driven create-ticket flow:
-
-```bash
-ttt -i --parent "parent issue key or fuzzy text"
-ttt --interactive --project "project name or slug"
-ttt -i --project "Containerization" --parent "Split MDPs into separate topics"
-```
-
-Interactive options:
-
-- `-i`, `--interactive`
-- `--config PATH`
-- `--parent TEXT`
-- `--project TEXT`
-- `--title TEXT`
-- `--yes`
-- `--dry-run`
-- `--help`
-
-Interactive behavior:
-
-- With an open PR, creates a Linear issue and updates the PR.
-- Without an open PR, derives a draft from the latest commit, creates the issue, renames and pushes the branch, opens the PR, and links it back to Linear.
-- `--parent` accepts an exact issue key or fuzzy text.
-- `--project` accepts a project name or slug.
-- Parent and project can be combined to scope the new child issue.
-
 ## Managed metadata
 
-PR bodies use:
+PR bodies use a bot-managed section:
 
 ```md
 <!-- ttt:begin -->
