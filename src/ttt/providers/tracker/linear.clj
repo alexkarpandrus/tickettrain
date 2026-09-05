@@ -1,10 +1,10 @@
-(ns ttt.tracker.linear
+(ns ttt.providers.tracker.linear
   (:require [babashka.http-client :as http]
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.config :as config]
             [ttt.domain :as domain]
-            [ttt.prompt :as prompt]))
+            [ttt.cli.prompt :as prompt]))
 
 (def endpoint "https://api.linear.app/graphql")
 
@@ -89,10 +89,11 @@
                                                           :variables variables})
                              :throw false})
         status (:status response)
-        body (json/parse-string (:body response) true)]
+        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
     (when-not (= 200 status)
       (throw (ex-info (str "Linear API request failed with status " status ".")
-                      {:status status})))
+                      (cond-> {:status status}
+                        (seq (:errors body)) (assoc :errors (:errors body))))))
     (when-let [errors (seq (:errors body))]
       (throw (ex-info (str "Linear GraphQL error: " (:message (first errors)))
                       {:errors errors})))
@@ -110,7 +111,8 @@
         (cond
           (not (:hasNextPage page-info)) next-acc
           (>= (count next-acc) limit) (take limit next-acc)
-          :else (recur (:endCursor page-info) next-acc))))))
+          (:endCursor page-info) (recur (:endCursor page-info) next-acc)
+          :else next-acc)))))
 
 (defn parent-items
   [app-config]
@@ -195,8 +197,7 @@
 
 (defn normalized-labels
   [app-config]
-  (mapv normalize-label
-        (remove :isGroup (labels app-config))))
+  (mapv normalize-label (labels app-config)))
 
 (defn normalized-project-by-ref
   [app-config project-ref]

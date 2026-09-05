@@ -1,5 +1,5 @@
-(ns ttt.forge
-  (:require [ttt.forge.github :as github]))
+(ns ttt.providers.forge
+  (:require [ttt.providers.forge.github :as github]))
 
 (def registry
   {:github {:build github/neutral-adapter

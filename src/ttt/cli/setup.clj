@@ -1,9 +1,9 @@
-(ns ttt.setup
+(ns ttt.cli.setup
   (:require [ttt.adapters :as adapters]
             [ttt.config :as config]
-            [ttt.forge :as forge]
-            [ttt.tracker :as tracker]
-            [ttt.ui :as ui]))
+            [ttt.providers.forge :as forge]
+            [ttt.providers.tracker :as tracker]
+            [ttt.cli.ui :as ui]))
 
 (defn run-provider-setup
   [app-config role registry provider-fn]

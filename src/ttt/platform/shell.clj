@@ -1,4 +1,4 @@
-(ns ttt.shell
+(ns ttt.platform.shell
   (:require [babashka.process :as process]
             [clojure.string :as str]))
 

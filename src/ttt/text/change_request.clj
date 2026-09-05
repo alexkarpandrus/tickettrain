@@ -1,8 +1,8 @@
-(ns ttt.change-request
+(ns ttt.text.change-request
   (:require [clojure.string :as str]
             [ttt.config :as config]
             [ttt.domain :as domain]
-            [ttt.markdown :as markdown]))
+            [ttt.text.markdown :as markdown]))
 
 (def item-marker-pattern #"^<!-- ttt:item (\S+) -->$")
 (def malformed-options

@@ -1,12 +1,12 @@
-(ns ttt.workflow
+(ns ttt.cli.workflow
   (:require [clojure.pprint :as pprint]
             [clojure.string :as str]
             [ttt.core :as core]
             [ttt.domain :as domain]
-            [ttt.fuzzy :as fuzzy]
-            [ttt.git :as git]
-            [ttt.prompt :as prompt]
-            [ttt.ui :as ui]))
+            [ttt.text.fuzzy :as fuzzy]
+            [ttt.platform.git :as git]
+            [ttt.cli.prompt :as prompt]
+            [ttt.cli.ui :as ui]))
 
 (defn print-progress [message] (println (ui/progress (str "⏳ " message))))
 
@@ -103,6 +103,11 @@
       (let [branch-preview (str "<item-key>-" (git/slugify title))]
         (println (ui/warning "Dry run. No changes were made."))
         (pprint/pprint (dry-run-payload repository nil title selection {:mode :create-change-request :current-branch (:branch source) :new-branch (if resume-item (:branch source) branch-preview) :base-branch (:default-target-branch repository)})))
+
+      ;; ponytail: this sequence (create item -> rename branch -> push -> open PR ->
+      ;; link back) is not atomic across Linear + GitHub. A crash leaves recoverable
+      ;; partial state (orphan item, renamed branch). See "Recovery boundary" in
+      ;; docs/integrations.md; add a local progress checkpoint if that proves insufficient.
       (let [item (or resume-item (do (print-progress "Creating the tracker item...") (core/create-item! runtime (:context selection) {:title title :description description :labels []})))
             new-branch (if resume-item (:branch source) (git/branch-name-for-item item))]
         (git/set-branch-ticket-id! new-branch (:display-id item))

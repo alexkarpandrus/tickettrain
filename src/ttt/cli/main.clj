@@ -1,17 +1,17 @@
-(ns ttt.main
+(ns ttt.cli.main
   (:require [babashka.cli :as cli]
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.adapters :as adapters]
-            [ttt.agent :as agent]
+            [ttt.cli.agent :as agent]
             [ttt.config :as config]
             [ttt.core :as core]
-            [ttt.forge :as forge]
-            [ttt.shell :as shell]
-            [ttt.setup :as setup]
-            [ttt.tracker :as tracker]
-            [ttt.ui :as ui]
-            [ttt.workflow :as workflow]))
+            [ttt.providers.forge :as forge]
+            [ttt.platform.shell :as shell]
+            [ttt.cli.setup :as setup]
+            [ttt.providers.tracker :as tracker]
+            [ttt.cli.ui :as ui]
+            [ttt.cli.workflow :as workflow]))
 
 (def help-text
   (str/join
@@ -136,7 +136,7 @@
 
 (defn parse-args
   [args]
-  (let [{:keys [opts args]} (cli/parse-args args {:spec cli-spec})
+  (let [{:keys [opts] :as parsed} (cli/parse-args args {:spec cli-spec})
         allowed-keys (set (keys cli-spec))
         unknown-keys (seq (remove allowed-keys (keys opts)))
         missing-value-option (first
@@ -149,7 +149,7 @@
     (when missing-value-option
       (throw (ex-info (str "--" (name missing-value-option) " requires a value.")
                       {:option missing-value-option})))
-    (let [first-positional (first (remove #(str/starts-with? % "--") args))]
+    (let [first-positional (first (:args parsed))]
       (cond-> {:config-path config/default-config-path}
         (:interactive opts) (assoc :interactive true)
         (:config opts) (assoc :config-path (:config opts))

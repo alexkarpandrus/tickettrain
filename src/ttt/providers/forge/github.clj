@@ -1,9 +1,9 @@
-(ns ttt.forge.github
+(ns ttt.providers.forge.github
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [ttt.domain :as domain]
-            [ttt.shell :as shell]))
+            [ttt.platform.shell :as shell]))
 
 (def change-request-fields
   "number,title,body,url,headRefName,baseRefName")
@@ -182,6 +182,8 @@
                               (normalize-change-request repository))}))
 
 (defn assert-ready!
+  "No local config to validate: the GitHub forge relies on the `gh` CLI session,
+  whose authentication is checked at setup time and again on each call."
   [_app-config])
 
 (def capabilities

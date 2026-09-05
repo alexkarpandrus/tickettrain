@@ -2,9 +2,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [ttt.domain :as domain]
-            [ttt.git :as git]
-            [ttt.prompt :as prompt]
-            [ttt.workflow :as workflow]))
+            [ttt.platform.git :as git]
+            [ttt.cli.prompt :as prompt]
+            [ttt.cli.workflow :as workflow]))
 
 (def scope (domain/scope-identity :linear "team-1"))
 (def parent {:ref (domain/identity :linear :tracker-item "parent-1") :display-id "APP-100" :title "Parent" :url "https://linear/parent" :scopes [scope]})
