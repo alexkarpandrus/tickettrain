@@ -3,6 +3,7 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]
             [ttt.platform.shell :as shell]))
 
 (def api-version "/2.0")
@@ -34,21 +35,17 @@
   [app-config method path query]
   (let [url (api-endpoint app-config path)
         headers {"Authorization" (auth-header app-config)
-                 "Content-Type" "application/json"}
-        response (case method
-                   :get (http/get url {:headers headers :query-params query :throw false})
-                   :post (http/post url {:headers headers
-                                         :body (json/generate-string query)
-                                         :throw false})
-                   :put (http/put url {:headers headers
-                                       :body (json/generate-string query)
-                                       :throw false}))
-        status (:status response)
-        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
-    (when (>= status 400)
-      (throw (ex-info (str "Bitbucket API request failed with status " status ".")
-                      {:status status :body body})))
-    body))
+                 "Content-Type" "application/json"}]
+    (remote/request!
+     :bitbucket
+     #(case method
+        :get (http/get url {:headers headers :query-params query :throw false})
+        :post (http/post url {:headers headers
+                              :body (json/generate-string query)
+                              :throw false})
+        :put (http/put url {:headers headers
+                            :body (json/generate-string query)
+                            :throw false})))))
 
 (defn parse-repo-slug
   [url]
