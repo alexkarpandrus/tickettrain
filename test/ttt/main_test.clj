@@ -19,6 +19,10 @@
 (deftest help-publishes-v2-neutral-contract
   (is (str/includes? main/help-text "schema v2"))
   (is (str/includes? main/help-text "item|project|label")))
+(deftest llm-guidance-keeps-proposal-ids-internal
+  (let [doc (main/llm-doc)]
+    (is (str/includes? doc "Keep the proposal ID internal"))
+    (is (str/includes? doc "do not ask them to repeat the ID"))))
 (deftest execute-builds-one-registry-runtime-and-delegates
   (let [app-config {:tracker {:provider :linear} :forge {:provider :github}} runtime {:config app-config} called (atom nil)]
     (with-redefs [config/load-config (fn [_] app-config) adapters/runtime (fn [cfg _ _] (is (= app-config cfg)) runtime) workflow/execute! (fn [received options] (reset! called [received options]))]

@@ -3,6 +3,7 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]
             [ttt.platform.shell :as shell]))
 
 (def api-version "/2.0")
@@ -33,23 +34,18 @@
 (defn api!
   [app-config method path query]
   (let [url (api-endpoint app-config path)
-        headers {"Authorization" (auth-header app-config)}
-        response (case method
-                   :get (http/get url {:headers headers :query-params query :throw false})
-                   :post (http/post url {:headers headers
-                                         :body (json/generate-string query)
-                                         :content-type :json
-                                         :throw false})
-                   :put (http/put url {:headers headers
-                                       :body (json/generate-string query)
-                                       :content-type :json
-                                       :throw false}))
-        status (:status response)
-        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
-    (when (>= status 400)
-      (throw (ex-info (str "Bitbucket API request failed with status " status ".")
-                      {:status status :body body})))
-    body))
+        headers {"Authorization" (auth-header app-config)
+                 "Content-Type" "application/json"}]
+    (remote/request!
+     :bitbucket
+     #(case method
+        :get (http/get url {:headers headers :query-params query :throw false})
+        :post (http/post url {:headers headers
+                              :body (json/generate-string query)
+                              :throw false})
+        :put (http/put url {:headers headers
+                            :body (json/generate-string query)
+                            :throw false})))))
 
 (defn parse-repo-slug
   [url]
@@ -79,13 +75,25 @@
      :slug slug
      :default-target-branch (get-in repo [:mainbranch :name])}))
 
+(defn encode-body
+  [body]
+  (str/replace (or body "")
+               #"(?m)^<!-- ttt:(begin|end|item [^>]+) -->$"
+               (fn [[_ marker]] (str "[//]: # (ttt:" marker ")"))))
+
+(defn decode-body
+  [body]
+  (str/replace (or body "")
+               #"(?m)^\[//\]: # \(ttt:(begin|end|item [^)]+)\)$"
+               (fn [[_ marker]] (str "<!-- ttt:" marker " -->"))))
+
 (defn normalize-change-request
   ([change-request]
    {:ref (domain/identity :bitbucket :change-request (:id change-request))
     :display-id (str "#" (:id change-request))
     :number (:id change-request)
     :title (:title change-request)
-    :body (or (:description change-request) "")
+    :body (decode-body (:description change-request))
     :url (get-in change-request [:links :html :href])
     :source-branch (get-in change-request [:source :branch :name])
     :target-branch (get-in change-request [:destination :branch :name])})
@@ -148,25 +156,19 @@
   (api! app-config :put
         (str "/repositories/" repo-slug "/pullrequests/" pr-id)
         (cond-> {}
-          (some? body) (assoc :description body)
+          (some? body) (assoc :description (encode-body body))
           (some? title) (assoc :title title)))
   nil)
 
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
   (let [slug (remote-slug)
-        pr (api! app-config :post
-                 (str "/repositories/" slug "/pullrequests")
-                 {:title title
-                  :description (or body "")
-                  :source {:branch {:name head}}
-                  :destination {:branch {:name base}}})]
-    {:number (:id pr)
-     :title (:title pr)
-     :body (or (:description pr) "")
-     :url (get-in pr [:links :html :href])
-     :source-branch (get-in pr [:source :branch :name])
-     :target-branch (get-in pr [:destination :branch :name])}))
+        path (str "/repositories/" slug "/pullrequests")]
+    (api! app-config :post path
+          {:title title
+           :description (encode-body body)
+           :source {:branch {:name head}}
+           :destination {:branch {:name base}}})))
 
 (def capabilities
   #{:current-branch
