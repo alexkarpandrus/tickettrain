@@ -24,7 +24,8 @@
 (def tracker-section-titles
   {:linear "Linear"
    :jira "Jira"
-   :github-issues "GitHub Issues"})
+   :github-issues "GitHub Issues"
+   :asana "Asana"})
 
 (declare normalize-config)
 
@@ -92,7 +93,13 @@
                 (assoc :project (get env "JIRA_PROJECT"))
 
                   (get env "JIRA_ISSUE_TYPE")
-                  (assoc :issue-type (get env "JIRA_ISSUE_TYPE")))
+                  (assoc :issue-type (get env "JIRA_ISSUE_TYPE"))
+
+                  (get env "ASANA_TOKEN")
+                  (assoc :token (get env "ASANA_TOKEN"))
+
+                  (get env "ASANA_WORKSPACE")
+                  (assoc :workspace (get env "ASANA_WORKSPACE")))
         forge (cond-> {}
                 (get env "GITLAB_TOKEN")
                 (assoc :token (get env "GITLAB_TOKEN"))

@@ -61,6 +61,12 @@
                   {"GITLAB_TOKEN" "gitlab-token"
                    "GITLAB_BASE_URL" "https://gitlab.example.com"})))))
 
+(deftest asana-credentials-map-from-the-environment
+  (is (= {:token "asana-token" :workspace "workspace-1"}
+         (:tracker (config/env-overrides
+                    {"ASANA_TOKEN" "asana-token"
+                     "ASANA_WORKSPACE" "workspace-1"})))))
+
 (deftest normalize-config-fills-default-provider-sections
   (let [normalized (config/normalize-config
                     {:tracker {:provider :linear

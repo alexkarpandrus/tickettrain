@@ -47,7 +47,10 @@ Bundled registries live at the composition boundary:
                  :validate-config! github-issues/assert-ready!}
 
  :jira {:build jira/neutral-adapter
-        :validate-config! jira/assert-ready!}}
+        :validate-config! jira/assert-ready!}
+
+ :asana {:build asana/neutral-adapter
+         :validate-config! asana/assert-ready!}}
 ```
 
 A descriptor has a required `:build` function and an optional local-only `:validate-config!` function. `ttt.adapters/build` rejects unknown providers, registry/provider mismatches, undeclared capabilities, and missing capability functions. Dynamic plugin discovery and config-resolved symbols are intentionally unsupported.
