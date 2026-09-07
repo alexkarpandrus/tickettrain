@@ -29,14 +29,17 @@
          (domain/contained-identity :bitbucket :change-request "team/repo" 7)
          (:ref cr)))))
 
-(deftest api-token-authentication-uses-account-email
-  (let [authorization (atom nil)]
-    (with-redefs [http/get (fn [_ opts]
-                             (reset! authorization (get-in opts [:headers "Authorization"]))
-                             {:status 200 :body "{}"})]
-      (bitbucket/api! config :get "/repositories/team/repo" nil))
+(deftest api-token-authentication-and-json-content-type
+  (let [request (atom nil)]
+    (with-redefs [http/post (fn [_ opts]
+                              (reset! request opts)
+                              {:status 200 :body "{}"})]
+      (bitbucket/api! config :post "/repositories/team/repo/pullrequests" {:title "Title"}))
     (is (= "alex@example.com:token"
-           (String. (.decode (java.util.Base64/getDecoder) (subs @authorization 6)) "UTF-8")))))
+           (String. (.decode (java.util.Base64/getDecoder)
+                             (subs (get-in @request [:headers "Authorization"]) 6))
+                    "UTF-8")))
+    (is (= "application/json" (get-in @request [:headers "Content-Type"])))))
 
 (deftest setup-validates-the-current-repository
   (let [calls (atom 0)]
