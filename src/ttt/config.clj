@@ -105,7 +105,16 @@
                 (assoc :token (get env "GITLAB_TOKEN"))
 
                 (get env "GITLAB_BASE_URL")
-                (assoc :base-url (get env "GITLAB_BASE_URL")))]
+                (assoc :base-url (get env "GITLAB_BASE_URL"))
+
+                (get env "BITBUCKET_EMAIL")
+                (assoc :email (get env "BITBUCKET_EMAIL"))
+
+                (get env "BITBUCKET_API_TOKEN")
+                (assoc :api-token (get env "BITBUCKET_API_TOKEN"))
+
+                (get env "BITBUCKET_BASE_URL")
+                (assoc :base-url (get env "BITBUCKET_BASE_URL")))]
     (cond-> {}
       (seq tracker) (assoc :tracker tracker)
       (seq forge) (assoc :forge forge))))
