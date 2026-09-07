@@ -52,6 +52,12 @@
       (is (= (domain/contained-identity :github :change-request "org/repo" 7)
              (get-in source [:change-request :ref]))))))
 
+(deftest merged-pull-request-is-not-current
+  (with-redefs [ttt.platform.shell/run
+                (fn [& _]
+                  "{\"number\":4,\"title\":\"Merged\",\"body\":\"\",\"url\":\"https://github.com/org/repo/pull/4\",\"headRefName\":\"branch\",\"baseRefName\":\"main\",\"state\":\"MERGED\"}")]
+    (is (nil? (github/maybe-current-change-request)))))
+
 (deftest neutral-adapter-declares-every-forge-capability
   (let [adapter (github/neutral-adapter {})]
     (is (= :github (:provider adapter)))

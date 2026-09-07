@@ -6,7 +6,7 @@
             [ttt.platform.shell :as shell]))
 
 (def change-request-fields
-  "number,title,body,url,headRefName,baseRefName")
+  "number,title,body,url,headRefName,baseRefName,state")
 
 (def repo-fields
   "nameWithOwner,defaultBranchRef")
@@ -56,9 +56,10 @@
 (defn maybe-current-change-request
   []
   (try
-    (-> (shell/run "gh" "pr" "view" "--json" change-request-fields)
-        (json/parse-string true)
-        normalize-change-request)
+    (let [change-request (-> (shell/run "gh" "pr" "view" "--json" change-request-fields)
+                             (json/parse-string true))]
+      (when (= "OPEN" (:state change-request))
+        (normalize-change-request change-request)))
     (catch Exception ex
       (let [data (ex-data ex)
             text (str/lower-case (str (:err data) " " (:out data)))]
