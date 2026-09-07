@@ -16,6 +16,30 @@
 (deftest adf-round-trips-plain-text
   (is (= "line one\nline two" (jira/adf->text (jira/text->adf "line one\nline two")))))
 
+(deftest adf-renders-generated-markdown-as-native-blocks
+  (let [markdown (str "## What\n\n"
+                      "Use **Basic auth** with `bb test`.\n\n"
+                      "- [PR \\[KAN-1\\]](https://github.com/acme/repo/pull/15)\n"
+                      "- No labels")
+        normalized (str "## What\n\n"
+                        "Use **Basic auth** with `bb test`.\n\n"
+                        "- [PR KAN-1](https://github.com/acme/repo/pull/15)\n"
+                        "- No labels")
+        adf (jira/text->adf markdown)]
+    (is (= ["heading" "paragraph" "paragraph" "paragraph" "bulletList"]
+           (mapv :type (:content adf))))
+    (is (= {:type "link"
+            :attrs {:href "https://github.com/acme/repo/pull/15"}}
+           (get-in adf [:content 4 :content 0 :content 0 :content 0 :marks 0])))
+    (is (= normalized (jira/adf->text adf)))
+    (is (= "[PR \\[KAN-1\\]](https://github.com/acme/repo/pull/15)"
+           (jira/adf->text
+            {:type "paragraph"
+             :content [{:type "text"
+                        :text "PR [KAN-1]"
+                        :marks [{:type "link"
+                                 :attrs {:href "https://github.com/acme/repo/pull/15"}}]}]})))))
+
 (deftest description-reads-plain-string-and-adf
   (is (= "plain" (jira/description->text "plain")))
   (is (= "hello" (jira/description->text {:type "doc" :content [{:type "paragraph" :content [{:type "text" :text "hello"}]}]}))))
