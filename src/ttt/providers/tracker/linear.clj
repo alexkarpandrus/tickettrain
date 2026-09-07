@@ -210,11 +210,13 @@
 
 (defn normalized-item-by-identifier
   [app-config item-id]
-  (some-> (get (graphql! app-config
-                         issue-by-identifier-query
-                         {:issueId item-id})
-               :issue)
-          normalize-item))
+  (when (re-matches #"(?i)(?:[a-z][a-z0-9]*-\d+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
+                    (str/trim item-id))
+    (some-> (get (graphql! app-config
+                           issue-by-identifier-query
+                           {:issueId item-id})
+                 :issue)
+            normalize-item)))
 
 (defn normalized-label-compatible-with-scope?
   [label scope]
