@@ -16,6 +16,39 @@
 (deftest adf-round-trips-plain-text
   (is (= "line one\nline two" (jira/adf->text (jira/text->adf "line one\nline two")))))
 
+(deftest adf-renders-emphasis-without-visible-markers
+  (let [text "_Change request body was empty._"
+        adf (jira/text->adf text)]
+    (is (= {:type "text"
+            :text "Change request body was empty."
+            :marks [{:type "em"}]}
+           (get-in adf [:content 0 :content 0])))
+    (is (= text (jira/adf->text adf)))))
+
+(deftest adf-renders-generated-markdown-as-native-blocks
+  (let [markdown (str "## What\n\n"
+                      "Use **Basic auth** with `bb test`.\n\n"
+                      "- [PR \\[KAN-1\\]](https://github.com/acme/repo/pull/15)\n"
+                      "- No labels")
+        normalized (str "## What\n\n"
+                        "Use **Basic auth** with `bb test`.\n\n"
+                        "- [PR KAN-1](https://github.com/acme/repo/pull/15)\n"
+                        "- No labels")
+        adf (jira/text->adf markdown)]
+    (is (= ["heading" "paragraph" "paragraph" "paragraph" "bulletList"]
+           (mapv :type (:content adf))))
+    (is (= {:type "link"
+            :attrs {:href "https://github.com/acme/repo/pull/15"}}
+           (get-in adf [:content 4 :content 0 :content 0 :content 0 :marks 0])))
+    (is (= normalized (jira/adf->text adf)))
+    (is (= "[PR \\[KAN-1\\]](https://github.com/acme/repo/pull/15)"
+           (jira/adf->text
+            {:type "paragraph"
+             :content [{:type "text"
+                        :text "PR [KAN-1]"
+                        :marks [{:type "link"
+                                 :attrs {:href "https://github.com/acme/repo/pull/15"}}]}]})))))
+
 (deftest description-reads-plain-string-and-adf
   (is (= "plain" (jira/description->text "plain")))
   (is (= "hello" (jira/description->text {:type "doc" :content [{:type "paragraph" :content [{:type "text" :text "hello"}]}]}))))
@@ -72,6 +105,36 @@
                               {:issues []})]
       (jira/search-issues config "project = APP" 5))
     (is (= "/search/jql" @path-used))))
+
+(deftest parent-create-uses-the-projects-subtask-issue-type
+  (let [created-fields (atom nil)
+        parent {:ref (domain/identity :jira :tracker-item "KAN-3")
+                :project {:ref (domain/identity :jira :project "KAN")}}]
+    (with-redefs [jira/api! (fn [_ method path body]
+                              (cond
+                                (= [:get "/project/KAN"] [method path])
+                                {:issueTypes [{:id "10003" :name "Task" :subtask false}
+                                              {:id "10002" :name "Subtask" :subtask true}]}
+
+                                (= [:post "/issue"] [method path])
+                                (do (reset! created-fields (:fields body)) {:key "KAN-4"})
+
+                                (= [:get "/issue/KAN-4"] [method path])
+                                {:key "KAN-4"
+                                 :fields {:summary "Child"
+                                          :project {:key "KAN" :name "Project"}
+                                          :parent {:key "KAN-3" :fields {:summary "Parent"}}
+                                          :labels []}}))]
+      (is (= "KAN-4"
+             (:display-id
+              (jira/create-item-from-intent!
+               config
+               {:parent parent}
+               {:title "Child" :description "Body" :labels []}))))
+      (is (= {:parent {:key "KAN-3"}
+              :project {:key "KAN"}
+              :issuetype {:id "10002"}}
+             (select-keys @created-fields [:parent :project :issuetype]))))))
 
 (deftest neutral-adapter-declares-every-tracker-capability
   (let [adapter (jira/neutral-adapter config)]

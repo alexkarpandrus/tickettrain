@@ -6,19 +6,49 @@
             [ttt.config :as config]
             [ttt.core :as core]
             [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]
+            [ttt.platform.shell :as shell]
             [ttt.providers.forge :as forge]
             [ttt.text.fuzzy :as fuzzy]
             [ttt.providers.tracker :as tracker]))
 
 (def schema-version 2)
 (def max-request-bytes 65536)
-(def option-spec {:config {} :kind {} :query {} :limit {:coerce :long} :project {}
-                  :scope-item {} :request {} :request-file {} :approve {}})
+(def option-spec {:config {:coerce :string}
+                  :kind {:coerce :string}
+                  :query {:coerce :string}
+                  :limit {:coerce :long}
+                  :project {:coerce :string}
+                  :scope-item {:coerce :string}
+                  :request {:coerce :string}
+                  :request-file {:coerce :string}
+                  :approve {:coerce :string}})
 
 (defn success [command data] {:schemaVersion schema-version :ok true :command command :data data})
-(defn failure [command ex] {:schemaVersion schema-version :ok false :command command
-                            :error {:code (name (or (:code (ex-data ex)) :agent-error))
-                                    :message (.getMessage ex)}})
+(defn exception-chain [ex] (take-while some? (iterate #(.getCause %) ex)))
+(defn first-ex-data [chain pred]
+  (some #(let [data (ex-data %)] (when (pred data) data)) chain))
+(defn failure [command ex]
+  (let [chain (exception-chain ex)
+        remote-data (first-ex-data chain #(or (:provider %) (:status %) (:detail %)))
+        command-data (first-ex-data chain :command)
+        connectivity? (some #(= :github-connectivity (:kind (ex-data %))) chain)
+        code (or (some #(some-> % ex-data :code) chain)
+                 (when connectivity? :provider-unavailable)
+                 (when remote-data :remote-api-error)
+                 (when command-data :provider-command-failed)
+                 :agent-error)
+        provider (or (:provider remote-data)
+                     (when (some-> command-data :command (str/starts-with? "gh ")) :github))
+        details (or (:detail remote-data)
+                    (remote/error-detail (:body remote-data))
+                    (shell/first-nonblank-line (:err command-data))
+                    (shell/first-nonblank-line (:out command-data)))]
+    {:schemaVersion schema-version :ok false :command command
+     :error (cond-> {:code (name code) :message (.getMessage ex)}
+              provider (assoc :provider (name provider))
+              (:status remote-data) (assoc :status (:status remote-data))
+              details (assoc :details details))}))
 (defn require-option [options option]
   (or (get options option) (throw (ex-info (str "--" (name option) " is required.") {:code :invalid-request}))))
 (defn parse-options [args] (:opts (cli/parse-args args {:spec option-spec})))
@@ -82,12 +112,20 @@
     (when-not (<= 1 limit 10) (throw (ex-info "--limit must be between 1 and 10." {:code :invalid-request}))) limit))
 (defn search-items [tracker-adapter query options limit]
   (let [scope ((:configured-scope tracker-adapter))
+        exact (some-> ((:resolve-item tracker-adapter) query)
+                      (as-> item
+                          (when (and (domain/entity-in-scope? item scope)
+                                     (= (str/lower-case query)
+                                        (str/lower-case (str (:display-id item)))))
+                            item)))
         project (when-let [project-ref (:project options)]
                   (let [resolved (resolve-project! tracker-adapter project-ref)]
                     (when-not (domain/entity-in-scope? resolved scope)
                       (throw (ex-info "The project is outside the configured tracker scope." {:code :tracker-scope-mismatch :project (:ref resolved) :expected-scope scope}))) resolved))]
-    (->> ((:search-parent-items tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
-         (filter #(or (nil? project) (domain/in-project? % project))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
+    (if (and exact (or (nil? project) (domain/in-project? exact project)))
+      [(entity-candidate (assoc exact :score 1.0))]
+      (->> ((:search-parent-items tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
+           (filter #(or (nil? project) (domain/in-project? % project))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate)))))
 (defn search-projects [tracker-adapter query limit]
   (let [scope ((:configured-scope tracker-adapter))]
     (->> ((:search-projects tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
