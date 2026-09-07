@@ -31,9 +31,9 @@ ttt search --kind label --query "backend"          # find labels
    {"action":"create_new","parent":"APP-100","project":"reliability","title":"Improve retry handling","labels":["Backend"]}
    ```
 
-2. `ttt preview --request-file req.json` — read-only, returns a proposal ID.
-3. Get explicit user approval of that exact proposal.
-4. `ttt apply --request-file req.json --approve lp2_...` — the only mutating command.
+2. `ttt preview --request-file req.json` — read-only; retain its proposal ID internally.
+3. Present the exact changes and ask the user to approve them. Do not ask the user to repeat the proposal ID.
+4. An affirmative reply immediately after the summary approves only that unchanged proposal. Run `ttt apply --request-file req.json --approve lp2_...` internally.
 
 ## Rules
 
