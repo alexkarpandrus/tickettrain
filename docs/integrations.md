@@ -35,13 +35,25 @@ Bundled registries live at the composition boundary:
 
 ```clojure
 {:github {:build github/neutral-adapter
-          :validate-config! github/assert-ready!}}
+          :validate-config! github/assert-ready!}
+
+ :gitlab {:build gitlab/neutral-adapter
+          :validate-config! gitlab/assert-ready!}
+
+ :bitbucket {:build bitbucket/neutral-adapter
+             :validate-config! bitbucket/assert-ready!}}
 
 {:linear {:build linear/neutral-adapter
           :validate-config! linear/assert-ready!}
 
  :github-issues {:build github-issues/neutral-adapter
-                 :validate-config! github-issues/assert-ready!}}
+                 :validate-config! github-issues/assert-ready!}
+
+ :jira {:build jira/neutral-adapter
+        :validate-config! jira/assert-ready!}
+
+ :asana {:build asana/neutral-adapter
+         :validate-config! asana/assert-ready!}}
 ```
 
 A descriptor has a required `:build` function and an optional local-only `:validate-config!` function. `ttt.adapters/build` rejects unknown providers, registry/provider mismatches, undeclared capabilities, and missing capability functions. Dynamic plugin discovery and config-resolved symbols are intentionally unsupported.

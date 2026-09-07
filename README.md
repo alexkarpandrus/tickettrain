@@ -12,8 +12,8 @@
 
 ## Providers
 
-- Forge: **GitHub** via the `gh` CLI.
-- Trackers: **Linear** and **GitHub Issues**.
+- Forges: **GitHub** via the `gh` CLI, **GitLab**, and **Bitbucket** via their REST APIs.
+- Trackers: **Linear**, **GitHub Issues**, **Jira**, and **Asana**.
 
 Select GitHub Issues with `:tracker {:provider :github-issues}` in `config/ttt.edn`.
 
@@ -70,6 +70,19 @@ Supported `.env` keys:
 - `LINEAR_STATE_NAME`
 - `LINEAR_WORKSPACE`
 - `LINEAR_WORKSPACE_URL`
+- `JIRA_EMAIL` (Atlassian account email)
+- `JIRA_API_TOKEN` (scoped Jira API token)
+- `JIRA_SITE_URL` (for example, `https://your-site.atlassian.net`)
+- `JIRA_CLOUD_ID`
+- `JIRA_PROJECT` (project key, for example, `APP`)
+- `JIRA_ISSUE_TYPE` (default `Task`)
+- `GITLAB_TOKEN`
+- `GITLAB_BASE_URL` (default `https://gitlab.com`)
+- `ASANA_TOKEN`
+- `ASANA_WORKSPACE` (workspace gid)
+- `BITBUCKET_EMAIL` (Atlassian account email)
+- `BITBUCKET_API_TOKEN`
+- `BITBUCKET_BASE_URL` (default `https://api.bitbucket.org`)
 
 Edit `config/ttt.edn` only if you want defaults checked into the repo:
 
