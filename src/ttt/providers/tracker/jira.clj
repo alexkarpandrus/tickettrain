@@ -286,6 +286,16 @@
   (let [created (api! app-config :post "/issue" {:fields fields})]
     (api! app-config :get (str "/issue/" (url-encode (:key created))) nil)))
 
+(defn subtask-issue-type
+  [app-config project-key]
+  (or (some #(when (:subtask %) {:id (:id %)})
+            (:issueTypes (api! app-config :get
+                               (str "/project/" (url-encode project-key))
+                               nil)))
+      (throw (ex-info (str "Jira project " project-key " has no sub-task issue type.")
+                      {:code :subtask-issue-type-not-found
+                       :project project-key}))))
+
 (defn update-item!
   [app-config item-id input]
   (api! app-config :put (str "/issue/" (url-encode item-id)) {:fields input})
@@ -294,14 +304,16 @@
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels]}]
   (let [parent (some-> (:parent context) provider-id)
-        project (when-not parent
-                  (or (some-> (:project context) provider-id)
-                      (get-in app-config [:tracker :project])))
+        project (or (some-> (:parent context) :project provider-id)
+                    (some-> (:project context) provider-id)
+                    (get-in app-config [:tracker :project]))
         issue-type (get-in app-config [:tracker :issue-type] "Task")
         fields (cond-> {:summary title
                         :description (text->adf description)
                         :labels (vec (label-names labels))}
-                 parent (assoc :parent {:key parent} :issuetype {:name "Sub-task"})
+                 parent (assoc :parent {:key parent}
+                               :project {:key project}
+                               :issuetype (subtask-issue-type app-config project))
                  (and (not parent) project) (assoc :project {:key project}
                                                    :issuetype {:name issue-type}))]
     (normalize-item (base-url app-config) (create-item! app-config fields))))
