@@ -24,7 +24,8 @@
 (def tracker-section-titles
   {:linear "Linear"
    :jira "Jira"
-   :github-issues "GitHub Issues"})
+   :github-issues "GitHub Issues"
+   :asana "Asana"})
 
 (declare normalize-config)
 
@@ -53,8 +54,8 @@
 (defn env-overrides
   [env]
   (let [workspace (or (get env "LINEAR_WORKSPACE")
-                      (get env "LINEAR_WORKSPACE_URL"))]
-    {:tracker (cond-> {}
+                      (get env "LINEAR_WORKSPACE_URL"))
+        tracker (cond-> {}
                 (get env "LINEAR_API_KEY")
                 (assoc :api-key (get env "LINEAR_API_KEY"))
 
@@ -91,8 +92,32 @@
                 (get env "JIRA_PROJECT")
                 (assoc :project (get env "JIRA_PROJECT"))
 
-                (get env "JIRA_ISSUE_TYPE")
-                (assoc :issue-type (get env "JIRA_ISSUE_TYPE")))}))
+                  (get env "JIRA_ISSUE_TYPE")
+                  (assoc :issue-type (get env "JIRA_ISSUE_TYPE"))
+
+                  (get env "ASANA_TOKEN")
+                  (assoc :token (get env "ASANA_TOKEN"))
+
+                  (get env "ASANA_WORKSPACE")
+                  (assoc :workspace (get env "ASANA_WORKSPACE")))
+        forge (cond-> {}
+                (get env "GITLAB_TOKEN")
+                (assoc :token (get env "GITLAB_TOKEN"))
+
+                (get env "GITLAB_BASE_URL")
+                (assoc :base-url (get env "GITLAB_BASE_URL"))
+
+                (get env "BITBUCKET_EMAIL")
+                (assoc :email (get env "BITBUCKET_EMAIL"))
+
+                (get env "BITBUCKET_API_TOKEN")
+                (assoc :api-token (get env "BITBUCKET_API_TOKEN"))
+
+                (get env "BITBUCKET_BASE_URL")
+                (assoc :base-url (get env "BITBUCKET_BASE_URL")))]
+    (cond-> {}
+      (seq tracker) (assoc :tracker tracker)
+      (seq forge) (assoc :forge forge))))
 
 (defn deep-merge
   [& maps]
