@@ -7,7 +7,7 @@
 
 (def api-path "/api/1.0")
 
-(def task-fields "name,notes,permalink_url,completed,projects,projects.name,tags,tags.name,parent,parent.name")
+(def task-fields "name,notes,permalink_url,completed,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
 
 (defn base-url
   [app-config]
@@ -24,16 +24,15 @@
 (defn api!
   [app-config method path query]
   (let [url (api-endpoint app-config path)
-        headers {"Authorization" (str "Bearer " (token app-config))}
+        headers {"Authorization" (str "Bearer " (token app-config))
+                 "Content-Type" "application/json"}
         response (case method
                    :get (http/get url {:headers headers :query-params query :throw false})
                    :post (http/post url {:headers headers
                                          :body (json/generate-string query)
-                                         :content-type :json
                                          :throw false})
                    :put (http/put url {:headers headers
                                        :body (json/generate-string query)
-                                       :content-type :json
                                        :throw false}))
         status (:status response)
         body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
@@ -60,6 +59,7 @@
   {:ref (domain/identity :asana :project (:gid project))
    :display-id (:name project)
    :title (:name project)
+   :url (:permalink_url project)
    :scopes [scope]})
 
 (defn normalize-tag
@@ -137,7 +137,7 @@
   (let [scope (site-scope app-config)
         gid (workspace-gid app-config)
         response (api! app-config :get (str "/workspaces/" gid "/projects")
-                       {:limit 100 :opt_fields "name"})]
+                       {:limit 100 :opt_fields "name,permalink_url"})]
     (mapv #(normalize-project scope %) (:data response))))
 
 (defn resolve-project
@@ -182,6 +182,15 @@
   [app-config item-id input]
   (get (api! app-config :put (str "/tasks/" item-id) {:data input}) :data))
 
+(defn update-tags!
+  [app-config item-id current-labels labels]
+  (let [current (set (tag-ids current-labels))
+        desired (set (tag-ids labels))]
+    (doseq [tag-id (remove desired current)]
+      (api! app-config :post (str "/tasks/" item-id "/removeTag") {:data {:tag tag-id}}))
+    (doseq [tag-id (remove current desired)]
+      (api! app-config :post (str "/tasks/" item-id "/addTag") {:data {:tag tag-id}}))))
+
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels]}]
   (normalize-task (site-scope app-config)
@@ -189,9 +198,11 @@
 
 (defn update-item-from-intent!
   [app-config item {:keys [description labels]}]
-  (normalize-task (site-scope app-config)
-                  (update-task! app-config (provider-id item)
-                                {:notes description :tags (vec (tag-ids labels))})))
+  (let [item-id (provider-id item)
+        labels (vec (or labels []))]
+    (update-task! app-config item-id {:notes description})
+    (update-tags! app-config item-id (:labels item) labels)
+    (assoc item :description description :labels labels)))
 
 (defn configured-scope
   [app-config]

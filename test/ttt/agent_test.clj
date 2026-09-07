@@ -11,6 +11,19 @@
   {:config config :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& _] (swap! calls conj :forge))}
    :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] item)}})
 
+(deftest numeric-text-options-remain-strings
+  (is (= {:query "1218235721923599" :project "1182987059881499"}
+         (agent/parse-options ["--query" "1218235721923599"
+                               "--project" "1182987059881499"]))))
+
+(deftest item-search-returns-an-exact-reference
+  (let [calls (atom [])
+        candidate (first (get-in (agent/search-data (:tracker (runtime calls))
+                                                    {:kind "item" :query "APP-123"})
+                                 [:candidates]))]
+    (is (= "APP-123" (:displayId candidate)))
+    (is (= 1.0 (:score candidate)))))
+
 (deftest version-advertises-agent-api-v2
   (is (= 2 (:agentApiVersion (agent/execute-command "version" [])))))
 (deftest preview-is-read-only-and-uses-neutral-wire-fields
