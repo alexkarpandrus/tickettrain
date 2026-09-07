@@ -38,4 +38,4 @@ echo
 echo "Install the agent skill (Claude Code, Codex, Cursor, and more):"
 echo "  npx skills add alexkarpandrus/tickettrain"
 echo
-echo "Next: run 'ttt setup' to configure Linear, then 'ttt --llm' for agent instructions."
+echo "Next: run 'ttt setup' to configure providers, then 'ttt --llm' for agent instructions."

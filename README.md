@@ -15,7 +15,7 @@
 - Forges: **GitHub** via the `gh` CLI, **GitLab**, and **Bitbucket** via their REST APIs.
 - Trackers: **Linear**, **GitHub Issues**, **Jira**, and **Asana**.
 
-Select GitHub Issues with `:tracker {:provider :github-issues}` in `config/ttt.edn`.
+Select providers in `config/ttt.edn`, for example `:forge {:provider :bitbucket}` and `:tracker {:provider :asana}`.
 
 `ttt` runs inside the target application repo where you want to create the PR and tracker issue.
 
