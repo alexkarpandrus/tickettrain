@@ -71,20 +71,98 @@
   [entity]
   (if (map? entity) (or (get-in entity [:ref :id]) (:id entity)) entity))
 
+(def inline-markdown-pattern
+  #"\[((?:\\.|[^\]])*)\]\((https?://[^)\s]+)\)|\*\*([^*]+)\*\*|\x60([^\x60]+)\x60")
+
+(defn text-node
+  ([text] {:type "text" :text text})
+  ([text mark] {:type "text" :text text :marks [mark]}))
+
+(defn markdown-inlines
+  [text]
+  (let [matcher (re-matcher inline-markdown-pattern text)]
+    (loop [offset 0 nodes []]
+      (if (.find matcher)
+        (let [start (.start matcher)
+              nodes (cond-> nodes
+                      (< offset start) (conj (text-node (subs text offset start))))
+              [value mark] (cond
+                             (.group matcher 1)
+                             [(-> (.group matcher 1)
+                                  (str/replace "\\[" "")
+                                  (str/replace "\\]" ""))
+                              {:type "link" :attrs {:href (.group matcher 2)}}]
+
+                             (.group matcher 3)
+                             [(.group matcher 3) {:type "strong"}]
+
+                             :else
+                             [(.group matcher 4) {:type "code"}])]
+          (recur (.end matcher) (conj nodes (text-node value mark))))
+        (cond-> nodes
+          (< offset (count text)) (conj (text-node (subs text offset))))))))
+
+(defn paragraph
+  [text]
+  {:type "paragraph" :content (markdown-inlines text)})
+
+(defn bullet-list
+  [lines]
+  {:type "bulletList"
+   :content (mapv (fn [line]
+                    {:type "listItem"
+                     :content [(paragraph (subs line 2))]})
+                  lines)})
+
 (defn text->adf
   [text]
   {:type "doc"
    :version 1
-   :content (mapv (fn [line] {:type "paragraph" :content [{:type "text" :text line}]})
-                  (str/split-lines (or text "")))})
+   :content
+   (loop [lines (str/split-lines (or text ""))
+          content []]
+     (if-let [line (first lines)]
+       (if (str/starts-with? line "- ")
+         (let [[items remaining] (split-with #(str/starts-with? % "- ") lines)]
+           (recur remaining (conj content (bullet-list items))))
+         (if-let [[_ hashes body] (re-matches #"^(#{1,6})\s+(.+)$" line)]
+           (recur (rest lines)
+                  (conj content {:type "heading"
+                                 :attrs {:level (count hashes)}
+                                 :content (markdown-inlines body)}))
+           (recur (rest lines) (conj content (paragraph line)))))
+       content))})
+
+(defn marked-text
+  [node]
+  (reduce (fn [text mark]
+            (case (:type mark)
+              "strong" (str "**" text "**")
+              "code" (str "`" text "`")
+              "link" (str "["
+                          (-> text
+                              (str/replace "[" "\\[")
+                              (str/replace "]" "\\]"))
+                          "](" (get-in mark [:attrs :href]) ")")
+              text))
+          (:text node)
+          (:marks node)))
 
 (defn adf->text
   [node]
   (cond
     (string? node) node
     (map? node)
-    (if (= "text" (:type node))
-      (:text node)
+    (case (:type node)
+      "text" (marked-text node)
+      "hardBreak" "\n"
+      "paragraph" (apply str (map adf->text (:content node)))
+      "heading" (str (apply str (repeat (get-in node [:attrs :level] 1) "#"))
+                     " "
+                     (apply str (map adf->text (:content node))))
+      "listItem" (str/join "\n" (map adf->text (:content node)))
+      "bulletList" (str/join "\n" (map #(str "- " (adf->text %)) (:content node)))
+      "doc" (str/join "\n" (map adf->text (:content node)))
       (str/join "\n" (keep adf->text (:content node))))
     (sequential? node) (str/join "\n" (map adf->text node))
     :else ""))
