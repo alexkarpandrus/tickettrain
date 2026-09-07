@@ -33,16 +33,15 @@
 (defn api!
   [app-config method path query]
   (let [url (api-endpoint app-config path)
-        headers {"Authorization" (auth-header app-config)}
+        headers {"Authorization" (auth-header app-config)
+                 "Content-Type" "application/json"}
         response (case method
                    :get (http/get url {:headers headers :query-params query :throw false})
                    :post (http/post url {:headers headers
                                          :body (json/generate-string query)
-                                         :content-type :json
                                          :throw false})
                    :put (http/put url {:headers headers
                                        :body (json/generate-string query)
-                                       :content-type :json
                                        :throw false}))
         status (:status response)
         body (try (json/parse-string (:body response) true) (catch Exception _ nil))]

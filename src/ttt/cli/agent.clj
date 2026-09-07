@@ -12,8 +12,15 @@
 
 (def schema-version 2)
 (def max-request-bytes 65536)
-(def option-spec {:config {} :kind {} :query {} :limit {:coerce :long} :project {}
-                  :scope-item {} :request {} :request-file {} :approve {}})
+(def option-spec {:config {:coerce :string}
+                  :kind {:coerce :string}
+                  :query {:coerce :string}
+                  :limit {:coerce :long}
+                  :project {:coerce :string}
+                  :scope-item {:coerce :string}
+                  :request {:coerce :string}
+                  :request-file {:coerce :string}
+                  :approve {:coerce :string}})
 
 (defn success [command data] {:schemaVersion schema-version :ok true :command command :data data})
 (defn failure [command ex] {:schemaVersion schema-version :ok false :command command
@@ -82,12 +89,20 @@
     (when-not (<= 1 limit 10) (throw (ex-info "--limit must be between 1 and 10." {:code :invalid-request}))) limit))
 (defn search-items [tracker-adapter query options limit]
   (let [scope ((:configured-scope tracker-adapter))
+        exact (some-> ((:resolve-item tracker-adapter) query)
+                      (as-> item
+                          (when (and (domain/entity-in-scope? item scope)
+                                     (= (str/lower-case query)
+                                        (str/lower-case (str (:display-id item)))))
+                            item)))
         project (when-let [project-ref (:project options)]
                   (let [resolved (resolve-project! tracker-adapter project-ref)]
                     (when-not (domain/entity-in-scope? resolved scope)
                       (throw (ex-info "The project is outside the configured tracker scope." {:code :tracker-scope-mismatch :project (:ref resolved) :expected-scope scope}))) resolved))]
-    (->> ((:search-parent-items tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
-         (filter #(or (nil? project) (domain/in-project? % project))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
+    (if (and exact (or (nil? project) (domain/in-project? exact project)))
+      [(entity-candidate (assoc exact :score 1.0))]
+      (->> ((:search-parent-items tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
+           (filter #(or (nil? project) (domain/in-project? % project))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate)))))
 (defn search-projects [tracker-adapter query limit]
   (let [scope ((:configured-scope tracker-adapter))]
     (->> ((:search-projects tracker-adapter)) (filter #(domain/entity-in-scope? % scope))
