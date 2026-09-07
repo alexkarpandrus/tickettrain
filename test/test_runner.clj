@@ -1,6 +1,7 @@
 (ns test-runner
   (:require [clojure.test :as test]
             [ttt.agent-test]
+            [ttt.asana-test]
             [ttt.config-test]
             [ttt.core-test]
             [ttt.fuzzy-test]
@@ -20,7 +21,7 @@
             [ttt.workflow-test]))
 
 (def test-namespaces
-  ['ttt.agent-test 'ttt.config-test 'ttt.core-test
+  ['ttt.agent-test 'ttt.asana-test 'ttt.config-test 'ttt.core-test
    'ttt.fuzzy-test 'ttt.git-test 'ttt.github-issues-test 'ttt.github-test
    'ttt.gitlab-jira-integration-test 'ttt.gitlab-test 'ttt.jira-test
    'ttt.linear-test 'ttt.links-test 'ttt.main-test

@@ -1,11 +1,11 @@
 ---
 name: tickettrain
-description: Link a GitHub pull request or GitLab merge request to a Linear, GitHub Issues, or Jira item. Use when the user wants to create or link a tracker item for the current branch or change request. Triggers: "link to linear", "link to jira", "create a ticket", "track this work", or "ticket for this PR".
+description: Link a GitHub pull request or GitLab merge request to a Linear, GitHub Issues, Jira, or Asana item. Use when the user wants to create or link a tracker item for the current branch or change request. Triggers: "link to linear", "link to jira", "link to asana", "create a ticket", "track this work", or "ticket for this PR".
 ---
 
 # tickettrain (`ttt`)
 
-`ttt` links the current GitHub pull request or GitLab merge request with a Linear, GitHub Issues, or Jira item and keeps both sides in sync. It is a local CLI with a provider-neutral JSON API.
+`ttt` links the current GitHub pull request or GitLab merge request with a Linear, GitHub Issues, Jira, or Asana item and keeps both sides in sync. It is a local CLI with a provider-neutral JSON API.
 
 ## Bootstrap
 

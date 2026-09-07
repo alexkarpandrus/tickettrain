@@ -51,7 +51,7 @@
    "\n"
    ["# tickettrain"
     ""
-    (str "`ttt` (tickettrain) links the current GitHub pull request or GitLab merge request with Linear, GitHub Issues, or Jira items. "
+    (str "`ttt` (tickettrain) links the current GitHub pull request or GitLab merge request with Linear, GitHub Issues, Jira, or Asana items. "
          "It is a local CLI with a provider-neutral JSON API (schema v" agent/schema-version ") "
          "designed for humans and AI agents. Run it inside the target application repository.")
     ""
