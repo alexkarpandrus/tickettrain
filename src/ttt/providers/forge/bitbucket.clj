@@ -163,18 +163,12 @@
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
   (let [slug (remote-slug)
-        pr (api! app-config :post
-                 (str "/repositories/" slug "/pullrequests")
-                 {:title title
-                  :description (encode-body body)
-                  :source {:branch {:name head}}
-                  :destination {:branch {:name base}}})]
-    {:number (:id pr)
-     :title (:title pr)
-     :body (or (:description pr) "")
-     :url (get-in pr [:links :html :href])
-     :source-branch (get-in pr [:source :branch :name])
-     :target-branch (get-in pr [:destination :branch :name])}))
+        path (str "/repositories/" slug "/pullrequests")]
+    (api! app-config :post path
+          {:title title
+           :description (encode-body body)
+           :source {:branch {:name head}}
+           :destination {:branch {:name base}}})))
 
 (def capabilities
   #{:current-branch
