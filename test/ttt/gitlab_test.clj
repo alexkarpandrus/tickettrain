@@ -44,3 +44,32 @@
     (is (= :gitlab (:provider adapter)))
     (is (= gitlab/capabilities (:capabilities adapter)))
     (is (every? #(fn? (get adapter %)) gitlab/capabilities))))
+
+(deftest create-change-request-returns-the-raw-gitlab-response
+  (let [response {:iid 1
+                  :title "[KAN-2] Verify tickettrain GitLab workflow"
+                  :description "Body"
+                  :web_url "https://gitlab.example/group/project/-/merge_requests/1"
+                  :source_branch "feature"
+                  :target_branch "main"}
+        request (atom nil)
+        app-config {:token "test-token"}]
+    (with-redefs [gitlab/remote-slug (constantly "group/project")
+                  gitlab/api! (fn [config method path body]
+                                (reset! request [config method path body])
+                                response)]
+      (is (= response
+             (gitlab/create-change-request!
+              app-config
+              {:title "[KAN-2] Verify tickettrain GitLab workflow"
+               :body "Body"
+               :base "main"
+               :head "feature"})))
+      (is (= [app-config
+              :post
+              "/projects/group%2Fproject/merge_requests"
+              {:source_branch "feature"
+               :target_branch "main"
+               :title "[KAN-2] Verify tickettrain GitLab workflow"
+               :description "Body"}]
+             @request)))))

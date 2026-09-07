@@ -38,7 +38,10 @@ Bundled registries live at the composition boundary:
           :validate-config! github/assert-ready!}
 
  :gitlab {:build gitlab/neutral-adapter
-          :validate-config! gitlab/assert-ready!}}
+          :validate-config! gitlab/assert-ready!}
+
+ :bitbucket {:build bitbucket/neutral-adapter
+             :validate-config! bitbucket/assert-ready!}}
 
 {:linear {:build linear/neutral-adapter
           :validate-config! linear/assert-ready!}
