@@ -37,6 +37,10 @@
   (is (thrown-with-msg? Exception #"requires item" (agent/validate-request! {:action "link_existing" :issue "APP-123"})))
   (is (thrown-with-msg? Exception #"must be a string" (agent/validate-request! {:action "link_existing" :item 1 :labels []}))))
 
+(deftest create-new-allows-no-parent-or-project
+  (is (= {:action "create_new" :labels []}
+         (agent/validate-request! {:action "create_new" :labels []}))))
+
 (deftest search-and-preview-carry-state-and-project
   (let [calls (atom [])
         project {:ref (domain/identity :linear :project "project-1") :display-id "reliability" :title "Reliability" :url "https://linear/project"}

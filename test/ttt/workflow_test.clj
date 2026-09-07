@@ -30,6 +30,16 @@
     (is (thrown-with-msg? Exception #"outside the configured scope" (workflow/selected-context runtime* {:parent "APP-999" :yes true})))
     (is (empty? @calls))))
 
+(deftest selected-context-allows-no-parent-or-project
+  (let [calls (atom [])]
+    (is (= {:kind :none
+            :prompt-label "Create tracker item and update the change request?"
+            :selection-label "Selected scope"
+            :selection-title "None"
+            :context {}}
+           (workflow/selected-context (runtime calls existing-source) {})))
+    (is (empty? @calls))))
+
 (deftest preserves-confirmation-before-mutation
   (let [calls (atom []) confirmed (atom nil)]
     (with-redefs [prompt/confirm? (fn [message] (reset! confirmed message) true)]
