@@ -1,4 +1,4 @@
-(ns ttt.providers.forge.gitlab
+(ns ttt.providers.forge.bitbucket
   (:require [babashka.http-client :as http]
             [cheshire.core :as json]
             [clojure.string :as str]
@@ -6,32 +6,38 @@
             [ttt.platform.remote :as remote]
             [ttt.platform.shell :as shell]))
 
-(def api-version "/api/v4")
+(def api-version "/2.0")
 
 (defn base-url
   [app-config]
-  (str/replace (or (get-in app-config [:forge :base-url]) "https://gitlab.com")
+  (str/replace (or (get-in app-config [:forge :base-url]) "https://api.bitbucket.org")
                #"/+$" ""))
 
-(defn token
+(defn email
   [app-config]
-  (or (get-in app-config [:forge :token]) ""))
+  (or (get-in app-config [:forge :email]) ""))
 
-(defn url-encode
-  [value]
-  (java.net.URLEncoder/encode (str value) "UTF-8"))
+(defn api-token
+  [app-config]
+  (or (get-in app-config [:forge :api-token]) ""))
 
 (defn api-endpoint
   [app-config path]
   (str (base-url app-config) api-version path))
 
+(defn auth-header
+  [app-config]
+  (str "Basic " (.encodeToString (java.util.Base64/getEncoder)
+                                 (.getBytes (str (email app-config) ":" (api-token app-config))
+                                            "UTF-8"))))
+
 (defn api!
   [app-config method path query]
   (let [url (api-endpoint app-config path)
-        headers {"PRIVATE-TOKEN" (token app-config)
+        headers {"Authorization" (auth-header app-config)
                  "Content-Type" "application/json"}]
     (remote/request!
-     :gitlab
+     :bitbucket
      #(case method
         :get (http/get url {:headers headers :query-params query :throw false})
         :post (http/post url {:headers headers
@@ -59,32 +65,43 @@
 (defn remote-slug
   []
   (or (parse-repo-slug (shell/run "git" "remote" "get-url" "origin"))
-      (throw (ex-info "Unable to resolve the GitLab project from the origin remote." {}))))
+      (throw (ex-info "Unable to resolve the Bitbucket repository from the origin remote." {}))))
 
 (defn normalize-repo
-  [project]
-  (let [slug (or (:path_with_namespace project) (:slug project))]
-    {:ref (domain/identity :gitlab :repository slug)
+  [repo]
+  (let [slug (:full_name repo)]
+    {:ref (domain/identity :bitbucket :repository slug)
      :display-id slug
      :slug slug
-     :default-target-branch (or (:default_branch project)
-                                (:default-target-branch project))}))
+     :default-target-branch (get-in repo [:mainbranch :name])}))
+
+(defn encode-body
+  [body]
+  (str/replace (or body "")
+               #"(?m)^<!-- ttt:(begin|end|item [^>]+) -->$"
+               (fn [[_ marker]] (str "[//]: # (ttt:" marker ")"))))
+
+(defn decode-body
+  [body]
+  (str/replace (or body "")
+               #"(?m)^\[//\]: # \(ttt:(begin|end|item [^)]+)\)$"
+               (fn [[_ marker]] (str "<!-- ttt:" marker " -->"))))
 
 (defn normalize-change-request
   ([change-request]
-   {:ref (domain/identity :gitlab :change-request (:iid change-request))
-    :display-id (str "!" (:iid change-request))
-    :number (:iid change-request)
+   {:ref (domain/identity :bitbucket :change-request (:id change-request))
+    :display-id (str "#" (:id change-request))
+    :number (:id change-request)
     :title (:title change-request)
-    :body (:description change-request)
-    :url (:web_url change-request)
-    :source-branch (:source_branch change-request)
-    :target-branch (:target_branch change-request)})
+    :body (decode-body (:description change-request))
+    :url (get-in change-request [:links :html :href])
+    :source-branch (get-in change-request [:source :branch :name])
+    :target-branch (get-in change-request [:destination :branch :name])})
   ([repo change-request]
    (assoc (normalize-change-request change-request)
-          :ref (domain/contained-identity :gitlab :change-request
-                                          (:slug repo) (:iid change-request))
-          :display-id (str (:slug repo) "!" (:iid change-request)))))
+          :ref (domain/contained-identity :bitbucket :change-request
+                                          (:slug repo) (:id change-request))
+          :display-id (str (:slug repo) "#" (:id change-request)))))
 
 (defn current-branch
   []
@@ -96,25 +113,23 @@
 (defn current-repo
   [app-config]
   (let [slug (remote-slug)
-        project (api! app-config :get (str "/projects/" (url-encode slug)) nil)]
-    (normalize-repo (assoc project :slug slug))))
+        repo (api! app-config :get (str "/repositories/" slug) nil)]
+    (normalize-repo (assoc repo :slug slug))))
 
 (defn maybe-current-change-request
   [app-config]
   (let [slug (remote-slug)
         branch (current-branch)
-        mrs (api! app-config :get
-                  (str "/projects/" (url-encode slug) "/merge_requests")
-                  {:source_branch branch :state "opened" :scope "all"})]
-    (first mrs)))
+        q (str "source.branch.name=\"" branch "\" AND state=\"OPEN\"")
+        response (api! app-config :get
+                       (str "/repositories/" slug "/pullrequests")
+                       {:q q :state "OPEN"})]
+    (first (:values response))))
 
 (defn current-change-request
   [app-config]
-  (try
-    (or (maybe-current-change-request app-config)
-        (throw (ex-info "No current change request found." {})))
-    (catch Exception ex
-      (throw (ex-info "Unable to resolve a merge request for the current branch." {} ex)))))
+  (or (maybe-current-change-request app-config)
+      (throw (ex-info "No current change request found." {}))))
 
 (defn inspect-current
   [app-config]
@@ -137,23 +152,23 @@
     (str "[" item-id "] " clean-title)))
 
 (defn update-change-request!
-  [app-config repo-slug iid {:keys [body title]}]
+  [app-config repo-slug pr-id {:keys [body title]}]
   (api! app-config :put
-        (str "/projects/" (url-encode repo-slug) "/merge_requests/" iid)
+        (str "/repositories/" repo-slug "/pullrequests/" pr-id)
         (cond-> {}
-          (some? body) (assoc :description body)
+          (some? body) (assoc :description (encode-body body))
           (some? title) (assoc :title title)))
   nil)
 
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
-  (let [slug (remote-slug)]
-    (api! app-config :post
-          (str "/projects/" (url-encode slug) "/merge_requests")
-          {:source_branch head
-           :target_branch base
-           :title title
-           :description (or body "")})))
+  (let [slug (remote-slug)
+        path (str "/repositories/" slug "/pullrequests")]
+    (api! app-config :post path
+          {:title title
+           :description (encode-body body)
+           :source {:branch {:name head}}
+           :destination {:branch {:name base}}})))
 
 (def capabilities
   #{:current-branch
@@ -168,20 +183,19 @@
 
 (defn assert-ready!
   [app-config]
-  (when (str/blank? (token app-config))
-    (throw (ex-info "GitLab forge requires a token (set GITLAB_TOKEN or :forge :token)."
+  (when (or (str/blank? (email app-config)) (str/blank? (api-token app-config)))
+    (throw (ex-info "Bitbucket forge requires BITBUCKET_EMAIL and BITBUCKET_API_TOKEN."
                     {:code :provider-config-invalid}))))
 
 (defn setup
   [app-config]
-  (when (str/blank? (token app-config))
-    (throw (ex-info "No GitLab token configured. Set GITLAB_TOKEN, then re-run `ttt setup`." {:code :aborted})))
-  (println (str "GitLab forge: authenticated for " (:display-id (current-repo app-config))))
+  (assert-ready! app-config)
+  (println (str "Bitbucket forge: authenticated for " (:display-id (current-repo app-config))))
   nil)
 
 (defn neutral-adapter
   [app-config]
-  {:provider :gitlab
+  {:provider :bitbucket
    :capabilities capabilities
    :current-branch current-branch
    :maybe-current-change-request #(maybe-current-change-request app-config)

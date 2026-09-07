@@ -3,7 +3,8 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.config :as config]
-            [ttt.domain :as domain]))
+            [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]))
 
 (def api-path "/rest/api/3")
 
@@ -46,23 +47,18 @@
 (defn api!
   [app-config method path query]
   (let [url (api-endpoint app-config path)
-        headers {"Authorization" (auth-header app-config)}
-        response (case method
-                   :get (http/get url {:headers headers :query-params query :throw false})
-                   :post (http/post url {:headers headers
-                                         :body (json/generate-string query)
-                                         :content-type :json
-                                         :throw false})
-                   :put (http/put url {:headers headers
-                                       :body (json/generate-string query)
-                                       :content-type :json
-                                       :throw false}))
-        status (:status response)
-        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
-    (when (>= status 400)
-      (throw (ex-info (str "Jira API request failed with status " status ".")
-                      {:status status :body body})))
-    body))
+        headers {"Authorization" (auth-header app-config)
+                 "Content-Type" "application/json"}]
+    (remote/request!
+     :jira
+     #(case method
+        :get (http/get url {:headers headers :query-params query :throw false})
+        :post (http/post url {:headers headers
+                              :body (json/generate-string query)
+                              :throw false})
+        :put (http/put url {:headers headers
+                            :body (json/generate-string query)
+                            :throw false})))))
 
 (defn site-scope
   [app-config]
@@ -72,20 +68,102 @@
   [entity]
   (if (map? entity) (or (get-in entity [:ref :id]) (:id entity)) entity))
 
+(def inline-markdown-pattern
+  #"\[((?:\\.|[^\]])*)\]\((https?://[^)\s]+)\)|\*\*([^*]+)\*\*|\x60([^\x60]+)\x60|(?<!\w)_([^_\r\n]+)_(?!\w)")
+
+(defn text-node
+  ([text] {:type "text" :text text})
+  ([text mark] {:type "text" :text text :marks [mark]}))
+
+(defn markdown-inlines
+  [text]
+  (let [matcher (re-matcher inline-markdown-pattern text)]
+    (loop [offset 0 nodes []]
+      (if (.find matcher)
+        (let [start (.start matcher)
+              nodes (cond-> nodes
+                      (< offset start) (conj (text-node (subs text offset start))))
+              [value mark] (cond
+                             (.group matcher 1)
+                             [(-> (.group matcher 1)
+                                  (str/replace "\\[" "")
+                                  (str/replace "\\]" ""))
+                             {:type "link" :attrs {:href (.group matcher 2)}}]
+
+                             (.group matcher 3)
+                             [(.group matcher 3) {:type "strong"}]
+
+                             (.group matcher 4)
+                             [(.group matcher 4) {:type "code"}]
+
+                             :else
+                             [(.group matcher 5) {:type "em"}])]
+          (recur (.end matcher) (conj nodes (text-node value mark))))
+        (cond-> nodes
+          (< offset (count text)) (conj (text-node (subs text offset))))))))
+
+(defn paragraph
+  [text]
+  {:type "paragraph" :content (markdown-inlines text)})
+
+(defn bullet-list
+  [lines]
+  {:type "bulletList"
+   :content (mapv (fn [line]
+                    {:type "listItem"
+                     :content [(paragraph (subs line 2))]})
+                  lines)})
+
 (defn text->adf
   [text]
   {:type "doc"
    :version 1
-   :content (mapv (fn [line] {:type "paragraph" :content [{:type "text" :text line}]})
-                  (str/split-lines (or text "")))})
+   :content
+   (loop [lines (str/split-lines (or text ""))
+          content []]
+     (if-let [line (first lines)]
+       (if (str/starts-with? line "- ")
+         (let [[items remaining] (split-with #(str/starts-with? % "- ") lines)]
+           (recur remaining (conj content (bullet-list items))))
+         (if-let [[_ hashes body] (re-matches #"^(#{1,6})\s+(.+)$" line)]
+           (recur (rest lines)
+                  (conj content {:type "heading"
+                                 :attrs {:level (count hashes)}
+                                 :content (markdown-inlines body)}))
+           (recur (rest lines) (conj content (paragraph line)))))
+       content))})
+
+(defn marked-text
+  [node]
+  (reduce (fn [text mark]
+            (case (:type mark)
+              "strong" (str "**" text "**")
+              "em" (str "_" text "_")
+              "code" (str "`" text "`")
+              "link" (str "["
+                          (-> text
+                              (str/replace "[" "\\[")
+                              (str/replace "]" "\\]"))
+                          "](" (get-in mark [:attrs :href]) ")")
+              text))
+          (:text node)
+          (:marks node)))
 
 (defn adf->text
   [node]
   (cond
     (string? node) node
     (map? node)
-    (if (= "text" (:type node))
-      (:text node)
+    (case (:type node)
+      "text" (marked-text node)
+      "hardBreak" "\n"
+      "paragraph" (apply str (map adf->text (:content node)))
+      "heading" (str (apply str (repeat (get-in node [:attrs :level] 1) "#"))
+                     " "
+                     (apply str (map adf->text (:content node))))
+      "listItem" (str/join "\n" (map adf->text (:content node)))
+      "bulletList" (str/join "\n" (map #(str "- " (adf->text %)) (:content node)))
+      "doc" (str/join "\n" (map adf->text (:content node)))
       (str/join "\n" (keep adf->text (:content node))))
     (sequential? node) (str/join "\n" (map adf->text node))
     :else ""))
@@ -205,6 +283,16 @@
   (let [created (api! app-config :post "/issue" {:fields fields})]
     (api! app-config :get (str "/issue/" (url-encode (:key created))) nil)))
 
+(defn subtask-issue-type
+  [app-config project-key]
+  (or (some #(when (:subtask %) {:id (:id %)})
+            (:issueTypes (api! app-config :get
+                               (str "/project/" (url-encode project-key))
+                               nil)))
+      (throw (ex-info (str "Jira project " project-key " has no sub-task issue type.")
+                      {:code :subtask-issue-type-not-found
+                       :project project-key}))))
+
 (defn update-item!
   [app-config item-id input]
   (api! app-config :put (str "/issue/" (url-encode item-id)) {:fields input})
@@ -213,14 +301,16 @@
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels]}]
   (let [parent (some-> (:parent context) provider-id)
-        project (when-not parent
-                  (or (some-> (:project context) provider-id)
-                      (get-in app-config [:tracker :project])))
+        project (or (some-> (:parent context) :project provider-id)
+                    (some-> (:project context) provider-id)
+                    (get-in app-config [:tracker :project]))
         issue-type (get-in app-config [:tracker :issue-type] "Task")
         fields (cond-> {:summary title
                         :description (text->adf description)
                         :labels (vec (label-names labels))}
-                 parent (assoc :parent {:key parent} :issuetype {:name "Sub-task"})
+                 parent (assoc :parent {:key parent}
+                               :project {:key project}
+                               :issuetype (subtask-issue-type app-config project))
                  (and (not parent) project) (assoc :project {:key project}
                                                    :issuetype {:name issue-type}))]
     (normalize-item (base-url app-config) (create-item! app-config fields))))

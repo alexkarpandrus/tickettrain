@@ -10,6 +10,10 @@
   (is (= 123 (github-issues/parse-number "#123")))
   (is (nil? (github-issues/parse-number "retry handling"))))
 
+(deftest repo-slug-prefers-gh-repo-environment
+  (with-redefs [github-issues/gh-json (fn [& _] (throw (Exception. "must not inspect remotes")))]
+    (is (= "org/issues" (github-issues/repo-slug " org/issues ")))))
+
 (deftest normalizes-issue-with-milestone-and-labels
   (let [issue {:number 123 :title "Retry" :body "Body" :url "https://github.com/org/repo/issues/123"
                :state "OPEN"
