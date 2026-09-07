@@ -7,7 +7,10 @@
 
 (def api-path "/api/1.0")
 
-(def task-fields "name,notes,permalink_url,completed,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
+(def task-fields "name,notes,html_notes,permalink_url,completed,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
+
+(def inline-markdown-pattern
+  #"\[((?:\\.|[^\]])*)\]\((https?://[^)\s]+)\)|\*\*([^*]+)\*\*|\x60([^\x60]+)\x60|_([^_]+)_")
 
 (defn base-url
   [app-config]
@@ -54,6 +57,131 @@
   [entity]
   (if (map? entity) (or (get-in entity [:ref :id]) (:id entity)) entity))
 
+(defn xml-escape
+  [value]
+  (-> (str value)
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")
+      (str/replace "\"" "&quot;")
+      (str/replace "'" "&apos;")))
+
+(defn markdown-label
+  [value]
+  (-> value
+      (str/replace "\\[" "[")
+      (str/replace "\\]" "]")))
+
+(defn inline-html
+  [text]
+  (let [matcher (re-matcher inline-markdown-pattern text)]
+    (loop [offset 0 parts []]
+      (if (.find matcher)
+        (let [start (.start matcher)
+              parts (cond-> parts
+                      (< offset start) (conj (xml-escape (subs text offset start))))
+              html (cond
+                     (.group matcher 1)
+                     (str "<a href=\"" (xml-escape (.group matcher 2)) "\">"
+                          (xml-escape (markdown-label (.group matcher 1))) "</a>")
+
+                     (.group matcher 3)
+                     (str "<strong>" (xml-escape (.group matcher 3)) "</strong>")
+
+                     (.group matcher 4)
+                     (str "<code>" (xml-escape (.group matcher 4)) "</code>")
+
+                     :else
+                     (str "<em>" (xml-escape (.group matcher 5)) "</em>"))]
+          (recur (.end matcher) (conj parts html)))
+        (apply str (cond-> parts
+                     (< offset (count text)) (conj (xml-escape (subs text offset)))))))))
+
+(defn markdown->html
+  [text]
+  (loop [lines (str/split-lines (or text ""))
+         parts ["<body>"]]
+    (if-let [line (first lines)]
+      (if (str/starts-with? line "- ")
+        (let [[items remaining] (split-with #(str/starts-with? % "- ") lines)]
+          (recur remaining
+                 (conj parts
+                       (str "<ul>"
+                            (apply str (map #(str "<li>" (inline-html (subs % 2)) "</li>") items))
+                            "</ul>\n"))))
+        (if-let [[_ hashes body] (re-matches #"^(#{1,6})\s+(.+)$" line)]
+          (let [level (min 2 (count hashes))]
+            (recur (rest lines)
+                   (conj parts (str "<h" level ">" (inline-html body) "</h" level ">\n"))))
+          (recur (rest lines)
+                 (conj parts (if (str/blank? line) "\n" (str (inline-html line) "\n"))))))
+      (str (apply str parts) "</body>"))))
+
+(defn markdown-link-label
+  [text]
+  (-> text
+      (str/replace "[" "\\[")
+      (str/replace "]" "\\]")))
+
+(defn xml-unescape
+  [text]
+  (-> text
+      (str/replace "&quot;" "\"")
+      (str/replace "&apos;" "'")
+      (str/replace "&lt;" "<")
+      (str/replace "&gt;" ">")
+      (str/replace "&amp;" "&")))
+
+(defn html-links->markdown
+  [html]
+  (str/replace
+   html
+   #"(?is)<a\b[^>]*href=\"([^\"]*)\"[^>]*>(.*?)</a>"
+   (fn [[_ href label]]
+     (str "[" (markdown-link-label (str/replace label #"(?is)<[^>]+>" "")) "](" href ")"))))
+
+(defn html-list->markdown
+  [html tag ordered?]
+  (str/replace
+   html
+   (re-pattern (str "(?is)<" tag "\\b[^>]*>(.*?)</" tag ">"))
+   (fn [[_ body]]
+     (str "\n"
+          (str/join
+           "\n"
+           (map-indexed
+            (fn [index [_ item]]
+              (str (if ordered? (str (inc index) ". ") "- ")
+                   (str/trim (str/replace item #"(?is)<[^>]+>" ""))))
+            (re-seq #"(?is)<li\b[^>]*>(.*?)</li>" body)))
+          "\n\n"))))
+
+(defn html->markdown
+  [html]
+  (when (re-find #"(?i)<!DOCTYPE|<!ENTITY" html)
+    (throw (ex-info "Asana rich text contains a forbidden XML declaration."
+                    {:code :provider-data-invalid})))
+  ;; ponytail: handles Asana's documented task tags; use an XML parser if Babashka exposes one.
+  (-> html
+      html-links->markdown
+      (str/replace #"(?is)<strong\b[^>]*>(.*?)</strong>" "**$1**")
+      (str/replace #"(?is)<em\b[^>]*>(.*?)</em>" "_$1_")
+      (str/replace #"(?is)<code\b[^>]*>(.*?)</code>" "`$1`")
+      (str/replace #"(?is)<h1\b[^>]*>(.*?)</h1>" "\n# $1\n\n")
+      (str/replace #"(?is)<h2\b[^>]*>(.*?)</h2>" "\n## $1\n\n")
+      (html-list->markdown "ol" true)
+      (html-list->markdown "ul" false)
+      (str/replace #"(?is)<blockquote\b[^>]*>(.*?)</blockquote>" "\n> $1\n\n")
+      (str/replace #"(?is)<pre\b[^>]*>(.*?)</pre>" "\n```\n$1\n```\n\n")
+      (str/replace #"(?is)<p\b[^>]*>(.*?)</p>" "$1\n\n")
+      (str/replace #"(?i)<br\s*/?>" "\n")
+      (str/replace #"(?i)<hr\s*/?>" "\n---\n\n")
+      (str/replace #"(?is)</?(?:body|s|u)\b[^>]*>" "")
+      (str/replace #"(?is)<[^>]+>" "")
+      xml-unescape
+      (str/replace #"\n{3,}" "\n\n")
+      str/trim))
+
 (defn normalize-project
   [scope project]
   {:ref (domain/identity :asana :project (:gid project))
@@ -82,7 +210,10 @@
     {:ref (domain/identity :asana :tracker-item (:gid task))
      :display-id (:gid task)
      :title (:name task)
-     :description (or (:notes task) "")
+     :description (if (re-find #"(?i)<(?:h[12]|ul|ol|p|strong|em|code|blockquote|pre)\b"
+                               (or (:html_notes task) ""))
+                    (html->markdown (:html_notes task))
+                    (or (:notes task) ""))
      :url (:permalink_url task)
      :state {:name (if (:completed task) "completed" "incomplete")}
      :scopes [scope]
@@ -172,7 +303,7 @@
   [app-config context title description labels]
   (let [project (some-> (:project context) provider-id)
         parent (some-> (:parent context) provider-id)
-        payload {:data (cond-> {:name title :notes description}
+        payload {:data (cond-> {:name title :html_notes (markdown->html description)}
                          project (assoc :projects [project])
                          parent (assoc :parent parent)
                          (seq labels) (assoc :tags (vec (tag-ids labels))))}]
@@ -200,7 +331,7 @@
   [app-config item {:keys [description labels]}]
   (let [item-id (provider-id item)
         labels (vec (or labels []))]
-    (update-task! app-config item-id {:notes description})
+    (update-task! app-config item-id {:html_notes (markdown->html description)})
     (update-tags! app-config item-id (:labels item) labels)
     (assoc item :description description :labels labels)))
 
