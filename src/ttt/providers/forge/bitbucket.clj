@@ -78,13 +78,25 @@
      :slug slug
      :default-target-branch (get-in repo [:mainbranch :name])}))
 
+(defn encode-body
+  [body]
+  (str/replace (or body "")
+               #"(?m)^<!-- ttt:(begin|end|item [^>]+) -->$"
+               (fn [[_ marker]] (str "[//]: # (ttt:" marker ")"))))
+
+(defn decode-body
+  [body]
+  (str/replace (or body "")
+               #"(?m)^\[//\]: # \(ttt:(begin|end|item [^)]+)\)$"
+               (fn [[_ marker]] (str "<!-- ttt:" marker " -->"))))
+
 (defn normalize-change-request
   ([change-request]
    {:ref (domain/identity :bitbucket :change-request (:id change-request))
     :display-id (str "#" (:id change-request))
     :number (:id change-request)
     :title (:title change-request)
-    :body (or (:description change-request) "")
+    :body (decode-body (:description change-request))
     :url (get-in change-request [:links :html :href])
     :source-branch (get-in change-request [:source :branch :name])
     :target-branch (get-in change-request [:destination :branch :name])})
@@ -147,7 +159,7 @@
   (api! app-config :put
         (str "/repositories/" repo-slug "/pullrequests/" pr-id)
         (cond-> {}
-          (some? body) (assoc :description body)
+          (some? body) (assoc :description (encode-body body))
           (some? title) (assoc :title title)))
   nil)
 
@@ -157,7 +169,7 @@
         pr (api! app-config :post
                  (str "/repositories/" slug "/pullrequests")
                  {:title title
-                  :description (or body "")
+                  :description (encode-body body)
                   :source {:branch {:name head}}
                   :destination {:branch {:name base}}})]
     {:number (:id pr)
