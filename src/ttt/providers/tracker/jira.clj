@@ -72,7 +72,7 @@
   (if (map? entity) (or (get-in entity [:ref :id]) (:id entity)) entity))
 
 (def inline-markdown-pattern
-  #"\[((?:\\.|[^\]])*)\]\((https?://[^)\s]+)\)|\*\*([^*]+)\*\*|\x60([^\x60]+)\x60")
+  #"\[((?:\\.|[^\]])*)\]\((https?://[^)\s]+)\)|\*\*([^*]+)\*\*|\x60([^\x60]+)\x60|(?<!\w)_([^_\r\n]+)_(?!\w)")
 
 (defn text-node
   ([text] {:type "text" :text text})
@@ -91,13 +91,16 @@
                              [(-> (.group matcher 1)
                                   (str/replace "\\[" "")
                                   (str/replace "\\]" ""))
-                              {:type "link" :attrs {:href (.group matcher 2)}}]
+                             {:type "link" :attrs {:href (.group matcher 2)}}]
 
                              (.group matcher 3)
                              [(.group matcher 3) {:type "strong"}]
 
+                             (.group matcher 4)
+                             [(.group matcher 4) {:type "code"}]
+
                              :else
-                             [(.group matcher 4) {:type "code"}])]
+                             [(.group matcher 5) {:type "em"}])]
           (recur (.end matcher) (conj nodes (text-node value mark))))
         (cond-> nodes
           (< offset (count text)) (conj (text-node (subs text offset))))))))
@@ -138,6 +141,7 @@
   (reduce (fn [text mark]
             (case (:type mark)
               "strong" (str "**" text "**")
+              "em" (str "_" text "_")
               "code" (str "`" text "`")
               "link" (str "["
                           (-> text
