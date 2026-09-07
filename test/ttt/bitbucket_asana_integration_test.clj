@@ -19,7 +19,10 @@
 
 (def asana-task
   {:gid "123" :name "Retry" :notes "Tracker description" :completed false
-   :permalink_url "https://app.asana.com/0/0/123" :tags []})
+   :permalink_url "https://app.asana.com/0/0/123"
+   :projects [{:gid "project-1" :name "App"
+               :permalink_url "https://app.asana.com/0/project-1/list"}]
+   :tags [{:gid "tag-old" :name "Old"}]})
 
 (defn shell-stub
   [& args]
@@ -55,6 +58,16 @@
       (and (= :put method) (= "/tasks/123" path))
       (do (swap! order conj :tracker) (reset! payload query) {:data asana-task})
 
+      (and (= :post method) (= "/tasks/123/removeTag" path))
+      (do (swap! order conj :tracker-remove-tag)
+          (swap! payload assoc :removed-tag query)
+          {:data {}})
+
+      (and (= :post method) (= "/tasks/123/addTag" path))
+      (do (swap! order conj :tracker-add-tag)
+          (swap! payload assoc :added-tag query)
+          {:data {}})
+
       (and (= :get method) (= "/workspaces/w/tags" path))
       {:data [{:gid "tag-1" :name "Bug"}]}
 
@@ -78,10 +91,14 @@
         (is (= "team/repo#7" (get-in proposal [:source :change-request :display-id])))
         (is (empty? @order))
         (core/apply! runtime proposal)))
-    (is (= [:tracker :forge] @order))
-    (is (= ["tag-1"] (get-in @asana-payload [:data :tags])))
+    (is (= [:tracker :tracker-add-tag :forge] @order))
+    (is (nil? (get-in @asana-payload [:data :tags])))
+    (is (nil? (:removed-tag @asana-payload)))
+    (is (= "tag-1" (get-in @asana-payload [:added-tag :data :tag])))
     (is (str/includes? (get-in @asana-payload [:data :notes]) "Tracker description"))
     (is (= "[123] Retry" (:title @bitbucket-payload)))
+    (is (str/includes? (:description @bitbucket-payload)
+                       "[App](https://app.asana.com/0/project-1/list)"))
     (is (str/includes? (:description @bitbucket-payload) "## Asana"))))
 
 (deftest bitbucket-asana-translates-create-context-before-forge-update
