@@ -18,7 +18,7 @@
     (let [args (vec args)]
       (cond
         (= ["gh" "repo" "view"] (subvec args 0 3)) (json/generate-string {:nameWithOwner "org/repo" :defaultBranchRef {:name "main"}})
-        (= ["gh" "pr" "view"] (subvec args 0 3)) (json/generate-string {:number 7 :title "Improve retry handling" :body "User body" :url "https://github.com/org/repo/pull/7" :headRefName "retry" :baseRefName "main"})
+        (= ["gh" "pr" "view"] (subvec args 0 3)) (json/generate-string {:number 7 :title "Improve retry handling" :body "User body" :url "https://github.com/org/repo/pull/7" :headRefName "retry" :baseRefName "main" :state "OPEN"})
         (= ["git" "rev-parse"] (subvec args 0 2)) "retry"
         (= ["gh" "api"] (subvec args 0 2)) (do (swap! order conj :forge) (reset! forge-payload {:endpoint (nth args 2) :payload (json/parse-string (slurp (nth args (inc (.indexOf args "--input")))) true)}) "{}")
         :else (throw (ex-info "Unexpected command" {:args args}))))))
