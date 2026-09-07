@@ -19,8 +19,13 @@
 
 (def default-change-request-config
   {:body-begin-marker "<!-- ttt:begin -->"
-   :body-end-marker "<!-- ttt:end -->"
-   :section-title "Linear"})
+   :body-end-marker "<!-- ttt:end -->"})
+
+(def tracker-section-titles
+  {:linear "Linear"
+   :jira "Jira"
+   :github-issues "GitHub Issues"
+   :asana "Asana"})
 
 (declare normalize-config)
 
@@ -49,8 +54,8 @@
 (defn env-overrides
   [env]
   (let [workspace (or (get env "LINEAR_WORKSPACE")
-                      (get env "LINEAR_WORKSPACE_URL"))]
-    {:tracker (cond-> {}
+                      (get env "LINEAR_WORKSPACE_URL"))
+        tracker (cond-> {}
                 (get env "LINEAR_API_KEY")
                 (assoc :api-key (get env "LINEAR_API_KEY"))
 
@@ -70,7 +75,49 @@
                 (assoc :workspace-url
                        (if (str/starts-with? workspace "http")
                          workspace
-                         (str "https://linear.app/" workspace))))}))
+                         (str "https://linear.app/" workspace)))
+
+                (get env "JIRA_EMAIL")
+                (assoc :email (get env "JIRA_EMAIL"))
+
+                (get env "JIRA_API_TOKEN")
+                (assoc :api-token (get env "JIRA_API_TOKEN"))
+
+                (get env "JIRA_SITE_URL")
+                (assoc :site-url (get env "JIRA_SITE_URL"))
+
+                (get env "JIRA_CLOUD_ID")
+                (assoc :cloud-id (get env "JIRA_CLOUD_ID"))
+
+                (get env "JIRA_PROJECT")
+                (assoc :project (get env "JIRA_PROJECT"))
+
+                  (get env "JIRA_ISSUE_TYPE")
+                  (assoc :issue-type (get env "JIRA_ISSUE_TYPE"))
+
+                  (get env "ASANA_TOKEN")
+                  (assoc :token (get env "ASANA_TOKEN"))
+
+                  (get env "ASANA_WORKSPACE")
+                  (assoc :workspace (get env "ASANA_WORKSPACE")))
+        forge (cond-> {}
+                (get env "GITLAB_TOKEN")
+                (assoc :token (get env "GITLAB_TOKEN"))
+
+                (get env "GITLAB_BASE_URL")
+                (assoc :base-url (get env "GITLAB_BASE_URL"))
+
+                (get env "BITBUCKET_EMAIL")
+                (assoc :email (get env "BITBUCKET_EMAIL"))
+
+                (get env "BITBUCKET_API_TOKEN")
+                (assoc :api-token (get env "BITBUCKET_API_TOKEN"))
+
+                (get env "BITBUCKET_BASE_URL")
+                (assoc :base-url (get env "BITBUCKET_BASE_URL")))]
+    (cond-> {}
+      (seq tracker) (assoc :tracker tracker)
+      (seq forge) (assoc :forge forge))))
 
 (defn deep-merge
   [& maps]
@@ -126,7 +173,14 @@
     (-> config
         (assoc :tracker tracker)
         (assoc :forge forge)
-        (assoc :change-request change-request))))
+        (assoc :change-request
+               (if (str/blank? (:section-title change-request))
+                 (assoc change-request
+                        :section-title
+                        (get tracker-section-titles
+                             (:provider tracker)
+                             (str/capitalize (name (:provider tracker)))))
+                 change-request)))))
 
 (defn tracker-provider
   [config]
