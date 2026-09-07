@@ -28,7 +28,7 @@
     "  ttt apply --request-file PATH --approve PROPOSAL_ID"
     ""
     "Setup:"
-    "  ttt setup          Configure the tracker and GitHub or GitLab forge"
+    "  ttt setup          Configure the tracker and GitHub, GitLab, or Bitbucket forge"
     ""
     "Interactive workflow:"
     "  ttt --interactive --parent \"parent item key or fuzzy text\""
@@ -51,7 +51,7 @@
    "\n"
    ["# tickettrain"
     ""
-    (str "`ttt` (tickettrain) links the current GitHub pull request or GitLab merge request with Linear, GitHub Issues, Jira, or Asana items. "
+    (str "`ttt` (tickettrain) links the current GitHub, GitLab, or Bitbucket change request with Linear, GitHub Issues, Jira, or Asana items. "
          "It is a local CLI with a provider-neutral JSON API (schema v" agent/schema-version ") "
          "designed for humans and AI agents. Run it inside the target application repository.")
     ""
