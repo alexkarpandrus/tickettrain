@@ -150,19 +150,13 @@
 
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
-  (let [slug (remote-slug)
-        mr (api! app-config :post
-                 (str "/projects/" (url-encode slug) "/merge_requests")
-                 {:source_branch head
-                  :target_branch base
-                  :title title
-                  :description (or body "")})]
-    {:number (:iid mr)
-     :title (:title mr)
-     :body (:description mr)
-     :url (:web_url mr)
-     :source-branch (:source_branch mr)
-     :target-branch (:target_branch mr)}))
+  (let [slug (remote-slug)]
+    (api! app-config :post
+          (str "/projects/" (url-encode slug) "/merge_requests")
+          {:source_branch head
+           :target_branch base
+           :title title
+           :description (or body "")})))
 
 (def capabilities
   #{:current-branch

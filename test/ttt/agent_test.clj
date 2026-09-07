@@ -1,5 +1,6 @@
 (ns ttt.agent-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
             [ttt.cli.agent :as agent]
             [ttt.domain :as domain]))
 
@@ -8,8 +9,10 @@
 (def source {:branch "retry" :repository {:ref (domain/identity :github :repository "org/repo") :display-id "org/repo"} :change-request {:ref (domain/contained-identity :github :change-request "org/repo" 7) :display-id "org/repo#7" :title "Retry" :body "Body" :url "https://github/pr"}})
 (def config {:change-request {:body-begin-marker "<!-- ttt:begin -->" :body-end-marker "<!-- ttt:end -->" :section-title "Tracker"}})
 (defn runtime [calls]
-  {:config config :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& _] (swap! calls conj :forge))}
-   :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] item)}})
+  {:config config :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& _] (swap! calls conj :forge))
+                          :create-change-request! (fn [intent] (swap! calls conj :forge-create) (assoc (:change-request source) :title (:title intent) :body (:body intent)))
+                          :identify-change-request (fn [_ created] created)}
+   :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] (swap! calls conj :tracker-create) item)}})
 
 (deftest numeric-text-options-remain-strings
   (is (= {:query "1218235721923599" :project "1182987059881499"}
@@ -53,6 +56,19 @@
 (deftest create-new-allows-no-parent-or-project
   (is (= {:action "create_new" :labels []}
          (agent/validate-request! {:action "create_new" :labels []}))))
+
+(deftest approved-create-new-opens-a-missing-change-request-before-linking-back
+  (let [calls (atom [])
+        source* (assoc source :change-request nil
+                       :repository (assoc (:repository source) :default-target-branch "main"))
+        runtime* (-> (runtime calls)
+                     (assoc-in [:forge :inspect-current] (fn [] source*)))
+        request {:action "create_new" :title "Retry" :labels []}
+        proposal (agent/preview-data runtime* request)
+        result (agent/apply-data! runtime* request (:proposalId proposal))]
+    (is (not (str/includes? (get-in proposal [:trackerIntent :description]) "]()")))
+    (is (= [:tracker-create :forge-create :tracker] @calls))
+    (is (= "https://github/pr" (get-in result [:changeRequest :url])))))
 
 (deftest search-and-preview-carry-state-and-project
   (let [calls (atom [])
