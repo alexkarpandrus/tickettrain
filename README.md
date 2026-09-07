@@ -10,7 +10,14 @@
 6. Updates the GitHub PR body with a link to the new Linear issue.
 7. If no PR exists yet, renames the branch, pushes it, and opens the PR.
 
-`ttt` runs inside the target application repo where you want to create the PR and Linear issue.
+## Providers
+
+- Forges: **GitHub** via the `gh` CLI, **GitLab**, and **Bitbucket** via their REST APIs.
+- Trackers: **Linear**, **GitHub Issues**, **Jira**, and **Asana**.
+
+Select GitHub Issues with `:tracker {:provider :github-issues}` in `config/ttt.edn`.
+
+`ttt` runs inside the target application repo where you want to create the PR and tracker issue.
 
 ## Install
 
@@ -63,6 +70,19 @@ Supported `.env` keys:
 - `LINEAR_STATE_NAME`
 - `LINEAR_WORKSPACE`
 - `LINEAR_WORKSPACE_URL`
+- `JIRA_EMAIL` (Atlassian account email)
+- `JIRA_API_TOKEN` (scoped Jira API token)
+- `JIRA_SITE_URL` (for example, `https://your-site.atlassian.net`)
+- `JIRA_CLOUD_ID`
+- `JIRA_PROJECT` (project key, for example, `APP`)
+- `JIRA_ISSUE_TYPE` (default `Task`)
+- `GITLAB_TOKEN`
+- `GITLAB_BASE_URL` (default `https://gitlab.com`)
+- `ASANA_TOKEN`
+- `ASANA_WORKSPACE` (workspace gid)
+- `BITBUCKET_EMAIL` (Atlassian account email)
+- `BITBUCKET_API_TOKEN`
+- `BITBUCKET_BASE_URL` (default `https://api.bitbucket.org`)
 
 Edit `config/ttt.edn` only if you want defaults checked into the repo:
 
@@ -144,7 +164,7 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve lp2_example
 ```
 
-`create_new` accepts `parent`, `project`, optional `title`, and existing `labels`. `preview` is read-only; `apply` is the only mutating command and recomputes the deterministic `lp2_` proposal ID before accepting approval. Provide exactly one of `--request` or the owner-only `--request-file`.
+`create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. `preview` is read-only; `apply` is the only mutating command and recomputes the deterministic `lp2_` proposal ID before accepting approval. Provide exactly one of `--request` or the owner-only `--request-file`.
 
 V2 responses use `repository`, `changeRequest`, `item`, `trackerIntent`, and `changeRequestUpdate`. Provider names occur only inside identity values.
 

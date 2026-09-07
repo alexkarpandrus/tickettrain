@@ -10,8 +10,7 @@
 
  :change-request
  {:body-begin-marker "<!-- ttt:begin -->"
-  :body-end-marker "<!-- ttt:end -->"
-  :section-title "Linear"}
+  :body-end-marker "<!-- ttt:end -->"}
 
  :search
  {:candidate-count 5
