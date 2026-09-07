@@ -35,6 +35,11 @@
     (is (= :example-forge (get-in merged [:forge :provider])))
     (is (= "token" (get-in merged [:tracker :api-key])))))
 
+(deftest tracker-provider-selects-managed-section-title
+  (is (= "GitHub Issues"
+         (get-in (config/normalize-config {:tracker {:provider :github-issues}})
+                 [:change-request :section-title]))))
+
 (deftest normalize-config-fills-default-provider-sections
   (let [normalized (config/normalize-config
                     {:tracker {:provider :linear

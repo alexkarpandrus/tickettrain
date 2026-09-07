@@ -5,6 +5,7 @@
             [ttt.core-test]
             [ttt.fuzzy-test]
             [ttt.git-test]
+            [ttt.github-issues-test]
             [ttt.github-test]
             [ttt.linear-test]
             [ttt.links-test]
@@ -17,7 +18,7 @@
 
 (def test-namespaces
   ['ttt.agent-test 'ttt.config-test 'ttt.core-test
-   'ttt.fuzzy-test 'ttt.git-test 'ttt.github-test
+   'ttt.fuzzy-test 'ttt.git-test 'ttt.github-issues-test 'ttt.github-test
    'ttt.linear-test 'ttt.links-test 'ttt.main-test
    'ttt.pr-body-test 'ttt.provider-integration-test
    'ttt.shell-test 'ttt.ui-test 'ttt.workflow-test])

@@ -10,7 +10,14 @@
 6. Updates the GitHub PR body with a link to the new Linear issue.
 7. If no PR exists yet, renames the branch, pushes it, and opens the PR.
 
-`ttt` runs inside the target application repo where you want to create the PR and Linear issue.
+## Providers
+
+- Forge: **GitHub** via the `gh` CLI.
+- Trackers: **Linear** and **GitHub Issues**.
+
+Select GitHub Issues with `:tracker {:provider :github-issues}` in `config/ttt.edn`.
+
+`ttt` runs inside the target application repo where you want to create the PR and tracker issue.
 
 ## Install
 
