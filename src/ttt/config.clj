@@ -53,8 +53,8 @@
 (defn env-overrides
   [env]
   (let [workspace (or (get env "LINEAR_WORKSPACE")
-                      (get env "LINEAR_WORKSPACE_URL"))]
-    {:tracker (cond-> {}
+                      (get env "LINEAR_WORKSPACE_URL"))
+        tracker (cond-> {}
                 (get env "LINEAR_API_KEY")
                 (assoc :api-key (get env "LINEAR_API_KEY"))
 
@@ -91,8 +91,17 @@
                 (get env "JIRA_PROJECT")
                 (assoc :project (get env "JIRA_PROJECT"))
 
-                (get env "JIRA_ISSUE_TYPE")
-                (assoc :issue-type (get env "JIRA_ISSUE_TYPE")))}))
+                  (get env "JIRA_ISSUE_TYPE")
+                  (assoc :issue-type (get env "JIRA_ISSUE_TYPE")))
+        forge (cond-> {}
+                (get env "GITLAB_TOKEN")
+                (assoc :token (get env "GITLAB_TOKEN"))
+
+                (get env "GITLAB_BASE_URL")
+                (assoc :base-url (get env "GITLAB_BASE_URL")))]
+    (cond-> {}
+      (seq tracker) (assoc :tracker tracker)
+      (seq forge) (assoc :forge forge))))
 
 (defn deep-merge
   [& maps]

@@ -55,6 +55,12 @@
                      "JIRA_PROJECT" "APP"
                      "JIRA_ISSUE_TYPE" "Task"})))))
 
+(deftest gitlab-credentials-map-from-the-environment
+  (is (= {:token "gitlab-token" :base-url "https://gitlab.example.com"}
+         (:forge (config/env-overrides
+                  {"GITLAB_TOKEN" "gitlab-token"
+                   "GITLAB_BASE_URL" "https://gitlab.example.com"})))))
+
 (deftest normalize-config-fills-default-provider-sections
   (let [normalized (config/normalize-config
                     {:tracker {:provider :linear
