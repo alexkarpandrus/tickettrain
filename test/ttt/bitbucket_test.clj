@@ -52,6 +52,34 @@
                     "UTF-8")))
     (is (= "application/json" (get-in @request [:headers "Content-Type"])))))
 
+(deftest create-change-request-returns-the-raw-bitbucket-response
+  (let [response {:id 7
+                  :title "[KAN-6] Verify Bitbucket Jira workflow"
+                  :description "Body"
+                  :links {:html {:href "https://bitbucket.org/team/repo/pull-requests/7"}}
+                  :source {:branch {:name "feature"}}
+                  :destination {:branch {:name "main"}}}
+        request (atom nil)]
+    (with-redefs [bitbucket/remote-slug (constantly "team/repo")
+                  bitbucket/api! (fn [config method path body]
+                                   (reset! request [config method path body])
+                                   response)]
+      (is (= response
+             (bitbucket/create-change-request!
+              config
+              {:title "[KAN-6] Verify Bitbucket Jira workflow"
+               :body "Body"
+               :base "main"
+               :head "feature"})))
+      (is (= [config
+              :post
+              "/repositories/team/repo/pullrequests"
+              {:title "[KAN-6] Verify Bitbucket Jira workflow"
+               :description "Body"
+               :source {:branch {:name "feature"}}
+               :destination {:branch {:name "main"}}}]
+              @request)))))
+
 (deftest setup-validates-the-current-repository
   (let [calls (atom 0)]
     (with-redefs [bitbucket/current-repo (fn [_]
