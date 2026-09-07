@@ -16,6 +16,15 @@
 (deftest adf-round-trips-plain-text
   (is (= "line one\nline two" (jira/adf->text (jira/text->adf "line one\nline two")))))
 
+(deftest adf-renders-emphasis-without-visible-markers
+  (let [text "_Change request body was empty._"
+        adf (jira/text->adf text)]
+    (is (= {:type "text"
+            :text "Change request body was empty."
+            :marks [{:type "em"}]}
+           (get-in adf [:content 0 :content 0])))
+    (is (= text (jira/adf->text adf)))))
+
 (deftest adf-renders-generated-markdown-as-native-blocks
   (let [markdown (str "## What\n\n"
                       "Use **Basic auth** with `bb test`.\n\n"
