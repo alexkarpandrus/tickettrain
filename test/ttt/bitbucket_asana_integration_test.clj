@@ -95,7 +95,7 @@
     (is (nil? (get-in @asana-payload [:data :tags])))
     (is (nil? (:removed-tag @asana-payload)))
     (is (= "tag-1" (get-in @asana-payload [:added-tag :data :tag])))
-    (is (str/includes? (get-in @asana-payload [:data :notes]) "Tracker description"))
+    (is (str/includes? (get-in @asana-payload [:data :html_notes]) "Tracker description"))
     (is (= "[123] Retry" (:title @bitbucket-payload)))
     (is (str/includes? (:description @bitbucket-payload)
                        "[App](https://app.asana.com/0/project-1/list)"))

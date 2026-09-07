@@ -9,8 +9,17 @@
 (def scope (domain/scope-identity :asana "w"))
 
 (deftest task-fields-include-related-resource-names
-  (doseq [field ["projects.name" "tags.name" "parent.name"]]
+  (doseq [field ["html_notes" "projects.name" "tags.name" "parent.name"]]
     (is (str/includes? asana/task-fields field))))
+
+(deftest rich-notes-round-trip-generated-markdown
+  (let [markdown (str "_Empty._\n\n"
+                      "## Pull requests\n\n"
+                      "- [repo#1 — \\[123\\] title](https://bitbucket.org/repo/pull-requests/1)")
+        html (asana/markdown->html markdown)]
+    (is (str/includes? html "<h2>Pull requests</h2>"))
+    (is (str/includes? html "<a href=\"https://bitbucket.org/repo/pull-requests/1\">repo#1 — [123] title</a>"))
+    (is (= markdown (asana/html->markdown html)))))
 
 (deftest normalizes-task-with-project-parent-and-tags
   (let [task {:gid "123" :name "Retry" :notes "Body" :permalink_url "https://app.asana.com/0/0/123"
@@ -27,6 +36,28 @@
     (is (= "99" (get-in item [:parent :display-id])))
     (is (= ["bug"] (mapv :display-id (:labels item))))
     (is (domain/entity-in-scope? item scope))))
+
+(deftest normalizes-rich-task-notes
+  (let [item (asana/normalize-task
+              scope
+              {:gid "123" :name "Retry" :html_notes "<body><h2>Links</h2><ul><li><a href=\"https://example.com\">Example</a></li></ul></body>"})]
+    (is (= "## Links\n\n- [Example](https://example.com)" (:description item)))))
+
+(deftest keeps-canonical-notes-for-legacy-plain-rich-text
+  (let [notes "## Pull requests\n\n- [PR](https://example.com/pr/1)"
+        item (asana/normalize-task
+              scope
+              {:gid "123" :name "Retry" :notes notes
+               :html_notes "<body>## Pull requests\n\n- [PR](<a href=\"https://example.com/pr/1\">https://example.com/pr/1</a>)</body>"})]
+    (is (= notes (:description item)))))
+
+(deftest rejects-rich-text-entity-declarations
+  (is (= :provider-data-invalid
+         (try
+           (asana/html->markdown "<!DOCTYPE body [<!ENTITY x SYSTEM 'file:///etc/passwd'>]><body>&x;</body>")
+           nil
+           (catch clojure.lang.ExceptionInfo ex
+             (:code (ex-data ex)))))))
 
 (deftest tag-ids-extract-native-gids
   (is (= ["t1" "t2"]

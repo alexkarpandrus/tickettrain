@@ -14,6 +14,17 @@
 (deftest prefix-change-request-title-adds-ticket-prefix
   (is (= "[APP-44] Title" (bitbucket/prefix-change-request-title "APP-44" "Title"))))
 
+(deftest managed-markers-use-hidden-bitbucket-reference-definitions
+  (let [canonical (str "<!-- ttt:begin -->\n"
+                       "## Asana\n\n"
+                       "<!-- ttt:item asana:tracker-item:123 -->\n"
+                       "- Issue: [123](https://app.asana.com/0/0/123)\n"
+                       "<!-- ttt:end -->")
+        encoded (bitbucket/encode-body canonical)]
+    (is (not (clojure.string/includes? encoded "<!--")))
+    (is (clojure.string/includes? encoded "[//]: # (ttt:item asana:tracker-item:123)"))
+    (is (= canonical (bitbucket/decode-body encoded)))))
+
 (deftest normalizes-repo-and-change-request
   (let [repo (bitbucket/normalize-repo {:full_name "team/repo" :mainbranch {:name "main"}})
         cr (bitbucket/normalize-change-request
