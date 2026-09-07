@@ -19,8 +19,11 @@
 
 (def default-change-request-config
   {:body-begin-marker "<!-- ttt:begin -->"
-   :body-end-marker "<!-- ttt:end -->"
-   :section-title "Linear"})
+   :body-end-marker "<!-- ttt:end -->"})
+
+(def tracker-section-titles
+  {:linear "Linear"
+   :github-issues "GitHub Issues"})
 
 (declare normalize-config)
 
@@ -126,7 +129,14 @@
     (-> config
         (assoc :tracker tracker)
         (assoc :forge forge)
-        (assoc :change-request change-request))))
+        (assoc :change-request
+               (if (str/blank? (:section-title change-request))
+                 (assoc change-request
+                        :section-title
+                        (get tracker-section-titles
+                             (:provider tracker)
+                             (str/capitalize (name (:provider tracker)))))
+                 change-request)))))
 
 (defn tracker-provider
   [config]
