@@ -41,17 +41,25 @@
                                      (choose-entity (filter #(domain/entity-in-scope? % scope) ((:search-projects tracker))) query (candidate-options runtime options) :project)))]
     (core/assert-entity-scope! runtime selected :project)))
 (defn selected-context [runtime options]
-  (if-let [project (when (:project options) (choose-project runtime options))]
-    (if (:parent options)
-      (let [parent-item (choose-parent-item runtime options project)]
-        {:kind :parent :prompt-label "Create tracker item and update the change request?" :selection-label "Selected parent"
-         :selection-title (:display-id parent-item) :selection-subtitle (:title parent-item) :scope-label "Selected project"
-         :scope-title (entity-title project) :scope-subtitle (:display-id project) :context {:parent parent-item :project project}})
-      {:kind :project :prompt-label "Create tracker item and update the change request?" :selection-label "Selected project"
-       :selection-title (:display-id project) :selection-subtitle (:title project) :context {:project project}})
+  (cond
+    (:project options)
+    (let [project (choose-project runtime options)]
+      (if (:parent options)
+        (let [parent-item (choose-parent-item runtime options project)]
+          {:kind :parent :prompt-label "Create tracker item and update the change request?" :selection-label "Selected parent"
+           :selection-title (:display-id parent-item) :selection-subtitle (:title parent-item) :scope-label "Selected project"
+           :scope-title (entity-title project) :scope-subtitle (:display-id project) :context {:parent parent-item :project project}})
+        {:kind :project :prompt-label "Create tracker item and update the change request?" :selection-label "Selected project"
+         :selection-title (:display-id project) :selection-subtitle (:title project) :context {:project project}}))
+
+    (:parent options)
     (let [parent-item (choose-parent-item runtime options nil)]
       {:kind :parent :prompt-label "Create tracker item and update the change request?" :selection-label "Selected parent"
-       :selection-title (:display-id parent-item) :selection-subtitle (:title parent-item) :context {:parent parent-item}})))
+       :selection-title (:display-id parent-item) :selection-subtitle (:title parent-item) :context {:parent parent-item}})
+
+    :else
+    {:kind :none :prompt-label "Create tracker item and update the change request?"
+     :selection-label "Selected scope" :selection-title "None" :context {}}))
 (defn final-title [options source] (or (:title options) (:title source)))
 (defn existing-branch-item [runtime branch]
   (when-let [display-id (or (git/branch-ticket-id branch) (git/branch-item-identifier branch))]
@@ -125,5 +133,4 @@
             (println (ui/success "✅ Opened change request:") (str (:display-id change-request) " " (:url change-request)))))))))
 
 (defn execute! [runtime options]
-  (core/ensure-selection-input! options)
   (let [source (core/inspect runtime)] (if (:change-request source) (execute-existing-change-request! runtime options source) (execute-no-change-request! runtime options source))))

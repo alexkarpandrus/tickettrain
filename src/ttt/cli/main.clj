@@ -201,7 +201,6 @@
 
 (defn execute!
   [options]
-  (core/ensure-selection-input! (assoc options :usage help-text))
   (let [app-config (config/load-config (:config-path options))
         runtime (adapters/runtime app-config forge/registry tracker/registry)]
     (workflow/execute! runtime options)))

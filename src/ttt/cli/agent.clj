@@ -121,7 +121,6 @@
                       (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
                       (when (or (:issue request) (:parent request) (:project request) (:title request)) (invalid-request! "link_existing accepts only item and labels.")))
     "create_new" (do
-                    (when-not (or (seq (:parent request)) (seq (:project request))) (invalid-request! "create_new requires parent or project."))
                     (when (or (:item request) (:issue request)) (invalid-request! "create_new accepts parent, project, title, and labels.")))
     (invalid-request! (str "Unsupported action: " (:action request))))
   request)

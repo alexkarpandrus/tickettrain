@@ -144,7 +144,7 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve lp2_example
 ```
 
-`create_new` accepts `parent`, `project`, optional `title`, and existing `labels`. `preview` is read-only; `apply` is the only mutating command and recomputes the deterministic `lp2_` proposal ID before accepting approval. Provide exactly one of `--request` or the owner-only `--request-file`.
+`create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. `preview` is read-only; `apply` is the only mutating command and recomputes the deterministic `lp2_` proposal ID before accepting approval. Provide exactly one of `--request` or the owner-only `--request-file`.
 
 V2 responses use `repository`, `changeRequest`, `item`, `trackerIntent`, and `changeRequestUpdate`. Provider names occur only inside identity values.
 
