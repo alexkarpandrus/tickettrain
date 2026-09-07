@@ -23,6 +23,7 @@
 
 (def tracker-section-titles
   {:linear "Linear"
+   :jira "Jira"
    :github-issues "GitHub Issues"})
 
 (declare normalize-config)
@@ -73,7 +74,25 @@
                 (assoc :workspace-url
                        (if (str/starts-with? workspace "http")
                          workspace
-                         (str "https://linear.app/" workspace))))}))
+                         (str "https://linear.app/" workspace)))
+
+                (get env "JIRA_EMAIL")
+                (assoc :email (get env "JIRA_EMAIL"))
+
+                (get env "JIRA_API_TOKEN")
+                (assoc :api-token (get env "JIRA_API_TOKEN"))
+
+                (get env "JIRA_SITE_URL")
+                (assoc :site-url (get env "JIRA_SITE_URL"))
+
+                (get env "JIRA_CLOUD_ID")
+                (assoc :cloud-id (get env "JIRA_CLOUD_ID"))
+
+                (get env "JIRA_PROJECT")
+                (assoc :project (get env "JIRA_PROJECT"))
+
+                (get env "JIRA_ISSUE_TYPE")
+                (assoc :issue-type (get env "JIRA_ISSUE_TYPE")))}))
 
 (defn deep-merge
   [& maps]

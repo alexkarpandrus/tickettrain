@@ -1,17 +1,17 @@
 ---
 name: tickettrain
-description: Link a GitHub pull request to a Linear or GitHub Issues item. Use when the user wants to create or link a tracker item for the current branch or PR. Triggers: "link to linear", "create a ticket", "track this work", or "ticket for this PR".
+description: Link a GitHub pull request to a Linear, GitHub Issues, or Jira item. Use when the user wants to create or link a tracker item for the current branch or PR. Triggers: "link to linear", "link to jira", "create a ticket", "track this work", or "ticket for this PR".
 ---
 
 # tickettrain (`ttt`)
 
-`ttt` links the current GitHub pull request with a Linear or GitHub Issues item and keeps both sides in sync. It is a local CLI with a provider-neutral JSON API.
+`ttt` links the current GitHub pull request with a Linear, GitHub Issues, or Jira item and keeps both sides in sync. It is a local CLI with a provider-neutral JSON API.
 
 ## Bootstrap
 
 - `ttt --llm` — print the full agent instructions (read this first when unsure).
 - `ttt version` — self-check and capability list.
-- `ttt setup` — configure Linear or GitHub Issues and check `gh` authentication; run once after install.
+- `ttt setup` — configure Linear, GitHub Issues, or Jira and check `gh` authentication; run once after install.
 
 ## Quick reference
 

@@ -13,7 +13,7 @@
 ## Providers
 
 - Forge: **GitHub** via the `gh` CLI.
-- Trackers: **Linear** and **GitHub Issues**.
+- Trackers: **Linear**, **GitHub Issues**, and **Jira**.
 
 Select GitHub Issues with `:tracker {:provider :github-issues}` in `config/ttt.edn`.
 
@@ -70,6 +70,12 @@ Supported `.env` keys:
 - `LINEAR_STATE_NAME`
 - `LINEAR_WORKSPACE`
 - `LINEAR_WORKSPACE_URL`
+- `JIRA_EMAIL` (Atlassian account email)
+- `JIRA_API_TOKEN` (scoped Jira API token)
+- `JIRA_SITE_URL` (for example, `https://your-site.atlassian.net`)
+- `JIRA_CLOUD_ID`
+- `JIRA_PROJECT` (project key, for example, `APP`)
+- `JIRA_ISSUE_TYPE` (default `Task`)
 
 Edit `config/ttt.edn` only if you want defaults checked into the repo:
 

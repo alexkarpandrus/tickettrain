@@ -40,6 +40,21 @@
          (get-in (config/normalize-config {:tracker {:provider :github-issues}})
                  [:change-request :section-title]))))
 
+(deftest jira-credentials-map-from-the-environment
+  (is (= {:email "alex@example.com"
+          :api-token "jira-token"
+          :site-url "https://acme.atlassian.net"
+          :cloud-id "cloud-1"
+          :project "APP"
+          :issue-type "Task"}
+         (:tracker (config/env-overrides
+                    {"JIRA_EMAIL" "alex@example.com"
+                     "JIRA_API_TOKEN" "jira-token"
+                     "JIRA_SITE_URL" "https://acme.atlassian.net"
+                     "JIRA_CLOUD_ID" "cloud-1"
+                     "JIRA_PROJECT" "APP"
+                     "JIRA_ISSUE_TYPE" "Task"})))))
+
 (deftest normalize-config-fills-default-provider-sections
   (let [normalized (config/normalize-config
                     {:tracker {:provider :linear
