@@ -24,6 +24,16 @@
   (let [calls (atom [])]
     (is (thrown-with-msg? Exception #"Approval does not match" (agent/apply-data! (runtime calls) {:action "link_existing" :item "APP-123" :labels []} "lp2_wrong")))
     (is (empty? @calls))))
+(deftest preview-requires-an-open-change-request
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:forge :inspect-current]
+                           (fn [] (assoc source :change-request nil)))]
+    (try
+      (agent/preview-data runtime* {:action "create_new" :parent "APP-1" :labels []})
+      (is false "Expected change-request-not-found")
+      (catch Exception ex
+        (is (= :change-request-not-found (:code (ex-data ex))))))
+    (is (empty? @calls))))
 (deftest apply-routes-through-core-in-order
   (let [calls (atom []) runtime* (runtime calls) request {:action "link_existing" :item "APP-123" :labels []} approval (:proposalId (agent/preview-data runtime* request))]
     (agent/apply-data! runtime* request approval)

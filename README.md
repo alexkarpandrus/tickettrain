@@ -146,6 +146,8 @@ ttt apply --request "$REQUEST" --approve lp2_example
 
 `create_new` accepts `parent`, `project`, optional `title`, and existing `labels`. `preview` is read-only; `apply` is the only mutating command and recomputes the deterministic `lp2_` proposal ID before accepting approval. Provide exactly one of `--request` or the owner-only `--request-file`.
 
+Schema-v2 `preview` and `apply` require an open change request. Use the interactive workflow to create the initial tracker item and change request.
+
 V2 responses use `repository`, `changeRequest`, `item`, `trackerIntent`, and `changeRequestUpdate`. Provider names occur only inside identity values.
 
 ## How It Works

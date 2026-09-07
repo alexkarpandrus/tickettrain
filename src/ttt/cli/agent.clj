@@ -137,7 +137,14 @@
   (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes (json/generate-string (canonicalize value)) "UTF-8"))]
     (apply str (map #(format "%02x" (bit-and (int %) 0xff)) digest))))
 (defn proposal-id [proposal] (str "lp2_" (subs (sha256 proposal) 0 24)))
-(defn preview-proposal [runtime request] (validate-request! request) (let [proposal (core/preview runtime (core-request request))] (assoc proposal :proposal-id (proposal-id proposal))))
+(defn preview-proposal [runtime request]
+  (validate-request! request)
+  (let [source (core/inspect runtime)]
+    (when-not (:change-request source)
+      (throw (ex-info "Schema-v2 preview and apply require an open change request. Use the interactive workflow to create the initial change request."
+                      {:code :change-request-not-found})))
+    (let [proposal (core/preview runtime source (core-request request))]
+      (assoc proposal :proposal-id (proposal-id proposal)))))
 (defn preview-data [runtime request] (proposal->wire (preview-proposal runtime request)))
 (defn apply-data! [runtime request approval]
   (let [proposal (preview-proposal runtime request)]
