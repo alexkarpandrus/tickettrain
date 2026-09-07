@@ -3,7 +3,8 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.config :as config]
-            [ttt.domain :as domain]))
+            [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]))
 
 (def api-path "/api/1.0")
 
@@ -28,21 +29,17 @@
   [app-config method path query]
   (let [url (api-endpoint app-config path)
         headers {"Authorization" (str "Bearer " (token app-config))
-                 "Content-Type" "application/json"}
-        response (case method
-                   :get (http/get url {:headers headers :query-params query :throw false})
-                   :post (http/post url {:headers headers
-                                         :body (json/generate-string query)
-                                         :throw false})
-                   :put (http/put url {:headers headers
-                                       :body (json/generate-string query)
-                                       :throw false}))
-        status (:status response)
-        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
-    (when (>= status 400)
-      (throw (ex-info (str "Asana API request failed with status " status ".")
-                      {:status status :body body})))
-    body))
+                 "Content-Type" "application/json"}]
+    (remote/request!
+     :asana
+     #(case method
+        :get (http/get url {:headers headers :query-params query :throw false})
+        :post (http/post url {:headers headers
+                              :body (json/generate-string query)
+                              :throw false})
+        :put (http/put url {:headers headers
+                            :body (json/generate-string query)
+                            :throw false})))))
 
 (defn workspace-gid
   [app-config]

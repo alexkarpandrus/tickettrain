@@ -6,6 +6,8 @@
             [ttt.config :as config]
             [ttt.core :as core]
             [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]
+            [ttt.platform.shell :as shell]
             [ttt.providers.forge :as forge]
             [ttt.text.fuzzy :as fuzzy]
             [ttt.providers.tracker :as tracker]))
@@ -23,9 +25,30 @@
                   :approve {:coerce :string}})
 
 (defn success [command data] {:schemaVersion schema-version :ok true :command command :data data})
-(defn failure [command ex] {:schemaVersion schema-version :ok false :command command
-                            :error {:code (name (or (:code (ex-data ex)) :agent-error))
-                                    :message (.getMessage ex)}})
+(defn exception-chain [ex] (take-while some? (iterate #(.getCause %) ex)))
+(defn first-ex-data [chain pred]
+  (some #(let [data (ex-data %)] (when (pred data) data)) chain))
+(defn failure [command ex]
+  (let [chain (exception-chain ex)
+        remote-data (first-ex-data chain #(or (:provider %) (:status %) (:detail %)))
+        command-data (first-ex-data chain :command)
+        connectivity? (some #(= :github-connectivity (:kind (ex-data %))) chain)
+        code (or (some #(some-> % ex-data :code) chain)
+                 (when connectivity? :provider-unavailable)
+                 (when remote-data :remote-api-error)
+                 (when command-data :provider-command-failed)
+                 :agent-error)
+        provider (or (:provider remote-data)
+                     (when (some-> command-data :command (str/starts-with? "gh ")) :github))
+        details (or (:detail remote-data)
+                    (remote/error-detail (:body remote-data))
+                    (shell/first-nonblank-line (:err command-data))
+                    (shell/first-nonblank-line (:out command-data)))]
+    {:schemaVersion schema-version :ok false :command command
+     :error (cond-> {:code (name code) :message (.getMessage ex)}
+              provider (assoc :provider (name provider))
+              (:status remote-data) (assoc :status (:status remote-data))
+              details (assoc :details details))}))
 (defn require-option [options option]
   (or (get options option) (throw (ex-info (str "--" (name option) " is required.") {:code :invalid-request}))))
 (defn parse-options [args] (:opts (cli/parse-args args {:spec option-spec})))

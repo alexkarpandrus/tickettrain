@@ -4,7 +4,8 @@
             [clojure.string :as str]
             [ttt.config :as config]
             [ttt.domain :as domain]
-            [ttt.cli.prompt :as prompt]))
+            [ttt.cli.prompt :as prompt]
+            [ttt.platform.remote :as remote]))
 
 (def endpoint "https://api.linear.app/graphql")
 
@@ -82,21 +83,21 @@
 
 (defn graphql!
   [app-config query variables]
-  (let [response (http/post endpoint
-                            {:headers {"Authorization" (:api-key (tracker-config app-config))
-                                       "Content-Type" "application/json"}
-                             :body (json/generate-string {:query query
-                                                          :variables variables})
-                             :throw false})
-        status (:status response)
-        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
-    (when-not (= 200 status)
-      (throw (ex-info (str "Linear API request failed with status " status ".")
-                      (cond-> {:status status}
-                        (seq (:errors body)) (assoc :errors (:errors body))))))
+  (let [body (remote/request!
+              :linear
+              #(http/post endpoint
+                          {:headers {"Authorization" (:api-key (tracker-config app-config))
+                                     "Content-Type" "application/json"}
+                           :body (json/generate-string {:query query
+                                                        :variables variables})
+                           :throw false}))]
     (when-let [errors (seq (:errors body))]
-      (throw (ex-info (str "Linear GraphQL error: " (:message (first errors)))
-                      {:errors errors})))
+      (let [detail (:message (first errors))]
+        (throw (ex-info (str "Linear GraphQL error: " detail)
+                        {:code :remote-api-error
+                         :provider :linear
+                         :detail detail
+                         :errors errors}))))
     (:data body)))
 
 (defn paginate

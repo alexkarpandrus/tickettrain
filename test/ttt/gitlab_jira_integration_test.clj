@@ -65,6 +65,9 @@
       (and (= :get method) (= "/issue/APP-200" path))
       (assoc jira-issue :key "APP-200")
 
+      (and (= :get method) (= "/project/APP" path))
+      {:issueTypes [{:id "10002" :name "Subtask" :subtask true}]}
+
       (and (= :post method) (= "/issue" path))
       (do (swap! order conj :tracker-create) (reset! payload query) {:key "APP-200"})
 
@@ -107,5 +110,5 @@
         (core/apply! runtime proposal)))
     (is (= [:tracker-create :forge] @order))
     (is (= {:key "APP-1"} (get-in @jira-payload [:fields :parent])))
-    (is (= {:name "Sub-task"} (get-in @jira-payload [:fields :issuetype])))
+    (is (= {:id "10002"} (get-in @jira-payload [:fields :issuetype])))
     (is (= "[APP-200] Retry" (:title @gitlab-payload)))))
