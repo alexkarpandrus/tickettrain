@@ -35,7 +35,10 @@ Bundled registries live at the composition boundary:
 
 ```clojure
 {:github {:build github/neutral-adapter
-          :validate-config! github/assert-ready!}}
+          :validate-config! github/assert-ready!}
+
+ :gitlab {:build gitlab/neutral-adapter
+          :validate-config! gitlab/assert-ready!}}
 
 {:linear {:build linear/neutral-adapter
           :validate-config! linear/assert-ready!}

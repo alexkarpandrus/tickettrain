@@ -1,12 +1,12 @@
 # tickettrain
 
-`ttt` (tickettrain) links the current GitHub pull request with Linear, GitHub Issues, or Jira items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Run it inside the target application repository.
+`ttt` (tickettrain) links the current GitHub pull request or GitLab merge request with Linear, GitHub Issues, or Jira items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Run it inside the target application repository.
 
 ## Preconditions
 
 - `ttt version` succeeds
-- `git`, `gh`, and `bb` are installed
-- `gh auth login` is complete
+- `git` and `bb` are installed; `gh` is required for GitHub
+- Forge authentication is configured
 - Credentials are configured for the selected tracker
 
 Config is loaded from `<ttt-repo>/.env` and `config/ttt.edn`, not from the target application repository.
@@ -25,7 +25,7 @@ Non-interactive API (schema v2):
   ttt apply --request-file PATH --approve PROPOSAL_ID
 
 Setup:
-  ttt setup          Configure Linear, GitHub Issues, or Jira and check gh auth
+  ttt setup          Configure the tracker and GitHub or GitLab forge
 
 Interactive workflow:
   ttt --interactive --parent "parent item key or fuzzy text"

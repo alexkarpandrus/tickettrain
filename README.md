@@ -12,7 +12,7 @@
 
 ## Providers
 
-- Forge: **GitHub** via the `gh` CLI.
+- Forges: **GitHub** via the `gh` CLI and **GitLab** via its REST API.
 - Trackers: **Linear**, **GitHub Issues**, and **Jira**.
 
 Select GitHub Issues with `:tracker {:provider :github-issues}` in `config/ttt.edn`.
@@ -76,6 +76,8 @@ Supported `.env` keys:
 - `JIRA_CLOUD_ID`
 - `JIRA_PROJECT` (project key, for example, `APP`)
 - `JIRA_ISSUE_TYPE` (default `Task`)
+- `GITLAB_TOKEN`
+- `GITLAB_BASE_URL` (default `https://gitlab.com`)
 
 Edit `config/ttt.edn` only if you want defaults checked into the repo:
 
