@@ -3,6 +3,7 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.domain :as domain]
+            [ttt.platform.remote :as remote]
             [ttt.platform.shell :as shell]))
 
 (def api-version "/api/v4")
@@ -27,23 +28,18 @@
 (defn api!
   [app-config method path query]
   (let [url (api-endpoint app-config path)
-        headers {"PRIVATE-TOKEN" (token app-config)}
-        response (case method
-                   :get (http/get url {:headers headers :query-params query :throw false})
-                   :post (http/post url {:headers headers
-                                         :body (json/generate-string query)
-                                         :content-type :json
-                                         :throw false})
-                   :put (http/put url {:headers headers
-                                       :body (json/generate-string query)
-                                       :content-type :json
-                                       :throw false}))
-        status (:status response)
-        body (try (json/parse-string (:body response) true) (catch Exception _ nil))]
-    (when (>= status 400)
-      (throw (ex-info (str "GitLab API request failed with status " status ".")
-                      {:status status :body body})))
-    body))
+        headers {"PRIVATE-TOKEN" (token app-config)
+                 "Content-Type" "application/json"}]
+    (remote/request!
+     :gitlab
+     #(case method
+        :get (http/get url {:headers headers :query-params query :throw false})
+        :post (http/post url {:headers headers
+                              :body (json/generate-string query)
+                              :throw false})
+        :put (http/put url {:headers headers
+                            :body (json/generate-string query)
+                            :throw false})))))
 
 (defn parse-repo-slug
   [url]
@@ -151,19 +147,13 @@
 
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
-  (let [slug (remote-slug)
-        mr (api! app-config :post
-                 (str "/projects/" (url-encode slug) "/merge_requests")
-                 {:source_branch head
-                  :target_branch base
-                  :title title
-                  :description (or body "")})]
-    {:number (:iid mr)
-     :title (:title mr)
-     :body (:description mr)
-     :url (:web_url mr)
-     :source-branch (:source_branch mr)
-     :target-branch (:target_branch mr)}))
+  (let [slug (remote-slug)]
+    (api! app-config :post
+          (str "/projects/" (url-encode slug) "/merge_requests")
+          {:source_branch head
+           :target_branch base
+           :title title
+           :description (or body "")})))
 
 (def capabilities
   #{:current-branch

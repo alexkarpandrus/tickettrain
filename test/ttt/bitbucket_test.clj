@@ -14,6 +14,17 @@
 (deftest prefix-change-request-title-adds-ticket-prefix
   (is (= "[APP-44] Title" (bitbucket/prefix-change-request-title "APP-44" "Title"))))
 
+(deftest managed-markers-use-hidden-bitbucket-reference-definitions
+  (let [canonical (str "<!-- ttt:begin -->\n"
+                       "## Asana\n\n"
+                       "<!-- ttt:item asana:tracker-item:123 -->\n"
+                       "- Issue: [123](https://app.asana.com/0/0/123)\n"
+                       "<!-- ttt:end -->")
+        encoded (bitbucket/encode-body canonical)]
+    (is (not (clojure.string/includes? encoded "<!--")))
+    (is (clojure.string/includes? encoded "[//]: # (ttt:item asana:tracker-item:123)"))
+    (is (= canonical (bitbucket/decode-body encoded)))))
+
 (deftest normalizes-repo-and-change-request
   (let [repo (bitbucket/normalize-repo {:full_name "team/repo" :mainbranch {:name "main"}})
         cr (bitbucket/normalize-change-request
@@ -29,14 +40,45 @@
          (domain/contained-identity :bitbucket :change-request "team/repo" 7)
          (:ref cr)))))
 
-(deftest api-token-authentication-uses-account-email
-  (let [authorization (atom nil)]
-    (with-redefs [http/get (fn [_ opts]
-                             (reset! authorization (get-in opts [:headers "Authorization"]))
-                             {:status 200 :body "{}"})]
-      (bitbucket/api! config :get "/repositories/team/repo" nil))
+(deftest api-token-authentication-and-json-content-type
+  (let [request (atom nil)]
+    (with-redefs [http/post (fn [_ opts]
+                              (reset! request opts)
+                              {:status 200 :body "{}"})]
+      (bitbucket/api! config :post "/repositories/team/repo/pullrequests" {:title "Title"}))
     (is (= "alex@example.com:token"
-           (String. (.decode (java.util.Base64/getDecoder) (subs @authorization 6)) "UTF-8")))))
+           (String. (.decode (java.util.Base64/getDecoder)
+                             (subs (get-in @request [:headers "Authorization"]) 6))
+                    "UTF-8")))
+    (is (= "application/json" (get-in @request [:headers "Content-Type"])))))
+
+(deftest create-change-request-returns-the-raw-bitbucket-response
+  (let [response {:id 7
+                  :title "[KAN-6] Verify Bitbucket Jira workflow"
+                  :description "Body"
+                  :links {:html {:href "https://bitbucket.org/team/repo/pull-requests/7"}}
+                  :source {:branch {:name "feature"}}
+                  :destination {:branch {:name "main"}}}
+        request (atom nil)]
+    (with-redefs [bitbucket/remote-slug (constantly "team/repo")
+                  bitbucket/api! (fn [config method path body]
+                                   (reset! request [config method path body])
+                                   response)]
+      (is (= response
+             (bitbucket/create-change-request!
+              config
+              {:title "[KAN-6] Verify Bitbucket Jira workflow"
+               :body "Body"
+               :base "main"
+               :head "feature"})))
+      (is (= [config
+              :post
+              "/repositories/team/repo/pullrequests"
+              {:title "[KAN-6] Verify Bitbucket Jira workflow"
+               :description "Body"
+               :source {:branch {:name "feature"}}
+               :destination {:branch {:name "main"}}}]
+              @request)))))
 
 (deftest setup-validates-the-current-repository
   (let [calls (atom 0)]
