@@ -1,6 +1,6 @@
 # Manual testing checklist
 
-Test each provider against a real account before claiming multi-tool support. Contract tests are green (145 tests / 326 assertions) but do not exercise live APIs.
+Test each provider against a real account before claiming multi-tool support. Contract tests are green (153 tests / 347 assertions) but do not exercise live APIs.
 
 ## Status
 
@@ -9,10 +9,10 @@ Test each provider against a real account before claiming multi-tool support. Co
 | GitHub | forge | `gh auth login` | ✅ re-verified 2026-09-07 |
 | Linear | tracker | `LINEAR_*` | ✅ re-verified 2026-09-07 |
 | GitLab | forge | `GITLAB_TOKEN` | ⚠️ contract-only 2026-09-07 |
-| Jira | tracker | `JIRA_EMAIL` + `JIRA_API_TOKEN` + `JIRA_SITE_URL` + `JIRA_CLOUD_ID` | ⚠️ partial 2026-09-07 |
+| Jira | tracker | `JIRA_EMAIL` + `JIRA_API_TOKEN` + `JIRA_SITE_URL` + `JIRA_CLOUD_ID` | ✅ re-verified 2026-09-07 |
 | GitHub Issues | tracker | `gh auth login` (reuses) | ✅ re-verified 2026-09-07 |
-| Bitbucket | forge | `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` | ⚠️ partial 2026-09-07 |
-| Asana | tracker | `ASANA_TOKEN` (+ `ASANA_WORKSPACE`) | ⚠️ partial 2026-09-07 |
+| Bitbucket | forge | `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` | ✅ re-verified 2026-09-07 |
+| Asana | tracker | `ASANA_TOKEN` (+ `ASANA_WORKSPACE`) | ✅ re-verified 2026-09-07 |
 
 Mark a row ✅ once the full create-and-link pass succeeds.
 
@@ -91,5 +91,8 @@ From inside a git repo with a branch, run:
 | 2026-09-07 | Bitbucket | Repository push rerun | ✅ | Branch `manual/ttt-asana-bitbucket-20260907` exists remotely at commit `6ff42f2`. |
 | 2026-09-07 | GitLab | Live verification | ⚠️ | Blocked because no `GITLAB_TOKEN` or authenticated `glab` session is available. Contract and GitLab + Jira integration tests pass. |
 | 2026-09-07 | Packaging | Temporary install | ✅ | Local installer, installed `ttt version`, and installed `ttt --llm` passed from a clean temporary home. |
+| 2026-09-07 | Jira + GitHub | Create + link and native rendering | ✅ | Created `KAN-1`, linked PR #15, verified reciprocal links and exact-key search, and confirmed native ADF headings, lists, emphasis, code, and links. |
+| 2026-09-07 | Asana + Bitbucket | Create + link | ✅ | Created task `1218235721923599`, opened Bitbucket PR #1, linked both records, and verified exact-gid search. |
+| 2026-09-07 | Asana + Bitbucket | Native rendering repair | ✅ | Applied proposal `lp2_09fa3f21290931fd04da4954`; Asana rendered native rich-text nodes and Bitbucket rendered links and lists without visible `ttt` markers. |
 
 Record any failure here with the `ttt` stderr — it maps to a specific adapter fix.
