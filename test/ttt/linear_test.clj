@@ -110,6 +110,11 @@
                (get-in item [:labels 0 :scopes])))
         (is (= {:issueId "APP-324"} @variables))))))
 
+(deftest item-by-identifier-skips-free-text
+  (with-redefs [linear/graphql! (fn [& _]
+                                  (throw (ex-info "unexpected GraphQL request" {})))]
+    (is (nil? (linear/normalized-item-by-identifier config "manual test")))))
+
 (deftest normalized-project-by-ref-matches-normalized-slug-and-name
   (with-redefs [linear/normalized-projects (fn [_]
                                              [(linear/normalize-project

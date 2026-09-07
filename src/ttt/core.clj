@@ -12,12 +12,6 @@
   [runtime]
   ((get-in runtime [:tracker :configured-scope])))
 
-(defn ensure-selection-input!
-  [{:keys [parent project] :as options}]
-  (when-not (or (seq parent) (seq project))
-    (throw (ex-info "Provide either --parent or --project."
-                    (when-let [usage (:usage options)] {:usage usage})))))
-
 (defn assert-entity-scope!
   [runtime entity entity-kind]
   (let [scope (configured-scope runtime)]
@@ -133,6 +127,14 @@
     (:project item) {:project (:project item)}
     :else nil))
 
+(defn draft-change-request
+  [request item]
+  (let [title (or (:title request) (:title item))]
+    (when (str/blank? title)
+      (throw (ex-info "A title is required when the current branch has no change request."
+                      {:code :change-request-title-required})))
+    {:title title :body ""}))
+
 (defn change-request-update
   [runtime source item context]
   (let [forge (:forge runtime)
@@ -166,13 +168,18 @@
          context (when (= :create-new action) (resolve-context runtime request))
          change-request (:change-request source)
          _ (assert-link-target-valid! runtime request change-request item)
+         planned-change-request (or change-request (draft-change-request request item))
+         planned-source (assoc source :change-request planned-change-request)
          selected-labels (resolve-labels runtime (:labels request))
          labels (if item (distinct-labels (item-labels item) selected-labels) selected-labels)
          title (if item (:title item) (or (:title request) (:title change-request)))
-         description (links/upsert-change-request
-                      (if item (:description item)
-                          (base-item-description (:config runtime) change-request))
-                      change-request)
+         description (if change-request
+                       (links/upsert-change-request
+                        (if item (:description item)
+                            (base-item-description (:config runtime) change-request))
+                        change-request)
+                       (if item (:description item)
+                           (base-item-description (:config runtime) planned-change-request)))
          preview-item (or item {:display-id "<new tracker item>" :url "<created during apply>"})]
      {:source source
       :action action
@@ -182,7 +189,7 @@
       :labels labels
       :tracker-intent (cond-> {:description description :labels labels}
                         (= :create-new action) (assoc :title title))
-      :change-request-update (change-request-update runtime source preview-item context)})))
+      :change-request-update (change-request-update runtime planned-source preview-item context)})))
 
 (defn update-change-request!
   [runtime source update]
@@ -202,14 +209,41 @@
   (assert-entity-scope! runtime item :item)
   ((get-in runtime [:tracker :update-item!]) item intent))
 
-(defn apply!
+(defn create-change-request!
+  [runtime source update]
+  (let [repository (:repository source)
+        created ((get-in runtime [:forge :create-change-request!])
+                 {:title (:title update)
+                  :body (:body update)
+                  :base (:default-target-branch repository)
+                  :head (:branch source)})]
+    ((get-in runtime [:forge :identify-change-request]) repository created)))
+
+(defn apply-with-new-change-request!
   [runtime proposal]
+  ;; ponytail: provider writes are recoverable but not atomic; add checkpoints if retries prove insufficient.
   (let [source (:source proposal)
         item (case (:action proposal)
-               :link-existing (update-item! runtime (:item proposal) (:tracker-intent proposal))
+               :link-existing (:item proposal)
                :create-new (create-item! runtime (:context proposal) (:tracker-intent proposal)))
-        update (if (= :create-new (:action proposal))
-                 (change-request-update runtime source item (:context proposal))
-                 (:change-request-update proposal))]
-    (update-change-request! runtime source update)
-    {:item item :change-request (:change-request source) :change-request-update update}))
+        planned-source (assoc source :change-request (draft-change-request (:request proposal) item))
+        update (change-request-update runtime planned-source item (:context proposal))
+        change-request (create-change-request! runtime source update)
+        intent (assoc (:tracker-intent proposal)
+                      :description (links/upsert-change-request (:description item) change-request))
+        item (update-item! runtime item intent)]
+    {:item item :change-request change-request :change-request-update update}))
+
+(defn apply!
+  [runtime proposal]
+  (let [source (:source proposal)]
+    (if-not (:change-request source)
+      (apply-with-new-change-request! runtime proposal)
+      (let [item (case (:action proposal)
+                   :link-existing (update-item! runtime (:item proposal) (:tracker-intent proposal))
+                   :create-new (create-item! runtime (:context proposal) (:tracker-intent proposal)))
+            update (if (= :create-new (:action proposal))
+                     (change-request-update runtime source item (:context proposal))
+                     (:change-request-update proposal))]
+        (update-change-request! runtime source update)
+        {:item item :change-request (:change-request source) :change-request-update update}))))
