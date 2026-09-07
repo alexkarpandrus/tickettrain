@@ -11,8 +11,10 @@
   (json/parse-string (apply shell/run "gh" args) true))
 
 (defn repo-slug
-  []
-  (:nameWithOwner (gh-json "repo" "view" "--json" "nameWithOwner")))
+  ([] (repo-slug (System/getenv "GH_REPO")))
+  ([repository]
+   (or (some-> repository str/trim not-empty)
+       (:nameWithOwner (gh-json "repo" "view" "--json" "nameWithOwner")))))
 
 (defn normalize-label
   [scope name]

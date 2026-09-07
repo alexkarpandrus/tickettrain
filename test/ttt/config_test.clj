@@ -61,6 +61,21 @@
                   {"GITLAB_TOKEN" "gitlab-token"
                    "GITLAB_BASE_URL" "https://gitlab.example.com"})))))
 
+(deftest asana-credentials-map-from-the-environment
+  (is (= {:token "asana-token" :workspace "workspace-1"}
+         (:tracker (config/env-overrides
+                    {"ASANA_TOKEN" "asana-token"
+                     "ASANA_WORKSPACE" "workspace-1"})))))
+
+(deftest bitbucket-credentials-map-from-the-environment
+  (is (= {:email "alex@example.com"
+          :api-token "bitbucket-token"
+          :base-url "https://api.bitbucket.example.com"}
+         (:forge (config/env-overrides
+                  {"BITBUCKET_EMAIL" "alex@example.com"
+                   "BITBUCKET_API_TOKEN" "bitbucket-token"
+                   "BITBUCKET_BASE_URL" "https://api.bitbucket.example.com"})))))
+
 (deftest normalize-config-fills-default-provider-sections
   (let [normalized (config/normalize-config
                     {:tracker {:provider :linear
