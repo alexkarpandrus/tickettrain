@@ -89,7 +89,7 @@
 (deftest provider-switch-does-not-inherit-other-provider-settings
   (is (= {:email "dev@example.com" :api-token "new"}
          (:forge (config/env-overrides
-                  {:forge {:provider :bitbucket}}
+                  {:forge {:provider "bitbucket"}}
                   {"GITLAB_BASE_URL" "https://gitlab.old.example"
                    "BITBUCKET_EMAIL" "dev@example.com"
                    "BITBUCKET_API_TOKEN" "new"}))))
@@ -114,8 +114,8 @@
                     config/env-overrides (fn [_ _] {})]
         (is (= {:provider :bitbucket :email "dev@example.com" :api-token "new"}
                (:forge (config/load-config (.getPath base)))))
-        (spit local "{:forge {:provider :gitlab :token \"new\" :base-url nil}}")
-        (is (= {:provider :gitlab :token "new" :base-url nil}
+        (spit local "{:forge {:provider :gitlab :token nil :base-url \"https://gitlab.new.example\"}}")
+        (is (= {:provider :gitlab :token nil :base-url "https://gitlab.new.example"}
                (:forge (config/load-config (.getPath base))))))
       (finally (.delete base) (.delete local)))))
 

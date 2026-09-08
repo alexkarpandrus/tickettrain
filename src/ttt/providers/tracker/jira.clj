@@ -455,6 +455,10 @@
                            :rollback :succeeded)
                     transition-ex))))))))
 
+(defn configured-issue-type
+  [app-config]
+  {:name (or (get-in app-config [:tracker :issue-type]) "Task")})
+
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels]}]
   (let [parent (some-> (:parent context) provider-id)
@@ -467,7 +471,7 @@
                             {:code :project-required})))
         issue-type (if parent
                      (subtask-issue-type app-config project)
-                     {:name (get-in app-config [:tracker :issue-type] "Task")})
+                     (configured-issue-type app-config))
         target (when-not (str/blank? (str configured-target))
                  (state/resolve-target "Jira"
                                        configured-target
@@ -509,7 +513,7 @@
         target (when-not (str/blank? (str project))
                  (state/choose-target "Jira"
                                       (get-in app-config [:tracker :target-state])
-                                      (project-statuses app-config project {:name (get-in app-config [:tracker :issue-type] "Task")})))]
+                                      (project-statuses app-config project (configured-issue-type app-config))))]
     (println (str "Jira tracker: authenticated as " (get-in me [:displayName])))
     (when (and (str/blank? (str project))
                (not (str/blank? (str (get-in app-config [:tracker :target-state])))))

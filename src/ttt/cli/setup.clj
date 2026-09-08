@@ -29,24 +29,32 @@
 (defn selected-role-config
   [app-config role provider-id descriptor]
   (let [setting-keys (map :key (:setup-settings descriptor))
-        same-provider? (= provider-id (get-in app-config [role :provider]))
+        same-provider? (= provider-id (keyword (get-in app-config [role :provider])))
         persisted (if same-provider?
                     (select-keys (get app-config role) setting-keys)
                     (zipmap setting-keys (repeat nil)))]
     (assoc persisted :provider provider-id)))
 
 (defn remove-environment-secrets
-  [delta role descriptor environment-config credentials]
+  [value role descriptor environment-config]
   (reduce
    (fn [clean {:keys [key secret?]}]
      (if (and secret?
               (contains? (get environment-config role) key)
-              (not (contains? (get credentials role) key)))
-       (if (contains? clean role)
-         (update-in clean [role] dissoc key)
-         clean)
+              (contains? clean role))
+       (update-in clean [role] dissoc key)
        clean))
-   (or delta {})
+   (or value {})
+   (:setup-settings descriptor)))
+
+(defn mask-environment-secrets
+  [value role descriptor environment-config]
+  (reduce
+   (fn [masked {:keys [key secret?]}]
+     (if (and secret? (contains? (get environment-config role) key))
+       (assoc-in masked [role key] nil)
+       masked))
+   value
    (:setup-settings descriptor)))
 
 (defn collect-required-settings
@@ -99,14 +107,25 @@
         tracker-label (:display-name tracker-descriptor)
         _ (println)
         _ (println (ui/accent (str "Checking " forge-label " → " tracker-label "...")))
+        persisted-selected (-> selected
+                               (mask-environment-secrets :forge forge-descriptor
+                                                         environment-config)
+                               (mask-environment-secrets :tracker tracker-descriptor
+                                                         environment-config))
+        persisted-environment (-> environment-config
+                                  (remove-environment-secrets :forge forge-descriptor
+                                                              environment-config)
+                                  (remove-environment-secrets :tracker tracker-descriptor
+                                                              environment-config))
         forge-delta (-> (run-provider-setup app-config forge-descriptor)
                         (remove-environment-secrets :forge forge-descriptor
-                                                    environment-config credentials))
+                                                    environment-config))
         tracker-delta (-> (run-provider-setup app-config tracker-descriptor)
                           (remove-environment-secrets :tracker tracker-descriptor
-                                                      environment-config credentials))
+                                                      environment-config))
         deltas (config/deep-merge
-                (select-keys selected [:forge :tracker])
+                (select-keys persisted-selected [:forge :tracker])
+                persisted-environment
                 credentials
                 forge-delta
                 tracker-delta)

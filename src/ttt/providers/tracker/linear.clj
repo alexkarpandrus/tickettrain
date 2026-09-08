@@ -365,14 +365,6 @@
        (not (config/placeholder? v))
        (not (str/blank? (str v)))))
 
-(defn collect-api-key
-  [app-config]
-  (let [configured (get-in app-config [:tracker :api-key])]
-    (if (valid-config-value? configured)
-      configured
-      (throw (ex-info
-              "No Linear API key provided. Set LINEAR_API_KEY or re-run `ttt setup`."
-              {:code :aborted})))))
 
 (defn teams
   [app-config]
@@ -409,17 +401,14 @@
 
 (defn setup
   [app-config]
-  (let [api-key (collect-api-key app-config)
-        cfg (assoc-in app-config [:tracker :api-key] api-key)
-        viewer (get (graphql! cfg viewer-query {}) :viewer)
-        team (pick-team cfg)
+  (let [viewer (get (graphql! app-config viewer-query {}) :viewer)
+        team (pick-team app-config)
         url-key (get-in viewer [:organization :urlKey])
-        state-config (pick-state-config cfg team)]
+        state-config (pick-state-config app-config team)]
     (println (str "Linear user: " (:email viewer)))
     (println (str "Workspace: https://linear.app/" url-key))
     (println (str "Team: " (:name team) " (" (:key team) ")"))
-    {:tracker (merge {:api-key api-key
-                      :team-id (:id team)
+    {:tracker (merge {:team-id (:id team)
                       :workspace-url (str "https://linear.app/" url-key)
                       :assignee-id "self"}
                      state-config)}))
