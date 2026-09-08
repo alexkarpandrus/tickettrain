@@ -5,7 +5,6 @@
             [ttt.adapters :as adapters]
             [ttt.cli.agent :as agent]
             [ttt.config :as config]
-            [ttt.core :as core]
             [ttt.providers.forge :as forge]
             [ttt.platform.shell :as shell]
             [ttt.cli.setup :as setup]
@@ -67,8 +66,9 @@
     "## Target state"
     ""
     "- Use `TTT_TRACKER_STATE=\"Exact state name\" ttt setup` to validate and persist the state for newly created items."
-    "- Linear and Jira discover configured workflow states. Jira also requires `JIRA_PROJECT` and applies a direct transition after creation."
+    "- Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`."
     "- GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`."
+    "- Set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket."
     "- Never guess a state name. Present the available states and ask the user to choose."
     ""
     "## Commands and flags"

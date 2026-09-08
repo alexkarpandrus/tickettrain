@@ -99,6 +99,17 @@
     (is (= "alex@example.com:token"
            (String. (.decode (java.util.Base64/getDecoder) (subs (second @call) 6)) "UTF-8")))))
 
+
+(deftest api-delete-uses-the-issue-endpoint
+  (let [request (atom nil)]
+    (with-redefs [http/delete (fn [url opts]
+                                (reset! request [url (:headers opts)])
+                                {:status 204 :body ""})]
+      (jira/api! config :delete "/issue/APP-1" nil))
+    (is (= "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/APP-1"
+           (first @request)))
+    (is (contains? (second @request) "Authorization"))))
+
 (deftest issue-search-uses-the-supported-jql-endpoint
   (let [path-used (atom nil)]
     (with-redefs [jira/api! (fn [_ _ path _]
@@ -133,6 +144,19 @@
             app-config {} {:title "Task" :description "Body" :labels []}))))
     (is (not-any? #{:post} @calls))))
 
+
+(deftest missing-project-fails-before-create
+  (let [calls (atom [])
+        app-config (update config :tracker dissoc :project)
+        error (with-redefs [jira/api! (fn [& args] (swap! calls conj args))]
+                (try
+                  (jira/create-item-from-intent!
+                   app-config {} {:title "Task" :description "Body" :labels []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= :project-required (:code (ex-data error))))
+    (is (empty? @calls))))
+
 (deftest created-issue-transitions-to-the-configured-target-state
   (let [calls (atom [])
         app-config (assoc-in config [:tracker :target-state] "In Progress")]
@@ -151,6 +175,115 @@
                      [:fields :status :name]))))
     (is (some #(= [:post "/issue/APP-1/transitions" {:transition {:id "21"}}] %)
               @calls))))
+
+
+(deftest failed-target-state-deletes-the-created-issue
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "In Progress")
+        error (with-redefs [jira/api!
+                            (fn [_ method path body]
+                              (swap! calls conj [method path body])
+                              (case [method path]
+                                [:get "/project/APP/statuses"]
+                                [{:name "Task" :statuses [{:id "1" :name "Todo"}
+                                                           {:id "2" :name "In Progress"}]}]
+                                [:post "/issue"] {:key "APP-1"}
+                                [:get "/issue/APP-1"] {:key "APP-1" :fields {:status {:name "Todo"}}}
+                                [:get "/issue/APP-1/transitions"] {:transitions []}
+                                [:delete "/issue/APP-1"] nil))]
+                (try
+                  (jira/create-item-from-intent!
+                   app-config {} {:title "Task" :description "Body" :labels []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= :succeeded (:rollback (ex-data error))))
+    (is (re-find #"APP-1 was deleted" (.getMessage error)))
+    (is (some #(= [:delete "/issue/APP-1" nil] %) @calls))))
+
+(deftest failed-target-state-reports-a-failed-rollback
+  (let [app-config (assoc-in config [:tracker :target-state] "In Progress")
+        error (with-redefs [jira/api!
+                            (fn [_ method path _]
+                              (case [method path]
+                                [:get "/project/APP/statuses"]
+                                [{:name "Task" :statuses [{:id "1" :name "Todo"}
+                                                           {:id "2" :name "In Progress"}]}]
+                                [:post "/issue"] {:key "APP-1"}
+                                [:get "/issue/APP-1"] {:key "APP-1" :fields {:status {:name "Todo"}}}
+                                [:get "/issue/APP-1/transitions"] {:transitions []}
+                                [:delete "/issue/APP-1"] (throw (ex-info "Delete denied." {:status 403}))))]
+                (try
+                  (jira/create-item-from-intent!
+                   app-config {} {:title "Task" :description "Body" :labels []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= :failed (:rollback (ex-data error))))
+    (is (= "APP-1" (:created-item (ex-data error))))
+    (is (re-find #"Inspect the issue before retrying" (.getMessage error)))))
+
+(deftest refresh-failure-preserves-the-transitioned-issue
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "In Progress")
+        error (with-redefs [jira/api!
+                            (fn [_ method path _]
+                              (swap! calls conj [method path])
+                              (case [method path]
+                                [:get "/issue/APP-1/transitions"]
+                                {:transitions [{:id "21" :to {:name "In Progress"} :fields {}}]}
+                                [:post "/issue/APP-1/transitions"] nil
+                                [:get "/issue/APP-1"] (throw (ex-info "Refresh failed." {}))
+                                [:delete "/issue/APP-1"] nil))]
+                (try
+                  (jira/apply-created-target-state!
+                   app-config {:key "APP-1" :fields {:status {:name "Todo"}}})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (:transition-applied (ex-data error)))
+    (is (re-find #"Inspect the issue before retrying" (.getMessage error)))
+    (is (not-any? #(= [:delete "/issue/APP-1"] %) @calls))))
+
+
+(deftest lost-transition-response-confirms-state-before-rollback
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "In Progress")
+        result (with-redefs [jira/api!
+                             (fn [_ method path _]
+                               (swap! calls conj [method path])
+                               (case [method path]
+                                 [:get "/issue/APP-1/transitions"]
+                                 {:transitions [{:id "21" :to {:name "In Progress"} :fields {}}]}
+                                 [:post "/issue/APP-1/transitions"]
+                                 (throw (ex-info "Response lost." {}))
+                                 [:get "/issue/APP-1"]
+                                 {:key "APP-1" :fields {:status {:name "In Progress"}}}
+                                 [:delete "/issue/APP-1"] nil))]
+                 (jira/apply-created-target-state!
+                  app-config {:key "APP-1" :fields {:status {:name "Todo"}}}))]
+    (is (= "In Progress" (get-in result [:fields :status :name])))
+    (is (not-any? #(= [:delete "/issue/APP-1"] %) @calls))))
+
+(deftest unknown-transition-outcome-preserves-the-created-issue
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "In Progress")
+        error (with-redefs [jira/api!
+                            (fn [_ method path _]
+                              (swap! calls conj [method path])
+                              (case [method path]
+                                [:get "/issue/APP-1/transitions"]
+                                {:transitions [{:id "21" :to {:name "In Progress"} :fields {}}]}
+                                [:post "/issue/APP-1/transitions"]
+                                (throw (ex-info "Response lost." {}))
+                                [:get "/issue/APP-1"]
+                                (throw (ex-info "Confirmation failed." {}))
+                                [:delete "/issue/APP-1"] nil))]
+                (try
+                  (jira/apply-created-target-state!
+                   app-config {:key "APP-1" :fields {:status {:name "Todo"}}})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (:preserve-created-item (ex-data error)))
+    (is (re-find #"Inspect the issue before retrying" (.getMessage error)))
+    (is (not-any? #(= [:delete "/issue/APP-1"] %) @calls))))
 
 (deftest setup-selects-a-project-target-state
   (with-redefs [jira/api! (fn [_ _ path _]

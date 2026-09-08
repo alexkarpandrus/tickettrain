@@ -59,7 +59,8 @@
                               :throw false})
         :put (http/put url {:headers headers
                             :body (json/generate-string query)
-                            :throw false})))))
+                            :throw false})
+        :delete (http/delete url {:headers headers :throw false})))))
 
 (defn site-scope
   [app-config]
@@ -342,10 +343,73 @@
                   {:code :transition-fields-required
                    :target-state (:name transition)
                    :required-fields required-fields})))
-        (api! app-config :post
-              (str "/issue/" (url-encode issue-key) "/transitions")
-              {:transition {:id (:id transition)}})
-        (api! app-config :get (str "/issue/" (url-encode issue-key)) nil)))))
+        (let [issue-path (str "/issue/" (url-encode issue-key))
+              transition-error (try
+                                 (api! app-config :post
+                                       (str issue-path "/transitions")
+                                       {:transition {:id (:id transition)}})
+                                 nil
+                                 (catch Exception ex ex))]
+          (if transition-error
+            (let [confirmation (try
+                                 {:issue (api! app-config :get issue-path nil)}
+                                 (catch Exception ex {:error ex}))]
+              (cond
+                (:error confirmation)
+                (throw (ex-info
+                        (str "Jira may have transitioned " issue-key
+                             " but confirmation failed. Inspect the issue before retrying.")
+                        {:code :target-state-outcome-unknown
+                         :created-item issue-key
+                         :preserve-created-item true}
+                        transition-error))
+
+                (= (str/lower-case (str target))
+                   (str/lower-case (str (get-in confirmation [:issue :fields :status :name]))))
+                (:issue confirmation)
+
+                :else (throw transition-error)))
+            (try
+              (api! app-config :get issue-path nil)
+              (catch Exception refresh-ex
+                (throw (ex-info
+                        (str "Jira transitioned " issue-key
+                             " but could not refresh it. Inspect the issue before retrying.")
+                        {:code :target-state-refresh-failed
+                         :created-item issue-key
+                         :transition-applied true
+                         :preserve-created-item true}
+                        refresh-ex))))))))))
+
+(defn apply-created-target-state!
+  [app-config issue]
+  (try
+    (apply-target-state! app-config issue)
+    (catch Exception transition-ex
+      (if (:preserve-created-item (ex-data transition-ex))
+        (throw transition-ex)
+        (let [issue-key (:key issue)
+              rollback-error (try
+                               (api! app-config :delete
+                                     (str "/issue/" (url-encode issue-key))
+                                     nil)
+                               nil
+                               (catch Exception ex ex))]
+          (if rollback-error
+            (throw (ex-info
+                    (str "Jira created " issue-key
+                         " but could not apply its target state or delete it. Inspect the issue before retrying.")
+                    (assoc (or (ex-data transition-ex) {})
+                           :created-item issue-key
+                           :rollback :failed
+                           :rollback-error (.getMessage rollback-error))
+                    transition-ex))
+            (throw (ex-info
+                    (str (.getMessage transition-ex) " The created issue " issue-key " was deleted.")
+                    (assoc (or (ex-data transition-ex) {})
+                           :created-item issue-key
+                           :rollback :succeeded)
+                    transition-ex))))))))
 
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels]}]
@@ -354,10 +418,9 @@
                     (some-> (:project context) provider-id)
                     (get-in app-config [:tracker :project]))
         configured-target (get-in app-config [:tracker :target-state])
-        _ (when (and (not (str/blank? (str configured-target)))
-                     (str/blank? (str project)))
-            (throw (ex-info "Jira target state requires a project."
-                            {:code :target-state-project-required})))
+        _ (when (str/blank? (str project))
+            (throw (ex-info "Jira item creation requires a project. Set JIRA_PROJECT or supply a parent or project."
+                            {:code :project-required})))
         issue-type (if parent
                      (subtask-issue-type app-config project)
                      {:name (get-in app-config [:tracker :issue-type] "Task")})
@@ -375,7 +438,7 @@
                  (and (not parent) project) (assoc :project {:key project}
                                                    :issuetype issue-type))]
     (normalize-item (base-url app-config)
-                    (apply-target-state! cfg (create-item! app-config fields)))))
+                    (apply-created-target-state! cfg (create-item! app-config fields)))))
 
 (defn update-item-from-intent!
   [app-config item {:keys [description labels]}]
