@@ -2,6 +2,10 @@ name: Test
 
 on:
   push:
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -20,8 +24,7 @@ jobs:
       - name: Set Up Clojure
         uses: DeLaGuardo/setup-clojure@13.4
         with:
-          cli: latest
-          bb: latest
+          bb: 1.12.217
 
       - name: Prepare Babashka Deps
         run: bb prepare
