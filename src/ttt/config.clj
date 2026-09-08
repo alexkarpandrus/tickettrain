@@ -137,13 +137,16 @@
     (edn/read-string (slurp path))))
 
 (defn write-local-config!
-  [config-map]
-  (let [path (fs/file default-local-config-path)]
-    (fs/create-dirs (fs/parent path))
-    (spit path (pr-str (deep-merge (read-edn-map path) config-map)))
-    (try (fs/set-posix-file-permissions path "rw-------")
-         (catch Exception _ nil))
-    path))
+  ([config-map]
+   (write-local-config! config-map #{}))
+  ([config-map replace-sections]
+   (let [path (fs/file default-local-config-path)
+         existing (apply dissoc (or (read-edn-map path) {}) replace-sections)]
+     (fs/create-dirs (fs/parent path))
+     (spit path (pr-str (deep-merge existing config-map)))
+     (try (fs/set-posix-file-permissions path "rw-------")
+          (catch Exception _ nil))
+     path)))
 
 (defn merge-env-config
   "Merge .env values under the real process environment; real env wins."

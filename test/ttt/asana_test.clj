@@ -123,7 +123,7 @@
 
 (deftest setup-selects-a-target-state
   (with-redefs [asana/api! (fn [& _] {:data {:name "Alex"}})
-                prompt/choose-index (fn [_ _] 2)]
+                prompt/choose-index (fn [& _] 2)]
     (is (= "completed"
            (get-in (asana/setup config) [:tracker :target-state])))))
 

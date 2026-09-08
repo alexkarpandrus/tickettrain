@@ -32,15 +32,12 @@ Prerequisites: `git`, [Babashka](https://babashka.org/) 1.12.217 or newer, and c
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
-ttt setup
-```
-
-Then run `ttt` inside a target repository:
-
-```bash
 cd path/to/your-project
+ttt setup
 ttt --interactive --project "reliability"
 ```
+
+Setup guides you through forge and tracker selection, collects supported token and email settings, gives exact remediation for provider-managed authentication, validates both providers, and saves an owner-only local configuration.
 
 The installer clones tickettrain to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
 
@@ -172,7 +169,9 @@ The heading and links follow the selected tracker. Tracker descriptions use a se
 
 ## Configuration
 
-Select the forge and tracker in EDN, then run `ttt setup` to validate them and choose the state for newly created items. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Setup writes the selection to the gitignored `config/ttt.local.edn` with owner-only permissions.
+Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Setup prompts for missing required credentials, validates both providers, and lets you choose the state for newly created items. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Setup saves the selection to the gitignored `config/ttt.local.edn` with owner-only permissions.
+
+To automate setup, set the provider environment variables listed below. You can also select providers in EDN before setup:
 
 ```clojure
 {:forge {:provider :gitlab}
@@ -186,7 +185,7 @@ Select the forge and tracker in EDN, then run `ttt setup` to validate them and c
 | GitHub / GitHub Issues | `gh auth login`; set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket |
 | GitLab | `GITLAB_TOKEN`, optional `GITLAB_BASE_URL` |
 | Bitbucket | `BITBUCKET_EMAIL`, `BITBUCKET_API_TOKEN`, optional `BITBUCKET_BASE_URL` |
-| Linear | `LINEAR_API_KEY`, `LINEAR_TEAM_ID`, and `LINEAR_WORKSPACE` or `LINEAR_WORKSPACE_URL`; optional assignee and state variables |
+| Linear | `LINEAR_API_KEY`; setup discovers the team and workspace; optional assignee and state variables |
 | Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE` |
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
 
@@ -211,7 +210,6 @@ bb test
 The deterministic suite covers the core workflow, provider adapters, managed Markdown, JSON envelopes, and approval gating with local stubs.
 
 To add a provider, read [`docs/integrations.md`](docs/integrations.md). The core must stay free of provider-specific branches.
-
 
 ## License
 

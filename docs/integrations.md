@@ -85,7 +85,7 @@ Trackers also own `:target-state`. Their setup function must expose valid native
 2. Normalize every resource to `:ref`, `:display-id`, and neutral presentation fields.
 3. Add `:scopes` to tracker entities used by shared code.
 4. Implement and declare the complete role capability set.
-5. Add its descriptor to `ttt.providers.forge/registry` or `ttt.providers.tracker/registry`, including `:setup` when the provider needs setup work.
+5. Add its descriptor to `ttt.providers.forge/registry` or `ttt.providers.tracker/registry`. Include `:display-name`, `:setup-order`, `:setup-settings`, and `:setup`. Each setup setting declares its config `:key` and optional `:env`, `:label`, `:required?`, and `:secret?` metadata. The guided setup derives its menus and credential prompts from this descriptor.
 6. Add provider unit tests and a local-stub provider contract test.
 7. Do not change `ttt.core` for provider-specific behavior.
 

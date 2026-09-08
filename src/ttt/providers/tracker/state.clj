@@ -32,6 +32,6 @@
         (println (str "  1) " provider " default"))
         (doseq [[i state] (map-indexed vector available)]
           (println (str "  " (+ i 2) ") " (:name state))))
-        (let [choice (prompt/choose-index (inc (count available)) "target state")]
+        (let [choice (prompt/choose-index (inc (count available)) "target state" 0)]
           (when (pos? choice)
             (nth available (dec choice)))))))

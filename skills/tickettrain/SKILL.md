@@ -11,7 +11,7 @@ description: Link a GitHub, GitLab, or Bitbucket change request to a Linear, Git
 
 - `ttt --llm` — print the full agent instructions (read this first when unsure).
 - `ttt version` — self-check and capability list.
-- `ttt setup` — configure the tracker and GitHub, GitLab, or Bitbucket forge; run once after install.
+- `ttt setup` — choose and validate a forge and tracker; run it inside a target repository after install.
 
 ## Target state
 

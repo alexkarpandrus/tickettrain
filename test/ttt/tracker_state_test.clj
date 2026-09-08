@@ -13,10 +13,10 @@
            (state/choose-target "tracker" "in progress" states)))))
 
 (deftest setup-can-select-a-state-or-the-provider-default
-  (with-redefs [prompt/choose-index (fn [_ _] 1)]
+  (with-redefs [prompt/choose-index (fn [& _] 1)]
     (is (= {:id "todo" :name "Todo"}
            (state/choose-target "tracker" nil states))))
-  (with-redefs [prompt/choose-index (fn [_ _] 0)]
+  (with-redefs [prompt/choose-index (fn [& _] 0)]
     (is (nil? (state/choose-target "tracker" nil states)))))
 
 (deftest invalid-target-lists-available-states

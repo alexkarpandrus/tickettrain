@@ -156,6 +156,21 @@
                (edn/read-string (slurp tmp)))))
       (finally (.delete tmp)))))
 
+(deftest write-local-config-can-replace-provider-sections
+  (let [tmp (java.io.File/createTempFile "ttt-local-config" ".edn")]
+    (spit tmp "{:forge {:provider :gitlab :token \"old\" :base-url \"https://old\"} :tracker {:provider :linear :api-key \"old\"} :search {:candidate-count 7}}")
+    (try
+      (with-redefs [config/default-local-config-path (.getPath tmp)]
+        (config/write-local-config!
+         {:forge {:provider :bitbucket :email "dev@example.com" :api-token "new"}
+          :tracker {:provider :github-issues :target-state "open"}}
+         #{:forge :tracker})
+        (is (= {:forge {:provider :bitbucket :email "dev@example.com" :api-token "new"}
+                :tracker {:provider :github-issues :target-state "open"}
+                :search {:candidate-count 7}}
+               (edn/read-string (slurp tmp)))))
+      (finally (.delete tmp)))))
+
 (deftest real-environment-overrides-dotenv
   (is (= {"LINEAR_API_KEY" "real"}
          (config/merge-env-config {"LINEAR_API_KEY" "dotenv"} {"LINEAR_API_KEY" "real"})))
