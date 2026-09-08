@@ -99,7 +99,8 @@
    :action (wire-action (:action proposal)) :request (wire-request (:request proposal))
    :item (wire-entity (:item proposal)) :context (wire-context (:context proposal))
    :labels (mapv wire-entity (:labels proposal)) :trackerIntent (wire-intent (:tracker-intent proposal))
-   :changeRequestUpdate (:change-request-update proposal)})
+   :changeRequestUpdate (:change-request-update proposal)
+   :approvalContext (:approval-context proposal)})
 (defn inspect-data [runtime] (wire-source (core/inspect runtime)))
 (defn excerpt [value] (let [text (some-> value str str/trim)] (when-not (str/blank? text) (subs text 0 (min 500 (count text))))))
 (defn entity-candidate [entity]
@@ -158,8 +159,8 @@
     "link_existing" (do
                       (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
                       (when (or (:issue request) (:parent request) (:project request) (:title request)) (invalid-request! "link_existing accepts only item and labels.")))
-    "create_new" (do
-                    (when (or (:item request) (:issue request)) (invalid-request! "create_new accepts parent, project, title, and labels.")))
+    "create_new" (when (or (:item request) (:issue request))
+                   (invalid-request! "create_new accepts parent, project, title, and labels."))
     (invalid-request! (str "Unsupported action: " (:action request))))
   request)
 
@@ -174,7 +175,19 @@
   (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256") (.getBytes (json/generate-string (canonicalize value)) "UTF-8"))]
     (apply str (map #(format "%02x" (bit-and (int %) 0xff)) digest))))
 (defn proposal-id [proposal] (str "lp2_" (subs (sha256 proposal) 0 24)))
-(defn preview-proposal [runtime request] (validate-request! request) (let [proposal (core/preview runtime (core-request request))] (assoc proposal :proposal-id (proposal-id proposal))))
+
+(defn approval-context
+  [runtime]
+  (let [{:keys [target-state state-id state-name project issue-type assignee-id]}
+        (get-in runtime [:config :tracker])
+        target (first (remove #(str/blank? (str %)) [target-state state-id state-name]))]
+    {:trackerScope (domain/identity-data ((get-in runtime [:tracker :configured-scope])))
+     :trackerSettings (cond-> {}
+                        target (assoc :targetState target)
+                        (not (str/blank? (str project))) (assoc :project project)
+                        (not (str/blank? (str issue-type))) (assoc :issueType issue-type)
+                        (not (str/blank? (str assignee-id))) (assoc :assigneeId assignee-id))}))
+(defn preview-proposal [runtime request] (validate-request! request) (let [proposal (assoc (core/preview runtime (core-request request)) :approval-context (approval-context runtime) :config-id (sha256 (:config runtime)))] (assoc proposal :proposal-id (proposal-id proposal))))
 (defn preview-data [runtime request] (proposal->wire (preview-proposal runtime request)))
 (defn apply-data! [runtime request approval]
   (let [proposal (preview-proposal runtime request)]

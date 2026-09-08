@@ -5,7 +5,8 @@
             [ttt.config :as config]
             [ttt.domain :as domain]
             [ttt.platform.remote :as remote]
-            [ttt.providers.tracker.state :as state]))
+            [ttt.providers.tracker.state :as state]
+            [ttt.text.links :as links]))
 
 (def api-path "/rest/api/3")
 
@@ -176,6 +177,48 @@
         (map? description) (adf->text description)
         :else ""))
 
+
+(defn managed-heading-index
+  [content]
+  (first
+   (keep-indexed (fn [index node]
+                   (when (= links/heading (str/trim (adf->text node))) index))
+                 content)))
+
+(defn managed-entry-node?
+  [node]
+  (let [text (str/trim (adf->text node))]
+    (or (= "bulletList" (:type node))
+        (and (= "paragraph" (:type node))
+             (or (str/blank? text)
+                 (str/starts-with? text "- ")
+                 (re-matches links/legacy-source-pattern text))))))
+
+(defn update-description-adf
+  [item description]
+  (let [original (:provider-description item)]
+    (if-not (map? original)
+      (text->adf description)
+      (let [section (links/parse-managed description)]
+        (when-not section
+          (throw (ex-info "The Jira update is missing its managed Pull requests section."
+                          {:code :malformed-managed-section})))
+        (let [content (vec (:content original))
+              start (managed-heading-index content)
+              end (when start
+                    (loop [index (inc start)]
+                      (if (and (< index (count content))
+                               (managed-entry-node? (nth content index)))
+                        (recur (inc index))
+                        index)))
+              replacement (:content (text->adf (:content section)))]
+          (assoc original :content
+                 (if start
+                   (vec (concat (subvec content 0 start)
+                                replacement
+                                (subvec content end)))
+                   (vec (concat content replacement)))))))))
+
 (defn normalize-project
   [base-url project]
   (let [key (:key project)]
@@ -208,6 +251,7 @@
        :display-id key
        :title (:summary fields)
        :description (description->text (:description fields))
+       :provider-description (:description fields)
        :url (str base-url "/browse/" key)
        :state (when-let [status (:status fields)] {:name (:name status)})
        :scopes [(domain/scope-identity :jira base-url)]
@@ -444,7 +488,7 @@
   [app-config item {:keys [description labels]}]
   (normalize-item (base-url app-config)
                   (update-item! app-config (provider-id item)
-                                {:description (text->adf description)
+                                {:description (update-description-adf item description)
                                  :labels (vec (label-names labels))})))
 
 (defn configured-scope

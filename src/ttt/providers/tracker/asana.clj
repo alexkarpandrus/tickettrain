@@ -5,11 +5,15 @@
             [ttt.config :as config]
             [ttt.domain :as domain]
             [ttt.platform.remote :as remote]
-            [ttt.providers.tracker.state :as state]))
+            [ttt.providers.tracker.state :as state]
+            [ttt.text.links :as links]))
 
 (def api-path "/api/1.0")
 
-(def task-fields "name,notes,html_notes,permalink_url,completed,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
+(def task-fields "name,notes,html_notes,permalink_url,completed,workspace.gid,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
+
+(def rich-notes-pattern
+  #"(?i)<(?:h[12]|ul|ol|p|strong|em|s|u|code|blockquote|pre)\b")
 
 (def target-states [{:id "incomplete" :name "incomplete" :completed false}
                     {:id "completed" :name "completed" :completed true}])
@@ -183,6 +187,41 @@
       (str/replace #"\n{3,}" "\n\n")
       str/trim))
 
+
+(def managed-heading-pattern
+  #"(?s)(?i:<h2\b[^>]*>)\s*(?:(?i:<(?:s|u)\b[^>]*>)\s*)*Pull requests\s*(?:(?i:</(?:s|u)>)\s*)*(?i:</h2>)")
+
+(def next-heading-pattern
+  #"(?is)<h[1-6]\b[^>]*>")
+
+(defn html-body-content
+  [html]
+  (or (second (re-matches #"(?is)^<body>(.*)</body>$" html)) html))
+
+(defn update-description-html
+  [item description]
+  (let [original (:provider-description item)]
+    (if (str/blank? original)
+      (markdown->html description)
+      (let [section (links/parse-managed description)]
+        (when-not section
+          (throw (ex-info "The Asana update is missing its managed Pull requests section."
+                          {:code :malformed-managed-section})))
+        (let [replacement (html-body-content (markdown->html (:content section)))
+              matcher (re-matcher managed-heading-pattern original)
+              body-end (str/last-index-of (str/lower-case original) "</body>")]
+          (if (.find matcher)
+            (let [start (.start matcher)
+                  after-heading (.end matcher)
+                  next-matcher (re-matcher next-heading-pattern (subs original after-heading))
+                  end (cond
+                        (.find next-matcher) (+ after-heading (.start next-matcher))
+                        body-end body-end
+                        :else (count original))]
+              (str (subs original 0 start) replacement (subs original end)))
+            (let [end (or body-end (count original))]
+              (str (subs original 0 end) replacement (subs original end)))))))))
+
 (defn normalize-project
   [scope project]
   {:ref (domain/identity :asana :project (:gid project))
@@ -208,19 +247,24 @@
 (defn normalize-task
   [scope task]
   (when task
-    {:ref (domain/identity :asana :tracker-item (:gid task))
-     :display-id (:gid task)
-     :title (:name task)
-     :description (if (re-find #"(?i)<(?:h[12]|ul|ol|p|strong|em|code|blockquote|pre)\b"
-                               (or (:html_notes task) ""))
-                    (html->markdown (:html_notes task))
-                    (or (:notes task) ""))
-     :url (:permalink_url task)
-     :state {:name (if (:completed task) "completed" "incomplete")}
-     :scopes [scope]
-     :project (when-let [p (first (:projects task))] (normalize-project scope p))
-     :parent (when-let [p (:parent task)] (normalize-parent scope p))
-     :labels (mapv #(normalize-tag scope %) (or (:tags task) []))}))
+    (let [scope (if-let [workspace-gid (get-in task [:workspace :gid])]
+                  (domain/scope-identity :asana workspace-gid)
+                  scope)
+          html-notes (or (:html_notes task) "")
+          rich-notes? (boolean (re-find rich-notes-pattern html-notes))]
+      {:ref (domain/identity :asana :tracker-item (:gid task))
+       :display-id (:gid task)
+       :title (:name task)
+       :description (if rich-notes?
+                      (html->markdown html-notes)
+                      (or (:notes task) ""))
+       :provider-description (when rich-notes? html-notes)
+       :url (:permalink_url task)
+       :state {:name (if (:completed task) "completed" "incomplete")}
+       :scopes [scope]
+       :project (when-let [p (first (:projects task))] (normalize-project scope p))
+       :parent (when-let [p (:parent task)] (normalize-parent scope p))
+       :labels (mapv #(normalize-tag scope %) (or (:tags task) []))})))
 
 (defn task-by-gid
   [app-config gid]
@@ -311,6 +355,7 @@
                          target (assoc :completed (:completed target))
                          project (assoc :projects [project])
                          parent (assoc :parent parent)
+                         (and (not project) (not parent)) (assoc :workspace (workspace-gid app-config))
                          (seq labels) (assoc :tags (vec (tag-ids labels))))}]
     (get (api! app-config :post "/tasks" payload) :data)))
 
@@ -335,10 +380,14 @@
 (defn update-item-from-intent!
   [app-config item {:keys [description labels]}]
   (let [item-id (provider-id item)
-        labels (vec (or labels []))]
-    (update-task! app-config item-id {:html_notes (markdown->html description)})
+        labels (vec (or labels []))
+        html-description (update-description-html item description)]
+    (update-task! app-config item-id {:html_notes html-description})
     (update-tags! app-config item-id (:labels item) labels)
-    (assoc item :description description :labels labels)))
+    (assoc item
+           :description description
+           :provider-description html-description
+           :labels labels)))
 
 (defn configured-scope
   [app-config]

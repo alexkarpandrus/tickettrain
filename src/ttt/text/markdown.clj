@@ -130,7 +130,9 @@
 (defn upsert-section
   [existing parsed section]
   (if parsed
-    (str (:before parsed) section (:after parsed))
+    (str (:before parsed) (str/trimr section)
+         (when-not (str/blank? (:after parsed)) "\n\n")
+         (str/replace-first (:after parsed) #"^(?:\r?\n)+" ""))
     (str (str/trimr existing)
          (when-not (str/blank? existing) "\n\n")
          section

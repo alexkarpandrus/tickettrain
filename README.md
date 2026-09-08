@@ -136,7 +136,7 @@ ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 
 `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
 
-In the JSON API, `version`, `inspect`, `search`, and `preview` are read-only. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale or mismatched approval.
+In the JSON API, `version`, `inspect`, `search`, and `preview` are read-only. Preview includes the tracker scope and non-secret mutation settings. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale, mismatched, or reconfigured approval.
 
 Run `ttt --llm` for the authoritative agent instructions. The same portable instructions ship in [`skills/tickettrain/SKILL.md`](skills/tickettrain/SKILL.md).
 
@@ -179,7 +179,7 @@ Select the forge and tracker in EDN, then run `ttt setup` to validate them and c
  :tracker {:provider :jira}}
 ```
 
-`ttt` loads `.env`, `config/ttt.edn`, and `config/ttt.local.edn` from the tickettrain installation—not from the target repository. Real process environment variables override `.env` values.
+`ttt` loads `.env`, `config/ttt.edn`, and `config/ttt.local.edn` from the tickettrain installation—not from the target repository. Local config overrides base config; environment variables override both; the real process environment overrides `.env` values.
 
 | Provider | Authentication and main settings |
 | --- | --- |

@@ -48,6 +48,13 @@
     (is (str/includes? updated "- Issue: [PAY-100]("))
     (is (not (str/includes? updated "- Issue: [PAY-99](")))))
 
+
+(deftest replacing-managed-section-preserves-suffix-indentation
+  (let [managed (change-request/upsert-managed-section "Hello" config issue parent)
+        existing (str managed "\n    printf 'keep code'")
+        updated (change-request/upsert-managed-section existing config issue parent)]
+    (is (str/includes? updated "\n\n    printf 'keep code'"))))
+
 (deftest managed-section-can-reference-projects
   (let [project {:ref (domain/identity :linear :project "project-1")
                  :label "Project"
