@@ -106,7 +106,7 @@
   [config environment]
   (reduce
    (fn [overrides role]
-     (let [provider (get-in config [role :provider])
+     (let [provider (keyword (get-in config [role :provider]))
            settings (get provider-settings [role provider])
            values (into {}
                         (keep (fn [{:keys [key] :as setting}]

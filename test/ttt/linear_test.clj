@@ -47,8 +47,7 @@
          (linear/state-id (assoc-in config [:tracker :state-name] "In Review") "team-1")))))
 
 (deftest setup-selects-an-available-target-state
-  (with-redefs [linear/collect-api-key (constantly "token")
-                linear/graphql! (fn [_ query _]
+  (with-redefs [linear/graphql! (fn [_ query _]
                                   (when (= query linear/viewer-query)
                                     {:viewer {:email "dev@example.com"
                                               :organization {:urlKey "acme"}}}))

@@ -167,6 +167,10 @@
     (is (= ["Todo" "In Progress"]
            (mapv :name (jira/project-statuses config "APP" {:name "Task"}))))))
 
+(deftest nil-issue-type-uses-the-jira-default
+  (is (= {:name "Task"}
+         (jira/configured-issue-type (assoc-in config [:tracker :issue-type] nil)))))
+
 
 (deftest invalid-status-for-the-issue-type-fails-before-create
   (let [calls (atom [])

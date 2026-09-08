@@ -81,7 +81,8 @@
                   {:github {:display-name "GitHub" :setup-order 0}
                    :gitlab {:display-name "GitLab" :setup-order 1
                             :setup-settings [{:key :token :env "SETUP_TEST_TOKEN"
-                                              :required? true :secret? true}]
+                                              :required? true :secret? true}
+                                             {:key :base-url :env "SETUP_TEST_BASE_URL"}]
                             :setup (fn [app-config]
                                      (swap! configured assoc :forge
                                             (get-in app-config [:forge :provider]))
@@ -96,7 +97,7 @@
                                                     {:tracker {:target-state "open"}})}}
                   config/load-file-config (constantly {:forge {:provider :github}
                                                   :tracker {:provider :linear}})
-                  config/env-overrides (fn [_ _] {:forge {:token "environment-secret"}})
+                  config/env-overrides (fn [_ _] {:forge {:token "environment-secret" :base-url "https://gitlab.example"}})
                   prompt/choose-index (fn [_ _ _] 1)
                   config/write-local-config! (fn [value replace-sections]
                                                (reset! written value)
@@ -104,7 +105,7 @@
                                                "config/ttt.local.edn")]
       (let [output (with-out-str (setup/setup!))]
         (is (= {:forge :gitlab :tracker :github-issues} @configured))
-        (is (= {:forge {:provider :gitlab :token nil}
+        (is (= {:forge {:provider :gitlab :token nil :base-url "https://gitlab.example"}
                 :tracker {:provider :github-issues :target-state "open"}}
                @written))
         (is (= "environment-secret" @environment-secret-used))
@@ -128,7 +129,7 @@
 
 (deftest retaining-a-provider-preserves-its-declared-settings
   (let [descriptor {:setup-settings [{:key :token} {:key :base-url}]}
-        loaded {:forge {:provider :gitlab
+        loaded {:forge {:provider "gitlab"
                         :token "current-token"
                         :base-url "https://gitlab.example.com"
                         :obsolete "discard-me"}}]
@@ -136,6 +137,23 @@
             :token "current-token"
             :base-url "https://gitlab.example.com"}
            (setup/selected-role-config loaded :forge :gitlab descriptor)))))
+
+(deftest environment-secrets-stay-external-while-endpoints-can-persist
+  (let [descriptor {:setup-settings [{:key :token :secret? true}
+                                     {:key :base-url}]}
+        environment {:forge {:token "environment-token"
+                             :base-url "https://gitlab.new.example"}}]
+    (is (= {:forge {:provider :gitlab
+                    :token nil
+                    :base-url "https://gitlab.old.example"}}
+           (setup/mask-environment-secrets
+            {:forge {:provider :gitlab
+                     :token "old-file-token"
+                     :base-url "https://gitlab.old.example"}}
+            :forge descriptor environment)))
+    (is (= {:forge {:base-url "https://gitlab.new.example"}}
+           (setup/remove-environment-secrets
+            environment :forge descriptor environment)))))
 
 
 (deftest setup-collects-only-missing-required-settings
