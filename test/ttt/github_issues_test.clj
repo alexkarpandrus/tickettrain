@@ -60,6 +60,13 @@
     (is (= "open"
            (get-in (github-issues/setup {}) [:tracker :target-state])))))
 
+(deftest setup-authentication-failure-explains-recovery
+  (with-redefs [shell/run (fn [& _] (throw (Exception. "not authenticated")))]
+    (is (thrown-with-msg?
+         Exception
+         #"gh auth login"
+         (github-issues/setup {})))))
+
 (deftest parent-resolution-is-rejected-before-preview
   (let [adapter (with-redefs [github-issues/repo-slug (fn [] "org/repo")]
                   (github-issues/neutral-adapter {}))]

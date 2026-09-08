@@ -12,7 +12,7 @@
                                :assignee-id "self"
                                :state-name "In Review"
                                :workspace-url "https://linear.app/YOUR_WORKSPACE"}}
-                    (config/env-overrides
+                    (config/env-overrides {:tracker {:provider :linear}}
                      {"LINEAR_API_KEY" "token"
                       "LINEAR_TEAM_ID" "team"
                       "LINEAR_ASSIGNEE_ID" "user-123"
@@ -26,15 +26,17 @@
     (is (= "Review" (get-in merged [:tracker :state-name])))
     (is (= "https://linear.app/acme" (get-in merged [:tracker :workspace-url])))))
 
-(deftest dotenv-overrides-preserve-a-configured-provider
+(deftest dotenv-overrides-respect-configured-providers
   (let [merged (-> (config/deep-merge
                     {:tracker {:provider :example-tracker}
                      :forge {:provider :example-forge}}
-                    (config/env-overrides {"LINEAR_API_KEY" "token"}))
+                    (config/env-overrides {:tracker {:provider :example-tracker}
+                                           :forge {:provider :example-forge}}
+                                          {"LINEAR_API_KEY" "token"}))
                    config/normalize-config)]
     (is (= :example-tracker (get-in merged [:tracker :provider])))
     (is (= :example-forge (get-in merged [:forge :provider])))
-    (is (= "token" (get-in merged [:tracker :api-key])))))
+    (is (nil? (get-in merged [:tracker :api-key])))))
 
 (deftest tracker-provider-selects-managed-section-title
   (is (= "GitHub Issues"
@@ -48,7 +50,7 @@
           :cloud-id "cloud-1"
           :project "APP"
           :issue-type "Task"}
-         (:tracker (config/env-overrides
+         (:tracker (config/env-overrides {:tracker {:provider :jira}}
                     {"JIRA_EMAIL" "alex@example.com"
                      "JIRA_API_TOKEN" "jira-token"
                      "JIRA_SITE_URL" "https://acme.atlassian.net"
@@ -58,18 +60,19 @@
 
 (deftest generic-target-state-maps-from-the-environment
   (is (= "In Progress"
-         (get-in (config/env-overrides {"TTT_TRACKER_STATE" "In Progress"})
+         (get-in (config/env-overrides {:tracker {:provider :github-issues}}
+                                       {"TTT_TRACKER_STATE" "In Progress"})
                  [:tracker :target-state]))))
 
 (deftest gitlab-credentials-map-from-the-environment
   (is (= {:token "gitlab-token" :base-url "https://gitlab.example.com"}
-         (:forge (config/env-overrides
+         (:forge (config/env-overrides {:forge {:provider :gitlab}}
                   {"GITLAB_TOKEN" "gitlab-token"
                    "GITLAB_BASE_URL" "https://gitlab.example.com"})))))
 
 (deftest asana-credentials-map-from-the-environment
   (is (= {:token "asana-token" :workspace "workspace-1"}
-         (:tracker (config/env-overrides
+         (:tracker (config/env-overrides {:tracker {:provider :asana}}
                     {"ASANA_TOKEN" "asana-token"
                      "ASANA_WORKSPACE" "workspace-1"})))))
 
@@ -77,10 +80,36 @@
   (is (= {:email "alex@example.com"
           :api-token "bitbucket-token"
           :base-url "https://api.bitbucket.example.com"}
-         (:forge (config/env-overrides
+         (:forge (config/env-overrides {:forge {:provider :bitbucket}}
                   {"BITBUCKET_EMAIL" "alex@example.com"
                    "BITBUCKET_API_TOKEN" "bitbucket-token"
                    "BITBUCKET_BASE_URL" "https://api.bitbucket.example.com"})))))
+
+
+(deftest provider-switch-does-not-inherit-other-provider-settings
+  (is (= {:email "dev@example.com" :api-token "new"}
+         (:forge (config/env-overrides
+                  {:forge {:provider :bitbucket}}
+                  {"GITLAB_BASE_URL" "https://gitlab.old.example"
+                   "BITBUCKET_EMAIL" "dev@example.com"
+                   "BITBUCKET_API_TOKEN" "new"}))))
+  (is (= {:forge {:provider :bitbucket :email "dev@example.com"}}
+         (config/merge-config-layer
+          {:forge {:provider :gitlab :token "old" :base-url "https://gitlab.old.example"}}
+          {:forge {:provider :bitbucket :email "dev@example.com"}}))))
+
+(deftest load-config-keeps-a-replaced-provider-clean
+  (let [base (java.io.File/createTempFile "ttt-base-config" ".edn")
+        local (java.io.File/createTempFile "ttt-local-config" ".edn")]
+    (spit base "{:forge {:provider :gitlab :token \"old\" :base-url \"https://gitlab.old.example\"}}")
+    (spit local "{:forge {:provider :bitbucket :email \"dev@example.com\" :api-token \"new\"}}")
+    (try
+      (with-redefs [config/default-local-config-path (.getPath local)
+                    config/load-dotenv (constantly {})
+                    config/env-overrides (fn [_ _] {})]
+        (is (= {:provider :bitbucket :email "dev@example.com" :api-token "new"}
+               (:forge (config/load-config (.getPath base))))))
+      (finally (.delete base) (.delete local)))))
 
 (deftest normalize-config-fills-default-provider-sections
   (let [normalized (config/normalize-config

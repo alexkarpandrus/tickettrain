@@ -27,6 +27,57 @@
    :github-issues "GitHub Issues"
    :asana "Asana"})
 
+(defn normalize-linear-workspace
+  [workspace]
+  (if (str/starts-with? workspace "http")
+    workspace
+    (str "https://linear.app/" workspace)))
+
+(def provider-settings
+  {[:forge :github] []
+   [:forge :gitlab]
+   [{:key :token :label "GitLab token" :env "GITLAB_TOKEN"
+     :required? true :secret? true}
+    {:key :base-url :env "GITLAB_BASE_URL"}]
+   [:forge :bitbucket]
+   [{:key :email :label "Bitbucket email" :env "BITBUCKET_EMAIL" :required? true}
+    {:key :api-token :label "Bitbucket API token" :env "BITBUCKET_API_TOKEN"
+     :required? true :secret? true}
+    {:key :base-url :env "BITBUCKET_BASE_URL"}]
+   [:tracker :linear]
+   [{:key :api-key :label "Linear API key" :env "LINEAR_API_KEY"
+     :required? true :secret? true}
+    {:key :team-id :env "LINEAR_TEAM_ID"}
+    {:key :assignee-id :env "LINEAR_ASSIGNEE_ID"}
+    {:key :workspace-url :env ["LINEAR_WORKSPACE" "LINEAR_WORKSPACE_URL"]
+     :transform normalize-linear-workspace}
+    {:key :state-id :env "LINEAR_STATE_ID"}
+    {:key :state-name :env "LINEAR_STATE_NAME"}
+    {:key :target-state :env "TTT_TRACKER_STATE"}]
+   [:tracker :jira]
+   [{:key :email :label "Jira email" :env "JIRA_EMAIL" :required? true}
+    {:key :api-token :label "Jira API token" :env "JIRA_API_TOKEN"
+     :required? true :secret? true}
+    {:key :site-url :label "Jira site URL" :env "JIRA_SITE_URL" :required? true}
+    {:key :cloud-id :label "Jira cloud ID" :env "JIRA_CLOUD_ID" :required? true}
+    {:key :project :env "JIRA_PROJECT"}
+    {:key :issue-type :env "JIRA_ISSUE_TYPE"}
+    {:key :target-state :env "TTT_TRACKER_STATE"}]
+   [:tracker :github-issues]
+   [{:key :target-state :env "TTT_TRACKER_STATE"}]
+   [:tracker :asana]
+   [{:key :token :label "Asana token" :env "ASANA_TOKEN"
+     :required? true :secret? true}
+    {:key :workspace :env "ASANA_WORKSPACE"}
+    {:key :base-url}
+    {:key :target-state :env "TTT_TRACKER_STATE"}]})
+
+(defn setting-environment-value
+  [environment {:keys [env transform]}]
+  (when-let [value (some #(some-> (get environment %) str/trim not-empty)
+                         (if (string? env) [env] env))]
+    ((or transform identity) value)))
+
 (declare normalize-config)
 
 (defn parse-dotenv-line
@@ -52,74 +103,20 @@
        {}))))
 
 (defn env-overrides
-  [env]
-  (let [workspace (or (get env "LINEAR_WORKSPACE")
-                      (get env "LINEAR_WORKSPACE_URL"))
-        tracker (cond-> {}
-                (get env "TTT_TRACKER_STATE")
-                (assoc :target-state (get env "TTT_TRACKER_STATE"))
-                (get env "LINEAR_API_KEY")
-                (assoc :api-key (get env "LINEAR_API_KEY"))
-
-                (get env "LINEAR_TEAM_ID")
-                (assoc :team-id (get env "LINEAR_TEAM_ID"))
-
-                (get env "LINEAR_ASSIGNEE_ID")
-                (assoc :assignee-id (get env "LINEAR_ASSIGNEE_ID"))
-
-                (get env "LINEAR_STATE_ID")
-                (assoc :state-id (get env "LINEAR_STATE_ID"))
-
-                (get env "LINEAR_STATE_NAME")
-                (assoc :state-name (get env "LINEAR_STATE_NAME"))
-
-                workspace
-                (assoc :workspace-url
-                       (if (str/starts-with? workspace "http")
-                         workspace
-                         (str "https://linear.app/" workspace)))
-
-                (get env "JIRA_EMAIL")
-                (assoc :email (get env "JIRA_EMAIL"))
-
-                (get env "JIRA_API_TOKEN")
-                (assoc :api-token (get env "JIRA_API_TOKEN"))
-
-                (get env "JIRA_SITE_URL")
-                (assoc :site-url (get env "JIRA_SITE_URL"))
-
-                (get env "JIRA_CLOUD_ID")
-                (assoc :cloud-id (get env "JIRA_CLOUD_ID"))
-
-                (get env "JIRA_PROJECT")
-                (assoc :project (get env "JIRA_PROJECT"))
-
-                  (get env "JIRA_ISSUE_TYPE")
-                  (assoc :issue-type (get env "JIRA_ISSUE_TYPE"))
-
-                  (get env "ASANA_TOKEN")
-                  (assoc :token (get env "ASANA_TOKEN"))
-
-                  (get env "ASANA_WORKSPACE")
-                  (assoc :workspace (get env "ASANA_WORKSPACE")))
-        forge (cond-> {}
-                (get env "GITLAB_TOKEN")
-                (assoc :token (get env "GITLAB_TOKEN"))
-
-                (get env "GITLAB_BASE_URL")
-                (assoc :base-url (get env "GITLAB_BASE_URL"))
-
-                (get env "BITBUCKET_EMAIL")
-                (assoc :email (get env "BITBUCKET_EMAIL"))
-
-                (get env "BITBUCKET_API_TOKEN")
-                (assoc :api-token (get env "BITBUCKET_API_TOKEN"))
-
-                (get env "BITBUCKET_BASE_URL")
-                (assoc :base-url (get env "BITBUCKET_BASE_URL")))]
-    (cond-> {}
-      (seq tracker) (assoc :tracker tracker)
-      (seq forge) (assoc :forge forge))))
+  [config environment]
+  (reduce
+   (fn [overrides role]
+     (let [provider (get-in config [role :provider])
+           settings (get provider-settings [role provider])
+           values (into {}
+                        (keep (fn [{:keys [key] :as setting}]
+                                (when-let [value (setting-environment-value environment setting)]
+                                  [key value])))
+                        settings)]
+       (cond-> overrides
+         (seq values) (assoc role values))))
+   {}
+   [:forge :tracker]))
 
 (defn deep-merge
   [& maps]
@@ -130,6 +127,19 @@
                             b))
                         left right))]
     (reduce merge-entry {} maps)))
+
+(defn merge-config-layer
+  [base layer]
+  (let [merged (deep-merge base layer)]
+    (reduce
+     (fn [config role]
+       (let [role-layer (get layer role)]
+         (if (and (contains? role-layer :provider)
+                  (not= (get-in base [role :provider]) (:provider role-layer)))
+           (assoc config role role-layer)
+           config)))
+     merged
+     [:forge :tracker])))
 
 (defn read-edn-map
   [path]
@@ -153,18 +163,25 @@
   [dotenv system-env]
   (merge dotenv system-env))
 
-(defn load-config
-  ([] (load-config default-config-path))
+(defn load-file-config
+  ([] (load-file-config default-config-path))
   ([path]
-   (let [config-path (fs/file path)
-         dotenv (load-dotenv)
-         env-config (env-overrides (merge-env-config dotenv (into {} (System/getenv))))]
+   (let [config-path (fs/file path)]
      (when-not (fs/exists? config-path)
        (throw (ex-info (str "Config file not found: " path)
                        {:path path})))
-     (-> (deep-merge (read-edn-map config-path)
-                     (read-edn-map default-local-config-path)
-                     env-config)
+     (-> (merge-config-layer
+          (read-edn-map config-path)
+          (read-edn-map default-local-config-path))
+         normalize-config))))
+
+(defn load-config
+  ([] (load-config default-config-path))
+  ([path]
+   (let [base-config (load-file-config path)
+         environment (merge-env-config (load-dotenv) (into {} (System/getenv)))
+         env-config (env-overrides base-config environment)]
+     (-> (deep-merge base-config env-config)
          normalize-config))))
 
 (defn normalize-config

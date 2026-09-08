@@ -146,7 +146,7 @@
   (try
     (shell/run "gh" "auth" "status")
     (catch Exception _
-      (throw (ex-info "GitHub Issues tracker requires an authenticated `gh` CLI session."
+      (throw (ex-info "GitHub Issues tracker requires an authenticated `gh` CLI session. Run `gh auth login`, then re-run `ttt setup`."
                       {:code :provider-config-invalid})))))
 
 (defn setup

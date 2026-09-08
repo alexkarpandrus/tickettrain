@@ -34,9 +34,44 @@
          #"Set TEST_TOKEN"
          (prompt/ask-secret "Test token (TEST_TOKEN):" "TEST_TOKEN")))))
 
+(deftest secret-input-uses-the-console-without-echo
+  (let [result (atom nil)
+        output (with-redefs [prompt/system-console (constantly (Object.))
+                             prompt/read-console-password
+                             (constantly (char-array "  secret  "))]
+                 (with-out-str
+                   (reset! result (prompt/ask-secret "Token:" "TEST_TOKEN"))))]
+    (is (= "secret" @result))
+    (is (not (re-find #"secret" output)))))
+
+(deftest secret-input-aborts-on-end-of-input
+  (with-redefs [prompt/system-console (constantly (Object.))
+                prompt/read-console-password (constantly nil)]
+    (is (thrown-with-msg?
+         Exception
+         #"Input closed"
+         (binding [*out* (java.io.StringWriter.)]
+           (prompt/ask-secret "Token:" "TEST_TOKEN"))))))
+
+(deftest unknown-current-provider-requires-an-explicit-choice
+  (let [default-index (atom :unset)
+        choice (atom nil)]
+    (with-redefs [prompt/choose-index (fn [_ _ default]
+                                       (reset! default-index default)
+                                       0)]
+      (with-out-str
+        (reset! choice
+                (setup/choose-provider
+                 :forge
+                 {:github {:display-name "GitHub" :setup-order 0}}
+                 :removed-provider))))
+    (is (nil? @default-index))
+    (is (= :github @choice))))
+
 (deftest setup-guides-provider-selection-and-persists-it
   (let [written (atom nil)
         replaced (atom nil)
+        environment-secret-used (atom nil)
         configured (atom {})
         setup-fn (fn [role delta]
                    (fn [app-config]
@@ -45,16 +80,23 @@
     (with-redefs [forge/registry
                   {:github {:display-name "GitHub" :setup-order 0}
                    :gitlab {:display-name "GitLab" :setup-order 1
-                            :setup-settings []
-                            :setup (setup-fn :forge nil)}}
+                            :setup-settings [{:key :token :env "SETUP_TEST_TOKEN"
+                                              :required? true :secret? true}]
+                            :setup (fn [app-config]
+                                     (swap! configured assoc :forge
+                                            (get-in app-config [:forge :provider]))
+                                     (reset! environment-secret-used
+                                             (get-in app-config [:forge :token]))
+                                     {:forge {:token @environment-secret-used}})}}
                   tracker/registry
                   {:linear {:display-name "Linear" :setup-order 0}
                    :github-issues {:display-name "GitHub Issues" :setup-order 1
                                    :setup-settings []
                                    :setup (setup-fn :tracker
                                                     {:tracker {:target-state "open"}})}}
-                  config/load-config (constantly {:forge {:provider :github}
+                  config/load-file-config (constantly {:forge {:provider :github}
                                                   :tracker {:provider :linear}})
+                  config/env-overrides (fn [_ _] {:forge {:token "environment-secret"}})
                   prompt/choose-index (fn [_ _ _] 1)
                   config/write-local-config! (fn [value replace-sections]
                                                (reset! written value)
@@ -65,6 +107,7 @@
         (is (= {:forge {:provider :gitlab}
                 :tracker {:provider :github-issues :target-state "open"}}
                @written))
+        (is (= "environment-secret" @environment-secret-used))
         (is (= #{:forge :tracker} @replaced))
         (is (re-find #"GitLab → GitHub Issues" output))
         (is (re-find #"ttt version" output))))))
@@ -77,9 +120,9 @@
         loaded {:forge {:provider :gitlab
                         :token "old-gitlab-token"
                         :base-url "https://gitlab.previous.example"}}]
-    (with-redefs [setup/environment-value (fn [_] nil)]
-      (is (= {:provider :bitbucket}
-             (setup/selected-role-config loaded :forge :bitbucket descriptor))))))
+    (is (= {:provider :bitbucket}
+           (setup/selected-role-config loaded :forge :bitbucket descriptor)))))
+
 
 (deftest setup-collects-only-missing-required-settings
   (with-redefs [prompt/ask (fn [message]
