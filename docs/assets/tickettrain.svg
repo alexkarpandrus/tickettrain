@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 900 240">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 720 190">
   <title id="title">tickettrain</title>
-  <desc id="desc">A moving ttt mark on a railway ticket beside the tickettrain wordmark.</desc>
+  <desc id="desc">The tickettrain wordmark with its three t letters highlighted in motion.</desc>
   <style>
     .ink-fill { fill: #1c1917; }
     .ink-stroke { stroke: #1c1917; }
@@ -10,17 +10,10 @@
     }
   </style>
 
-  <path d="M28 26h220v62c-18 0-32 14-32 32s14 32 32 32v62H28v-62c18 0 32-14 32-32S46 88 28 88z" fill="#e85d3f" class="ink-stroke" stroke-width="8" stroke-linejoin="round"/>
-  <path d="M194 38v164" fill="none" class="ink-stroke" stroke-width="5" stroke-dasharray="8 11"/>
-  <text x="70" y="148" fill="#f5efe3" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="88" font-style="italic" font-weight="900" letter-spacing="-12">ttt</text>
-  <g fill="none" stroke="#f5efe3" stroke-width="6" stroke-linecap="round">
-    <path d="M69 175h95M80 167v16M107 167v16M134 167v16M161 167v16"/>
-    <path d="M70 70h30M63 88h24M61 106h17"/>
+  <g fill="none" stroke="#e85d3f" stroke-width="7" stroke-linecap="round">
+    <path d="M24 57h35M12 79h43M24 101h35"/>
   </g>
-  <circle cx="220" cy="56" r="8" fill="#f5efe3"/>
-  <circle cx="220" cy="184" r="8" fill="#f5efe3"/>
-
-  <text x="292" y="146" class="ink-fill" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="80" font-weight="850" letter-spacing="-3"><tspan fill="#e85d3f">t</tspan>icke<tspan fill="#e85d3f">tt</tspan>rain</text>
-  <path d="M296 174h548" fill="none" class="ink-stroke" stroke-width="5"/>
-  <path d="M750 164l18 10-18 10M786 164l18 10-18 10M822 164l18 10-18 10" fill="none" stroke="#e85d3f" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="70" y="115" class="ink-fill" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="84" font-weight="850" letter-spacing="-3"><tspan fill="#e85d3f">t</tspan>icke<tspan fill="#e85d3f">tt</tspan>rain</text>
+  <path d="M74 143h626" fill="none" class="ink-stroke" stroke-width="6" stroke-linecap="round"/>
+  <path d="M590 132l20 11-20 11M628 132l20 11-20 11M666 132l20 11-20 11" fill="none" stroke="#e85d3f" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
