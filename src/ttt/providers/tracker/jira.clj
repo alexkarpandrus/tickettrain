@@ -4,7 +4,8 @@
             [clojure.string :as str]
             [ttt.config :as config]
             [ttt.domain :as domain]
-            [ttt.platform.remote :as remote]))
+            [ttt.platform.remote :as remote]
+            [ttt.providers.tracker.state :as state]))
 
 (def api-path "/rest/api/3")
 
@@ -249,6 +250,24 @@
   (let [response (api! app-config :get "/project/search" {:maxResults 50})]
     (mapv #(normalize-project (base-url app-config) %) (:values response))))
 
+(defn project-statuses
+  [app-config project-key issue-type]
+  (->> (api! app-config :get
+             (str "/project/" (url-encode project-key) "/statuses")
+             nil)
+       (filter #(if-let [id (:id issue-type)]
+                  (= (str id) (str (:id %)))
+                  (= (str/lower-case (str (:name issue-type)))
+                     (str/lower-case (str (:name %))))))
+       (mapcat :statuses)
+       (reduce (fn [statuses status]
+                 (if (some #(= (str/lower-case (:name %))
+                               (str/lower-case (:name status)))
+                           statuses)
+                   statuses
+                   (conj statuses status)))
+               [])))
+
 (defn project-by-key
   [app-config key]
   (try
@@ -298,22 +317,65 @@
   (api! app-config :put (str "/issue/" (url-encode item-id)) {:fields input})
   (api! app-config :get (str "/issue/" (url-encode item-id)) nil))
 
+(defn apply-target-state!
+  [app-config issue]
+  (let [target (get-in app-config [:tracker :target-state])
+        current (get-in issue [:fields :status :name])]
+    (if (or (str/blank? (str target))
+            (= (str/lower-case (str target)) (str/lower-case (str current))))
+      issue
+      (let [issue-key (:key issue)
+            transitions (:transitions
+                         (api! app-config :get
+                               (str "/issue/" (url-encode issue-key) "/transitions")
+                               {:expand "transitions.fields"}))
+            choices (mapv #(assoc % :name (get-in % [:to :name])) transitions)
+            transition (state/resolve-target "Jira transition" target choices)
+            required-fields (->> (:fields transition)
+                                 (keep (fn [[field details]]
+                                         (when (:required details) (name field))))
+                                 vec)]
+        (when (seq required-fields)
+          (throw (ex-info
+                  (str "Jira transition to " (:name transition)
+                       " requires fields: " (str/join ", " required-fields))
+                  {:code :transition-fields-required
+                   :target-state (:name transition)
+                   :required-fields required-fields})))
+        (api! app-config :post
+              (str "/issue/" (url-encode issue-key) "/transitions")
+              {:transition {:id (:id transition)}})
+        (api! app-config :get (str "/issue/" (url-encode issue-key)) nil)))))
+
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels]}]
   (let [parent (some-> (:parent context) provider-id)
         project (or (some-> (:parent context) :project provider-id)
                     (some-> (:project context) provider-id)
                     (get-in app-config [:tracker :project]))
-        issue-type (get-in app-config [:tracker :issue-type] "Task")
+        configured-target (get-in app-config [:tracker :target-state])
+        _ (when (and (not (str/blank? (str configured-target)))
+                     (str/blank? (str project)))
+            (throw (ex-info "Jira target state requires a project."
+                            {:code :target-state-project-required})))
+        issue-type (if parent
+                     (subtask-issue-type app-config project)
+                     {:name (get-in app-config [:tracker :issue-type] "Task")})
+        target (when-not (str/blank? (str configured-target))
+                 (state/resolve-target "Jira"
+                                       configured-target
+                                       (project-statuses app-config project issue-type)))
+        cfg (cond-> app-config target (assoc-in [:tracker :target-state] (:name target)))
         fields (cond-> {:summary title
                         :description (text->adf description)
                         :labels (vec (label-names labels))}
                  parent (assoc :parent {:key parent}
                                :project {:key project}
-                               :issuetype (subtask-issue-type app-config project))
+                               :issuetype issue-type)
                  (and (not parent) project) (assoc :project {:key project}
-                                                   :issuetype {:name issue-type}))]
-    (normalize-item (base-url app-config) (create-item! app-config fields))))
+                                                   :issuetype issue-type))]
+    (normalize-item (base-url app-config)
+                    (apply-target-state! cfg (create-item! app-config fields)))))
 
 (defn update-item-from-intent!
   [app-config item {:keys [description labels]}]
@@ -335,9 +397,20 @@
 (defn setup
   [app-config]
   (assert-ready! app-config)
-  (let [me (api! app-config :get "/myself" nil)]
+  (let [me (api! app-config :get "/myself" nil)
+        project (get-in app-config [:tracker :project])
+        target (when-not (str/blank? (str project))
+                 (state/choose-target "Jira"
+                                      (get-in app-config [:tracker :target-state])
+                                      (project-statuses app-config project {:name (get-in app-config [:tracker :issue-type] "Task")})))]
     (println (str "Jira tracker: authenticated as " (get-in me [:displayName])))
-    nil))
+    (when (and (str/blank? (str project))
+               (not (str/blank? (str (get-in app-config [:tracker :target-state])))))
+      (throw (ex-info "Jira target-state setup requires JIRA_PROJECT."
+                      {:code :target-state-project-required})))
+    {:tracker (assoc (select-keys (:tracker app-config)
+                                  [:email :api-token :site-url :cloud-id :project :issue-type])
+                     :target-state (some-> target :name))}))
 
 (def capabilities
   #{:configured-scope

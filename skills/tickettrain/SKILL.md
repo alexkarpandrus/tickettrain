@@ -13,11 +13,12 @@ description: Link a GitHub, GitLab, or Bitbucket change request to a Linear, Git
 - `ttt version` — self-check and capability list.
 - `ttt setup` — configure the tracker and GitHub, GitLab, or Bitbucket forge; run once after install.
 
-## Workflow configuration
+## Target state
 
-- Workflow names are provider-specific. Never guess a name or copy one between trackers.
-- For Linear, run `LINEAR_STATE_NAME="Exact team state" ttt setup` to validate and persist a remap. If no explicit state is needed, run interactive setup and choose **Linear default**.
-- Jira status transitions, GitHub issue state, and Asana completion are not remapped by the current adapters. Keep their provider defaults.
+- Use `TTT_TRACKER_STATE="Exact state name" ttt setup` to validate and persist the state for newly created items.
+- Linear and Jira discover configured workflow states. Jira also requires `JIRA_PROJECT` and applies a direct transition after creation.
+- GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
+- Never guess a state name. If setup reports an unavailable state, present the available states and ask the user to choose.
 
 ## Quick reference
 

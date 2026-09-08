@@ -4,11 +4,15 @@
             [clojure.string :as str]
             [ttt.config :as config]
             [ttt.domain :as domain]
-            [ttt.platform.remote :as remote]))
+            [ttt.platform.remote :as remote]
+            [ttt.providers.tracker.state :as state]))
 
 (def api-path "/api/1.0")
 
 (def task-fields "name,notes,html_notes,permalink_url,completed,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
+
+(def target-states [{:id "incomplete" :name "incomplete" :completed false}
+                    {:id "completed" :name "completed" :completed true}])
 
 (def inline-markdown-pattern
   #"\[((?:\\.|[^\]])*)\]\((https?://[^)\s]+)\)|\*\*([^*]+)\*\*|\x60([^\x60]+)\x60|_([^_]+)_")
@@ -298,9 +302,13 @@
 
 (defn create-task!
   [app-config context title description labels]
-  (let [project (some-> (:project context) provider-id)
+  (let [target (state/resolve-target "Asana"
+                                     (get-in app-config [:tracker :target-state])
+                                     target-states)
+        project (some-> (:project context) provider-id)
         parent (some-> (:parent context) provider-id)
         payload {:data (cond-> {:name title :html_notes (markdown->html description)}
+                         target (assoc :completed (:completed target))
                          project (assoc :projects [project])
                          parent (assoc :parent parent)
                          (seq labels) (assoc :tags (vec (tag-ids labels))))}]
@@ -344,9 +352,13 @@
   [app-config]
   (when (str/blank? (token app-config))
     (throw (ex-info "Asana requires ASANA_TOKEN. Set it, then re-run `ttt setup`." {:code :aborted})))
-  (let [me (api! app-config :get "/users/me" nil)]
+  (let [me (api! app-config :get "/users/me" nil)
+        target (state/choose-target "Asana"
+                                    (get-in app-config [:tracker :target-state])
+                                    target-states)]
     (println (str "Asana tracker: authenticated as " (get-in me [:data :name])))
-    nil))
+    {:tracker (assoc (select-keys (:tracker app-config) [:token :workspace :base-url])
+                     :target-state (some-> target :name))}))
 
 (def capabilities
   #{:configured-scope

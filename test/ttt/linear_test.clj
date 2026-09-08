@@ -1,6 +1,5 @@
 (ns ttt.linear-test
-  (:require
-            [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is]]
             [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
             [ttt.providers.tracker.linear :as linear]))
@@ -33,46 +32,40 @@
     (is (= "state-2"
            (linear/state-id (assoc-in config [:tracker :state-name] "In Review") "team-1")))))
 
+(deftest state-id-resolves-provider-neutral-target-state
+  (with-redefs [linear/team-states (fn [_ _]
+                                     [{:id "state-1" :name "Todo"}
+                                      {:id "state-2" :name "In Progress"}])]
+    (is (= "state-2"
+           (linear/state-id (assoc-in config [:tracker :target-state] "In Progress") "team-1")))))
+
 (deftest state-id-fails-when-name-is-missing
   (with-redefs [linear/team-states (fn [_ _] [{:id "state-1" :name "Todo"}])]
     (is (thrown-with-msg?
          Exception
-         #"Linear workflow state not found"
+         #"Linear target state not found"
          (linear/state-id (assoc-in config [:tracker :state-name] "In Review") "team-1")))))
 
-(deftest setup-selects-an-available-workflow-state
+(deftest setup-selects-an-available-target-state
   (with-redefs [linear/collect-api-key (constantly "token")
                 linear/graphql! (fn [_ query _]
                                   (when (= query linear/viewer-query)
                                     {:viewer {:email "dev@example.com"
                                               :organization {:urlKey "acme"}}}))
                 linear/pick-team (constantly {:id "team-1" :name "App" :key "APP"})
-                linear/team-states (fn [_ _]
-                                     [{:id "state-1" :name "Todo"}
-                                      {:id "state-2" :name "In Progress"}])
-                prompt/choose-index (fn [count label]
-                                      (is (= 3 count))
-                                      (is (= "workflow state" label))
-                                      1)]
+                linear/team-states (fn [_ _] [{:id "state-1" :name "Todo"}])
+                prompt/choose-index (fn [_ _] 1)]
     (is (= "Todo"
-           (get-in (linear/setup config) [:tracker :state-name])))))
+           (get-in (linear/setup config) [:tracker :target-state])))))
 
-(deftest setup-keeps-a-valid-configured-workflow-state
-  (with-redefs [linear/team-states (fn [_ _]
-                                     [{:id "state-1" :name "Todo"}])
-                prompt/choose-index (fn [& _]
-                                      (throw (ex-info "unexpected prompt" {})))]
-    (is (= {:state-name "Todo"}
-           (linear/pick-state-config
-            (assoc-in config [:tracker :state-name] "todo")
-            {:id "team-1"})))))
 
-(deftest setup-can-use-the-provider-default-state
-  (with-redefs [linear/team-states (fn [_ _]
-                                     [{:id "state-1" :name "Todo"}])
+(deftest provider-default-clears-legacy-state-configuration
+  (with-redefs [linear/team-states (fn [_ _] [{:id "state-1" :name "Todo"}])
                 prompt/choose-index (fn [_ _] 0)]
-    (is (= {}
-           (linear/pick-state-config config {:id "team-1"})))))
+    (is (= {:target-state nil :state-id nil :state-name nil}
+           (linear/pick-state-config
+            (assoc-in config [:tracker :state-name] "Retired")
+            {:id "team-1"})))))
 
 (deftest parent-issues-page-and-normalize-item-scope
   (let [calls (atom [])]
