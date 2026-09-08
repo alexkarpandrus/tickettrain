@@ -328,7 +328,7 @@
                             (case path
                               "/myself" {:displayName "Alex"}
                               "/project/APP/statuses" [{:name "Task" :statuses [{:id "1" :name "Todo"}]}]))
-                prompt/choose-index (fn [_ _] 1)]
+                prompt/choose-index (fn [& _] 1)]
     (is (= "Todo"
            (get-in (jira/setup config) [:tracker :target-state])))))
 

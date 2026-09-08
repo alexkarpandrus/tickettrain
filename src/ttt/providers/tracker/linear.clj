@@ -373,7 +373,7 @@
       (valid-config-value? env-key) env-key
       (valid-config-value? configured) configured
       :else
-      (let [entered (prompt/ask "Linear API key (create at https://linear.app/settings/account/security/api-keys/new): ")]
+      (let [entered (prompt/ask-secret "Linear API key (create at https://linear.app/settings/account/security/api-keys/new):" "LINEAR_API_KEY")]
         (when (str/blank? entered)
           (throw (ex-info "No Linear API key provided." {:code :aborted})))
         entered))))
@@ -399,7 +399,7 @@
         (println "Teams:")
         (doseq [[i team] (map-indexed vector available)]
           (println (str "  " (inc i) ") " (:name team) " (" (:key team) ")")))
-        (nth available (prompt/choose-index (count available) "team"))))))
+        (nth available (prompt/choose-index (count available) "team" 0))))))
 
 (defn pick-state-config
   [app-config team]

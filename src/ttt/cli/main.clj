@@ -27,7 +27,7 @@
     "  ttt apply --request-file PATH --approve PROPOSAL_ID"
     ""
     "Setup:"
-    "  ttt setup          Configure the tracker and GitHub, GitLab, or Bitbucket forge"
+    "  ttt setup          Choose and validate a forge and tracker"
     ""
     "Interactive workflow:"
     "  ttt --interactive --parent \"parent item key or fuzzy text\""

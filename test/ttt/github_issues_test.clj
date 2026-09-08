@@ -56,7 +56,7 @@
 
 (deftest setup-selects-a-target-state
   (with-redefs [shell/run (fn [& _] "")
-                prompt/choose-index (fn [_ _] 1)]
+                prompt/choose-index (fn [& _] 1)]
     (is (= "open"
            (get-in (github-issues/setup {}) [:tracker :target-state])))))
 

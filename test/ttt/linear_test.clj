@@ -54,14 +54,14 @@
                                               :organization {:urlKey "acme"}}}))
                 linear/pick-team (constantly {:id "team-1" :name "App" :key "APP"})
                 linear/team-states (fn [_ _] [{:id "state-1" :name "Todo"}])
-                prompt/choose-index (fn [_ _] 1)]
+                prompt/choose-index (fn [& _] 1)]
     (is (= "Todo"
            (get-in (linear/setup config) [:tracker :target-state])))))
 
 
 (deftest provider-default-clears-legacy-state-configuration
   (with-redefs [linear/team-states (fn [_ _] [{:id "state-1" :name "Todo"}])
-                prompt/choose-index (fn [_ _] 0)]
+                prompt/choose-index (fn [& _] 0)]
     (is (= {:target-state nil :state-id nil :state-name nil}
            (linear/pick-state-config
             (assoc-in config [:tracker :state-name] "Retired")
