@@ -34,29 +34,33 @@ Tracker items, projects, labels, and scopes follow the same shape. Selection and
 Bundled registries live at the composition boundary:
 
 ```clojure
+;; ttt.providers.forge/registry
 {:github {:build github/neutral-adapter
-          :validate-config! github/assert-ready!}
-
+          :validate-config! github/assert-ready!
+          :setup github/setup}
  :gitlab {:build gitlab/neutral-adapter
-          :validate-config! gitlab/assert-ready!}
-
+          :validate-config! gitlab/assert-ready!
+          :setup gitlab/setup}
  :bitbucket {:build bitbucket/neutral-adapter
-             :validate-config! bitbucket/assert-ready!}}
+             :validate-config! bitbucket/assert-ready!
+             :setup bitbucket/setup}}
 
+;; ttt.providers.tracker/registry
 {:linear {:build linear/neutral-adapter
-          :validate-config! linear/assert-ready!}
-
- :github-issues {:build github-issues/neutral-adapter
-                 :validate-config! github-issues/assert-ready!}
-
+          :validate-config! linear/assert-ready!
+          :setup linear/setup}
  :jira {:build jira/neutral-adapter
-        :validate-config! jira/assert-ready!}
-
+        :validate-config! jira/assert-ready!
+        :setup jira/setup}
+ :github-issues {:build github-issues/neutral-adapter
+                 :validate-config! github-issues/assert-ready!
+                 :setup github-issues/setup}
  :asana {:build asana/neutral-adapter
-         :validate-config! asana/assert-ready!}}
+         :validate-config! asana/assert-ready!
+         :setup asana/setup}}
 ```
 
-A descriptor has a required `:build` function and an optional local-only `:validate-config!` function. `ttt.adapters/build` rejects unknown providers, registry/provider mismatches, undeclared capabilities, and missing capability functions. Dynamic plugin discovery and config-resolved symbols are intentionally unsupported.
+A descriptor has a required `:build` function and optional `:validate-config!` and `:setup` functions. Runtime construction calls `:validate-config!` before `:build`; `ttt setup` calls `:setup`. `ttt.adapters/build` rejects unknown providers, registry/provider mismatches, undeclared capabilities, and missing capability functions. Dynamic plugin discovery and config-resolved symbols are intentionally unsupported.
 
 ## Capability maps
 
@@ -71,7 +75,7 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
  :update-item! (fn [item intent] normalized-item)}
 ```
 
-Shared code passes normalized label entities. Only the concrete tracker translates them to native IDs. Scope validation happens in `ttt.core` before label resolution or mutation.
+Shared code passes normalized label entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution, then validates the resolved labels before mutation.
 
 ## Registering a bundled provider
 
@@ -79,13 +83,13 @@ Shared code passes normalized label entities. Only the concrete tracker translat
 2. Normalize every resource to `:ref`, `:display-id`, and neutral presentation fields.
 3. Add `:scopes` to tracker entities used by shared code.
 4. Implement and declare the complete role capability set.
-5. Add its descriptor to `ttt.providers.forge/registry` or `ttt.providers.tracker/registry`.
+5. Add its descriptor to `ttt.providers.forge/registry` or `ttt.providers.tracker/registry`, including `:setup` when the provider needs setup work.
 6. Add provider unit tests and a local-stub provider contract test.
 7. Do not change `ttt.core` for provider-specific behavior.
 
 ## Managed links and tests
 
-Change-request bodies and tracker descriptions use validated managed Markdown sections. Renderers escape labels and destinations; malformed content is rejected before rewrite for manual repair. Source markers serialize the provider from the normalized ref.
+Change-request bodies and tracker descriptions use validated managed Markdown sections. Renderers escape labels and destinations; malformed content is rejected before rewrite for manual repair. Change-request bodies serialize the normalized tracker identity in a `ttt:item` marker. Tracker descriptions store change-request links and remove legacy `ttt:source` markers during updates.
 
 `bb test` is local and deterministic: it runs pure core tests, provider unit tests, and registry-backed provider integration tests with GraphQL/subprocess stubs. Tests must not require credentials, `gh auth`, or network access. Provider contract tests cover capabilities, normalized identities/scopes, native payload translation, and tracker mutation before forge mutation.
 
