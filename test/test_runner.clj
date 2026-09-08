@@ -20,6 +20,7 @@
             [ttt.provider-integration-test]
             [ttt.remote-test]
             [ttt.shell-test]
+            [ttt.tracker-state-test]
             [ttt.ui-test]
             [ttt.workflow-test]))
 
@@ -30,7 +31,7 @@
    'ttt.gitlab-jira-integration-test 'ttt.gitlab-test 'ttt.jira-test
    'ttt.linear-test 'ttt.links-test 'ttt.main-test
    'ttt.pr-body-test 'ttt.provider-integration-test
-   'ttt.remote-test 'ttt.shell-test 'ttt.ui-test 'ttt.workflow-test])
+   'ttt.remote-test 'ttt.shell-test 'ttt.tracker-state-test 'ttt.ui-test 'ttt.workflow-test])
 
 (defn -main []
   (let [result (apply test/run-tests test-namespaces)]

@@ -2,9 +2,13 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [ttt.domain :as domain]
-            [ttt.platform.shell :as shell]))
+            [ttt.platform.shell :as shell]
+            [ttt.providers.tracker.state :as state]))
 
 (def issue-fields "number,title,body,url,labels,state,milestone")
+
+(def target-states [{:id "open" :name "open"}
+                    {:id "closed" :name "closed"}])
 
 (defn gh-json
   [& args]
@@ -103,14 +107,19 @@
                   {:code :unsupported-parent})))
 
 (defn create-item!
-  [scope context title description labels]
-  (let [milestone (some-> (:project context) project-name)
+  [app-config scope context title description labels]
+  (let [target (state/resolve-target "GitHub Issues"
+                                     (get-in app-config [:tracker :target-state])
+                                     target-states)
+        milestone (some-> (:project context) project-name)
         label-args (mapcat (fn [label] ["--label" label]) (label-names labels))
         args (cond-> ["issue" "create" "--title" title "--body" description]
                milestone (into ["--milestone" milestone])
                (seq label-args) (into label-args))
         url (apply shell/run "gh" args)
         number (some->> (re-find #"/issues/(\d+)$" url) second Long/parseLong)]
+    (when (= "closed" (:id target))
+      (shell/run "gh" "issue" "close" (str number)))
     (issue-by-number scope number)))
 
 (defn update-item!
@@ -123,10 +132,10 @@
     (issue-by-number scope number)))
 
 (defn create-item-from-intent!
-  [scope context {:keys [title description labels]}]
+  [app-config scope context {:keys [title description labels]}]
   (when (:parent context)
     (unsupported-parent!))
-  (create-item! scope context title description labels))
+  (create-item! app-config scope context title description labels))
 
 (defn update-item-from-intent!
   [scope item {:keys [description labels]}]
@@ -141,10 +150,13 @@
                       {:code :provider-config-invalid})))))
 
 (defn setup
-  [_app-config]
-  (assert-ready! nil)
+  [app-config]
+  (assert-ready! app-config)
   (println "GitHub Issues tracker: gh authenticated")
-  nil)
+  (let [target (state/choose-target "GitHub Issues"
+                                    (get-in app-config [:tracker :target-state])
+                                    target-states)]
+    {:tracker {:target-state (some-> target :name)}}))
 
 (def capabilities
   #{:configured-scope
@@ -159,7 +171,7 @@
     :update-item!})
 
 (defn neutral-adapter
-  [_app-config]
+  [app-config]
   (let [scope* (delay (domain/scope-identity :github-issues (repo-slug)))]
     {:provider :github-issues
      :capabilities capabilities
@@ -171,5 +183,5 @@
      :resolve-project #(resolve-project @scope* %)
      :search-labels #(labels @scope*)
      :resolve-labels #(resolve-labels @scope* %1 %2)
-     :create-item! #(create-item-from-intent! @scope* %1 %2)
+     :create-item! #(create-item-from-intent! app-config @scope* %1 %2)
      :update-item! #(update-item-from-intent! @scope* %1 %2)}))
