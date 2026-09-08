@@ -1,6 +1,7 @@
 (ns ttt.jira-test
   (:require [babashka.http-client :as http]
             [clojure.test :refer [deftest is]]
+            [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
             [ttt.providers.tracker.jira :as jira]))
 
@@ -105,6 +106,60 @@
                               {:issues []})]
       (jira/search-issues config "project = APP" 5))
     (is (= "/search/jql" @path-used))))
+
+(deftest project-statuses-are-filtered-to-the-configured-issue-type
+  (with-redefs [jira/api! (fn [_ _ _ _]
+                            [{:id "10001" :name "Task"
+                              :statuses [{:id "1" :name "Todo"}
+                                         {:id "2" :name "In Progress"}
+                                         {:id "2" :name "In Progress"}]}
+                             {:id "10002" :name "Bug"
+                              :statuses [{:id "3" :name "Bug Review"}]}])]
+    (is (= ["Todo" "In Progress"]
+           (mapv :name (jira/project-statuses config "APP" {:name "Task"}))))))
+
+
+(deftest invalid-status-for-the-issue-type-fails-before-create
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "Bug Review")]
+    (with-redefs [jira/api! (fn [_ method _ _]
+                              (swap! calls conj method)
+                              [{:name "Task" :statuses [{:id "1" :name "Todo"}]}
+                               {:name "Bug" :statuses [{:id "2" :name "Bug Review"}]}])]
+      (is (thrown-with-msg?
+           Exception
+           #"Jira target state not found"
+           (jira/create-item-from-intent!
+            app-config {} {:title "Task" :description "Body" :labels []}))))
+    (is (not-any? #{:post} @calls))))
+
+(deftest created-issue-transitions-to-the-configured-target-state
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "In Progress")]
+    (with-redefs [jira/api! (fn [_ method path body]
+                              (swap! calls conj [method path body])
+                              (cond
+                                (= [:get "/issue/APP-1/transitions"] [method path])
+                                {:transitions [{:id "21" :to {:name "In Progress"} :fields {}}]}
+
+                                (= [:get "/issue/APP-1"] [method path])
+                                {:key "APP-1" :fields {:status {:name "In Progress"}}}))]
+      (is (= "In Progress"
+             (get-in (jira/apply-target-state!
+                      app-config
+                      {:key "APP-1" :fields {:status {:name "Todo"}}})
+                     [:fields :status :name]))))
+    (is (some #(= [:post "/issue/APP-1/transitions" {:transition {:id "21"}}] %)
+              @calls))))
+
+(deftest setup-selects-a-project-target-state
+  (with-redefs [jira/api! (fn [_ _ path _]
+                            (case path
+                              "/myself" {:displayName "Alex"}
+                              "/project/APP/statuses" [{:name "Task" :statuses [{:id "1" :name "Todo"}]}]))
+                prompt/choose-index (fn [_ _] 1)]
+    (is (= "Todo"
+           (get-in (jira/setup config) [:tracker :target-state])))))
 
 (deftest parent-create-uses-the-projects-subtask-issue-type
   (let [created-fields (atom nil)
