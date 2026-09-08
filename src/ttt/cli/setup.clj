@@ -7,27 +7,20 @@
             [ttt.providers.forge :as forge]
             [ttt.providers.tracker :as tracker]))
 
-(defn provider-entries
-  [registry]
-  (sort-by (fn [[provider-id descriptor]]
-             [(get descriptor :setup-order Integer/MAX_VALUE) (name provider-id)])
-           registry))
-
-(defn provider-label
-  [provider-id descriptor]
-  (or (:display-name descriptor) (name provider-id)))
 
 (defn choose-provider
   [role registry current]
-  (let [options (vec (provider-entries registry))
+  (let [options (vec (sort-by (fn [[provider-id descriptor]]
+                                [(:setup-order descriptor) (name provider-id)])
+                              registry))
         default-index (first (keep-indexed
                               (fn [index [provider-id _]]
                                 (when (= provider-id current) index))
                               options))]
     (println)
     (println (ui/headline (str "Choose your " (name role) ":")))
-    (doseq [[index [provider-id descriptor]] (map-indexed vector options)]
-      (println (str "  " (inc index) ") " (provider-label provider-id descriptor)
+    (doseq [[index [_ descriptor]] (map-indexed vector options)]
+      (println (str "  " (inc index) ") " (:display-name descriptor)
                     (when (= index default-index) " (current)"))))
     (first (nth options
                 (prompt/choose-index (count options) (name role) default-index)))))
@@ -39,7 +32,7 @@
         same-provider? (= provider-id (get-in app-config [role :provider]))
         persisted (if same-provider?
                     (select-keys (get app-config role) setting-keys)
-                    {})]
+                    (zipmap setting-keys (repeat nil)))]
     (assoc persisted :provider provider-id)))
 
 (defn remove-environment-secrets
@@ -49,7 +42,9 @@
      (if (and secret?
               (contains? (get environment-config role) key)
               (not (contains? (get credentials role) key)))
-       (update clean role #(when % (dissoc % key)))
+       (if (contains? clean role)
+         (update-in clean [role] dissoc key)
+         clean)
        clean))
    (or delta {})
    (:setup-settings descriptor)))
@@ -100,8 +95,8 @@
                      (collect-required-settings configured :forge forge-descriptor)
                      (collect-required-settings configured :tracker tracker-descriptor))
         app-config (config/deep-merge configured credentials)
-        forge-label (provider-label forge-id forge-descriptor)
-        tracker-label (provider-label tracker-id tracker-descriptor)
+        forge-label (:display-name forge-descriptor)
+        tracker-label (:display-name tracker-descriptor)
         _ (println)
         _ (println (ui/accent (str "Checking " forge-label " → " tracker-label "...")))
         forge-delta (-> (run-provider-setup app-config forge-descriptor)

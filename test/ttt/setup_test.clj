@@ -87,7 +87,7 @@
                                             (get-in app-config [:forge :provider]))
                                      (reset! environment-secret-used
                                              (get-in app-config [:forge :token]))
-                                     {:forge {:token @environment-secret-used}})}}
+                                     nil)}}
                   tracker/registry
                   {:linear {:display-name "Linear" :setup-order 0}
                    :github-issues {:display-name "GitHub Issues" :setup-order 1
@@ -104,7 +104,7 @@
                                                "config/ttt.local.edn")]
       (let [output (with-out-str (setup/setup!))]
         (is (= {:forge :gitlab :tracker :github-issues} @configured))
-        (is (= {:forge {:provider :gitlab}
+        (is (= {:forge {:provider :gitlab :token nil}
                 :tracker {:provider :github-issues :target-state "open"}}
                @written))
         (is (= "environment-secret" @environment-secret-used))
@@ -120,8 +120,22 @@
         loaded {:forge {:provider :gitlab
                         :token "old-gitlab-token"
                         :base-url "https://gitlab.previous.example"}}]
-    (is (= {:provider :bitbucket}
+    (is (= {:provider :bitbucket
+            :email nil
+            :api-token nil
+            :base-url nil}
            (setup/selected-role-config loaded :forge :bitbucket descriptor)))))
+
+(deftest retaining-a-provider-preserves-its-declared-settings
+  (let [descriptor {:setup-settings [{:key :token} {:key :base-url}]}
+        loaded {:forge {:provider :gitlab
+                        :token "current-token"
+                        :base-url "https://gitlab.example.com"
+                        :obsolete "discard-me"}}]
+    (is (= {:provider :gitlab
+            :token "current-token"
+            :base-url "https://gitlab.example.com"}
+           (setup/selected-role-config loaded :forge :gitlab descriptor)))))
 
 
 (deftest setup-collects-only-missing-required-settings

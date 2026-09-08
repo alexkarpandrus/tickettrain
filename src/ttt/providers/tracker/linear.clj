@@ -367,16 +367,12 @@
 
 (defn collect-api-key
   [app-config]
-  (let [env-key (System/getenv "LINEAR_API_KEY")
-        configured (get-in app-config [:tracker :api-key])]
-    (cond
-      (valid-config-value? env-key) env-key
-      (valid-config-value? configured) configured
-      :else
-      (let [entered (prompt/ask-secret "Linear API key (create at https://linear.app/settings/account/security/api-keys/new):" "LINEAR_API_KEY")]
-        (when (str/blank? entered)
-          (throw (ex-info "No Linear API key provided." {:code :aborted})))
-        entered))))
+  (let [configured (get-in app-config [:tracker :api-key])]
+    (if (valid-config-value? configured)
+      configured
+      (throw (ex-info
+              "No Linear API key provided. Set LINEAR_API_KEY or re-run `ttt setup`."
+              {:code :aborted})))))
 
 (defn teams
   [app-config]
