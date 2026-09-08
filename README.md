@@ -133,7 +133,7 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
 
-`create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
+`create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
 
 In the JSON API, `version`, `inspect`, `search`, and `preview` are read-only. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale or mismatched approval.
 
@@ -182,11 +182,11 @@ Select the forge and tracker in EDN, then run `ttt setup` to validate them and c
 
 | Provider | Authentication and main settings |
 | --- | --- |
-| GitHub / GitHub Issues | `gh auth login` |
+| GitHub / GitHub Issues | `gh auth login`; set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket |
 | GitLab | `GITLAB_TOKEN`, optional `GITLAB_BASE_URL` |
 | Bitbucket | `BITBUCKET_EMAIL`, `BITBUCKET_API_TOKEN`, optional `BITBUCKET_BASE_URL` |
 | Linear | `LINEAR_API_KEY`, `LINEAR_TEAM_ID`, and `LINEAR_WORKSPACE` or `LINEAR_WORKSPACE_URL`; optional assignee and state variables |
-| Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; optional `JIRA_PROJECT`, `JIRA_ISSUE_TYPE` |
+| Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE` |
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
 
 All trackers accept `TTT_TRACKER_STATE`. Linear also accepts the legacy `LINEAR_STATE_ID` and `LINEAR_STATE_NAME` variables, plus `LINEAR_ASSIGNEE_ID`.
