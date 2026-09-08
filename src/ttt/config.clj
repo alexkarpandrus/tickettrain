@@ -56,6 +56,8 @@
   (let [workspace (or (get env "LINEAR_WORKSPACE")
                       (get env "LINEAR_WORKSPACE_URL"))
         tracker (cond-> {}
+                (get env "TTT_TRACKER_STATE")
+                (assoc :target-state (get env "TTT_TRACKER_STATE"))
                 (get env "LINEAR_API_KEY")
                 (assoc :api-key (get env "LINEAR_API_KEY"))
 
@@ -138,7 +140,7 @@
   [config-map]
   (let [path (fs/file default-local-config-path)]
     (fs/create-dirs (fs/parent path))
-    (spit path (pr-str config-map))
+    (spit path (pr-str (deep-merge (read-edn-map path) config-map)))
     (try (fs/set-posix-file-permissions path "rw-------")
          (catch Exception _ nil))
     path))

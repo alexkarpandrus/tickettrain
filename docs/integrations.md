@@ -77,6 +77,8 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
 
 Shared code passes normalized label entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution, then validates the resolved labels before mutation.
 
+Trackers also own `:target-state`. Their setup function must expose valid native states, and `:create-item!` must validate and apply the configured state without adding provider branches to `ttt.core`.
+
 ## Registering a bundled provider
 
 1. Add a concrete namespace under `src/ttt/providers/forge/` or `src/ttt/providers/tracker/`.

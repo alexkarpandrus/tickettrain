@@ -1,6 +1,7 @@
 (ns ttt.asana-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
             [ttt.providers.tracker.asana :as asana]))
 
@@ -63,6 +64,22 @@
   (is (= ["t1" "t2"]
          (asana/tag-ids [(asana/normalize-tag scope {:gid "t1" :name "a"})
                          (asana/normalize-tag scope {:gid "t2" :name "b"})]))))
+
+(deftest create-task-applies-the-configured-target-state
+  (let [payload (atom nil)]
+    (with-redefs [asana/api! (fn [_ _ _ body]
+                               (reset! payload body)
+                               {:data {:gid "123" :completed true}})]
+      (asana/create-task!
+       (assoc-in config [:tracker :target-state] "completed")
+       {} "Title" "Body" []))
+    (is (true? (get-in @payload [:data :completed])))))
+
+(deftest setup-selects-a-target-state
+  (with-redefs [asana/api! (fn [& _] {:data {:name "Alex"}})
+                prompt/choose-index (fn [_ _] 2)]
+    (is (= "completed"
+           (get-in (asana/setup config) [:tracker :target-state])))))
 
 (deftest free-plan-search-falls-back-to-assigned-tasks
   (let [calls (atom [])]

@@ -2,10 +2,11 @@
   (:require [babashka.http-client :as http]
             [cheshire.core :as json]
             [clojure.string :as str]
+            [ttt.cli.prompt :as prompt]
             [ttt.config :as config]
             [ttt.domain :as domain]
-            [ttt.cli.prompt :as prompt]
-            [ttt.platform.remote :as remote]))
+            [ttt.platform.remote :as remote]
+            [ttt.providers.tracker.state :as state]))
 
 (def endpoint "https://api.linear.app/graphql")
 
@@ -269,26 +270,16 @@
 
 (defn state-id
   [app-config team-id]
-  (let [{:keys [state-id state-name]} (tracker-config app-config)]
+  (let [{:keys [state-id state-name target-state]} (tracker-config app-config)]
     (cond
+      (not (str/blank? (str target-state)))
+      (:id (state/resolve-target "Linear" target-state (team-states app-config team-id)))
+
       (and state-id (not (str/blank? (str state-id))))
       state-id
 
-      (and state-name (not (str/blank? (str state-name))))
-      (let [states (team-states app-config team-id)
-            match (->> states
-                       (filter #(= (str/lower-case (:name %))
-                                   (str/lower-case (str state-name))))
-                       first)]
-        (when-not match
-          (throw (ex-info
-                  (str "Linear workflow state not found: " state-name
-                       ". Available states: " (str/join ", " (map :name states))
-                       ". Set LINEAR_STATE_NAME or run `ttt setup` to remap it.")
-                  {:team-id team-id
-                   :state-name state-name
-                   :available-states (mapv :name states)})))
-        (:id match))
+      (not (str/blank? (str state-name)))
+      (:id (state/resolve-target "Linear" state-name (team-states app-config team-id)))
 
       :else nil)))
 
@@ -413,39 +404,12 @@
 (defn pick-state-config
   [app-config team]
   (let [available (vec (team-states app-config (:id team)))
-        {:keys [state-id state-name]} (tracker-config app-config)
-        configured-kind (cond
-                          (valid-config-value? state-id) :state-id
-                          (valid-config-value? state-name) :state-name)
-        configured-value (case configured-kind
-                           :state-id state-id
-                           :state-name state-name
-                           nil)
-        configured-state (case configured-kind
-                           :state-id (first (filter #(= (str configured-value) (str (:id %))) available))
-                           :state-name (first (filter #(= (str/lower-case (str configured-value))
-                                                         (str/lower-case (:name %)))
-                                                     available))
-                           nil)]
-    (cond
-      configured-state
-      {configured-kind (get configured-state (if (= :state-id configured-kind) :id :name))}
-
-      (empty? available)
-      {}
-
-      :else
-      (do
-        (when configured-kind
-          (println (str "Configured Linear workflow state is unavailable: " configured-value)))
-        (println "Workflow states:")
-        (println "  1) Linear default")
-        (doseq [[i state] (map-indexed vector available)]
-          (println (str "  " (+ i 2) ") " (:name state))))
-        (let [choice (prompt/choose-index (inc (count available)) "workflow state")]
-          (if (zero? choice)
-            {}
-            {:state-name (:name (nth available (dec choice)))}))))))
+        {:keys [state-id state-name target-state]} (tracker-config app-config)
+        configured (or target-state state-id state-name)
+        selected (state/choose-target "Linear" configured available)]
+    {:target-state (some-> selected :name)
+     :state-id nil
+     :state-name nil}))
 
 (defn setup
   [app-config]

@@ -1,5 +1,6 @@
 (ns ttt.config-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
             [ttt.config :as config]))
 
@@ -54,6 +55,11 @@
                      "JIRA_CLOUD_ID" "cloud-1"
                      "JIRA_PROJECT" "APP"
                      "JIRA_ISSUE_TYPE" "Task"})))))
+
+(deftest generic-target-state-maps-from-the-environment
+  (is (= "In Progress"
+         (get-in (config/env-overrides {"TTT_TRACKER_STATE" "In Progress"})
+                 [:tracker :target-state]))))
 
 (deftest gitlab-credentials-map-from-the-environment
   (is (= {:token "gitlab-token" :base-url "https://gitlab.example.com"}
@@ -136,6 +142,18 @@
     (spit tmp "{:tracker {:provider :linear :api-key \"k\" :team-id \"t\" :workspace-url \"https://linear.app/acme\"}}")
     (try
       (is (= :linear (get-in (config/load-config (.getPath tmp)) [:tracker :provider])))
+      (finally (.delete tmp)))))
+
+
+(deftest write-local-config-preserves-existing-settings
+  (let [tmp (java.io.File/createTempFile "ttt-local-config" ".edn")]
+    (spit tmp "{:tracker {:provider :github-issues} :forge {:provider :github}}")
+    (try
+      (with-redefs [config/default-local-config-path (.getPath tmp)]
+        (config/write-local-config! {:tracker {:target-state "closed"}})
+        (is (= {:tracker {:provider :github-issues :target-state "closed"}
+                :forge {:provider :github}}
+               (edn/read-string (slurp tmp)))))
       (finally (.delete tmp)))))
 
 (deftest real-environment-overrides-dotenv

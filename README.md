@@ -74,12 +74,14 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Search and resolve projects | ✓ | ✓ | ✓² | ✓ |
 | Search and resolve labels | ✓ | ✓ | ✓ | ✓ |
 | Create items | ✓ | ✓ | ✓ | ✓ |
+| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ |
 | Update items and backlinks | ✓ | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ | ✓ |
 | Transport | GraphQL | REST API | `gh` CLI | REST API |
 
 1. Asana's full-workspace search requires a paid plan. On HTTP 402, `ttt` searches only tasks assigned to the authenticated user.
 2. GitHub Issues does not support parent issues. GitHub milestones provide the project scope.
+3. Jira applies the configured state through an available direct transition for the selected project and issue type.
 
 All 12 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
 
@@ -169,7 +171,7 @@ The heading and links follow the selected tracker. Tracker descriptions use a se
 
 ## Configuration
 
-Select the forge and tracker in EDN, then run `ttt setup` to validate them. Linear setup discovers the selected team's workflow states and writes the chosen mapping to the gitignored `config/ttt.local.edn` with owner-only permissions.
+Select the forge and tracker in EDN, then run `ttt setup` to validate them and choose the state for newly created items. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Setup writes the selection to the gitignored `config/ttt.local.edn` with owner-only permissions.
 
 ```clojure
 {:forge {:provider :gitlab}
@@ -187,9 +189,9 @@ Select the forge and tracker in EDN, then run `ttt setup` to validate them. Line
 | Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; optional `JIRA_PROJECT`, `JIRA_ISSUE_TYPE` |
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
 
-Linear also accepts `LINEAR_ASSIGNEE_ID`, `LINEAR_STATE_ID`, and `LINEAR_STATE_NAME`.
+All trackers accept `TTT_TRACKER_STATE`. Linear also accepts the legacy `LINEAR_STATE_ID` and `LINEAR_STATE_NAME` variables, plus `LINEAR_ASSIGNEE_ID`.
 
-Workflow names are provider-specific. For Linear, run `LINEAR_STATE_NAME="Exact team state" ttt setup` to validate and persist a non-interactive remap, or choose **Linear default** during interactive setup to omit an explicit state. Jira status transitions, GitHub issue state, and Asana completion are not remapped by the current adapters.
+State names are provider-specific. Never copy a workflow name between trackers. Linear accepts team workflow states. Jira accepts states for its configured project and issue type. GitHub Issues accepts `open` or `closed`. Asana accepts `incomplete` or `completed`.
 
 ## Safety and limitations
 
