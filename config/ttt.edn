@@ -2,7 +2,6 @@
  {:api-key "YOUR_LINEAR_API_KEY"
   :team-id "YOUR_LINEAR_TEAM_ID"
   :assignee-id "self"
-  :state-name "In Review"
   :workspace-url "https://linear.app/YOUR_WORKSPACE"}
 
  :forge
