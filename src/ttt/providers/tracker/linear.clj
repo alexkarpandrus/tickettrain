@@ -275,15 +275,19 @@
       state-id
 
       (and state-name (not (str/blank? (str state-name))))
-      (let [match (->> (team-states app-config team-id)
+      (let [states (team-states app-config team-id)
+            match (->> states
                        (filter #(= (str/lower-case (:name %))
                                    (str/lower-case (str state-name))))
                        first)]
         (when-not match
           (throw (ex-info
-                  (str "Linear workflow state not found: " state-name)
+                  (str "Linear workflow state not found: " state-name
+                       ". Available states: " (str/join ", " (map :name states))
+                       ". Set LINEAR_STATE_NAME or run `ttt setup` to remap it.")
                   {:team-id team-id
-                   :state-name state-name})))
+                   :state-name state-name
+                   :available-states (mapv :name states)})))
         (:id match))
 
       :else nil)))
@@ -406,21 +410,59 @@
           (println (str "  " (inc i) ") " (:name team) " (" (:key team) ")")))
         (nth available (prompt/choose-index (count available) "team"))))))
 
+(defn pick-state-config
+  [app-config team]
+  (let [available (vec (team-states app-config (:id team)))
+        {:keys [state-id state-name]} (tracker-config app-config)
+        configured-kind (cond
+                          (valid-config-value? state-id) :state-id
+                          (valid-config-value? state-name) :state-name)
+        configured-value (case configured-kind
+                           :state-id state-id
+                           :state-name state-name
+                           nil)
+        configured-state (case configured-kind
+                           :state-id (first (filter #(= (str configured-value) (str (:id %))) available))
+                           :state-name (first (filter #(= (str/lower-case (str configured-value))
+                                                         (str/lower-case (:name %)))
+                                                     available))
+                           nil)]
+    (cond
+      configured-state
+      {configured-kind (get configured-state (if (= :state-id configured-kind) :id :name))}
+
+      (empty? available)
+      {}
+
+      :else
+      (do
+        (when configured-kind
+          (println (str "Configured Linear workflow state is unavailable: " configured-value)))
+        (println "Workflow states:")
+        (println "  1) Linear default")
+        (doseq [[i state] (map-indexed vector available)]
+          (println (str "  " (+ i 2) ") " (:name state))))
+        (let [choice (prompt/choose-index (inc (count available)) "workflow state")]
+          (if (zero? choice)
+            {}
+            {:state-name (:name (nth available (dec choice)))}))))))
+
 (defn setup
   [app-config]
   (let [api-key (collect-api-key app-config)
         cfg (assoc-in app-config [:tracker :api-key] api-key)
         viewer (get (graphql! cfg viewer-query {}) :viewer)
         team (pick-team cfg)
-        url-key (get-in viewer [:organization :urlKey])]
+        url-key (get-in viewer [:organization :urlKey])
+        state-config (pick-state-config cfg team)]
     (println (str "Linear user: " (:email viewer)))
     (println (str "Workspace: https://linear.app/" url-key))
     (println (str "Team: " (:name team) " (" (:key team) ")"))
-    {:tracker {:api-key api-key
-               :team-id (:id team)
-               :workspace-url (str "https://linear.app/" url-key)
-               :assignee-id "self"
-               :state-name "In Review"}}))
+    {:tracker (merge {:api-key api-key
+                      :team-id (:id team)
+                      :workspace-url (str "https://linear.app/" url-key)
+                      :assignee-id "self"}
+                     state-config)}))
 
 (def capabilities
   #{:configured-scope
