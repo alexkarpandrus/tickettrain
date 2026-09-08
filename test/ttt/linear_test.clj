@@ -1,6 +1,7 @@
 (ns ttt.linear-test
   (:require
             [clojure.test :refer [deftest is]]
+            [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
             [ttt.providers.tracker.linear :as linear]))
 
@@ -38,6 +39,40 @@
          Exception
          #"Linear workflow state not found"
          (linear/state-id (assoc-in config [:tracker :state-name] "In Review") "team-1")))))
+
+(deftest setup-selects-an-available-workflow-state
+  (with-redefs [linear/collect-api-key (constantly "token")
+                linear/graphql! (fn [_ query _]
+                                  (when (= query linear/viewer-query)
+                                    {:viewer {:email "dev@example.com"
+                                              :organization {:urlKey "acme"}}}))
+                linear/pick-team (constantly {:id "team-1" :name "App" :key "APP"})
+                linear/team-states (fn [_ _]
+                                     [{:id "state-1" :name "Todo"}
+                                      {:id "state-2" :name "In Progress"}])
+                prompt/choose-index (fn [count label]
+                                      (is (= 3 count))
+                                      (is (= "workflow state" label))
+                                      1)]
+    (is (= "Todo"
+           (get-in (linear/setup config) [:tracker :state-name])))))
+
+(deftest setup-keeps-a-valid-configured-workflow-state
+  (with-redefs [linear/team-states (fn [_ _]
+                                     [{:id "state-1" :name "Todo"}])
+                prompt/choose-index (fn [& _]
+                                      (throw (ex-info "unexpected prompt" {})))]
+    (is (= {:state-name "Todo"}
+           (linear/pick-state-config
+            (assoc-in config [:tracker :state-name] "todo")
+            {:id "team-1"})))))
+
+(deftest setup-can-use-the-provider-default-state
+  (with-redefs [linear/team-states (fn [_ _]
+                                     [{:id "state-1" :name "Todo"}])
+                prompt/choose-index (fn [_ _] 0)]
+    (is (= {}
+           (linear/pick-state-config config {:id "team-1"})))))
 
 (deftest parent-issues-page-and-normalize-item-scope
   (let [calls (atom [])]

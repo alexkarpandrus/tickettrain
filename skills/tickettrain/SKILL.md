@@ -13,6 +13,12 @@ description: Link a GitHub, GitLab, or Bitbucket change request to a Linear, Git
 - `ttt version` — self-check and capability list.
 - `ttt setup` — configure the tracker and GitHub, GitLab, or Bitbucket forge; run once after install.
 
+## Workflow configuration
+
+- Workflow names are provider-specific. Never guess a name or copy one between trackers.
+- For Linear, run `LINEAR_STATE_NAME="Exact team state" ttt setup` to validate and persist a remap. If no explicit state is needed, run interactive setup and choose **Linear default**.
+- Jira status transitions, GitHub issue state, and Asana completion are not remapped by the current adapters. Keep their provider defaults.
+
 ## Quick reference
 
 ```bash

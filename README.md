@@ -169,7 +169,7 @@ The heading and links follow the selected tracker. Tracker descriptions use a se
 
 ## Configuration
 
-Select the forge and tracker in EDN, then run `ttt setup` to validate the configured providers. Linear setup can prompt for missing values and writes them to the gitignored `config/ttt.local.edn` with owner-only permissions.
+Select the forge and tracker in EDN, then run `ttt setup` to validate them. Linear setup discovers the selected team's workflow states and writes the chosen mapping to the gitignored `config/ttt.local.edn` with owner-only permissions.
 
 ```clojure
 {:forge {:provider :gitlab}
@@ -188,6 +188,8 @@ Select the forge and tracker in EDN, then run `ttt setup` to validate the config
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
 
 Linear also accepts `LINEAR_ASSIGNEE_ID`, `LINEAR_STATE_ID`, and `LINEAR_STATE_NAME`.
+
+Workflow names are provider-specific. For Linear, run `LINEAR_STATE_NAME="Exact team state" ttt setup` to validate and persist a non-interactive remap, or choose **Linear default** during interactive setup to omit an explicit state. Jira status transitions, GitHub issue state, and Asana completion are not remapped by the current adapters.
 
 ## Safety and limitations
 
