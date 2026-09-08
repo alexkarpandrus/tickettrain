@@ -169,7 +169,7 @@ The heading and links follow the selected tracker. Tracker descriptions use a se
 
 ## Configuration
 
-Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Setup prompts for missing required credentials, validates both providers, and lets you choose the state for newly created items. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Setup saves the selection to the gitignored `config/ttt.local.edn` with owner-only permissions.
+Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Setup prompts for missing required credentials, validates both providers, and lets you choose the state for newly created items. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Setup saves selected providers and interactively entered values to the gitignored `config/ttt.local.edn` with owner-only permissions. Secrets supplied through environment variables stay in the environment and are not copied to the file.
 
 To automate setup, set the provider environment variables listed below. You can also select providers in EDN before setup:
 

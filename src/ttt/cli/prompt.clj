@@ -12,6 +12,10 @@
   []
   (System/console))
 
+(defn read-console-password
+  [console]
+  (.readPassword console))
+
 (defn ask-secret
   ([message]
    (ask-secret message nil))
@@ -20,7 +24,9 @@
      (do
        (print (str message " "))
        (flush)
-       (str/trim (String. (or (.readPassword console) (char-array 0)))))
+       (if-let [password (read-console-password console)]
+         (str/trim (String. password))
+         (throw (ex-info "Input closed. No credential was saved." {:code :aborted}))))
      (throw (ex-info
              (str "Secure credential input is unavailable. Set "
                   (or environment-variable "the provider environment variable")
