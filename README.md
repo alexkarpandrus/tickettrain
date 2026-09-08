@@ -11,6 +11,7 @@
   <img alt="Babashka 1.12.217+" src="https://img.shields.io/badge/Babashka-1.12.217%2B-8b5cf6?logo=clojure&logoColor=white">
   <img alt="Agent API v2" src="https://img.shields.io/badge/Agent_API-v2-06b6d4">
   <img alt="7 providers" src="https://img.shields.io/badge/providers-7-14b8a6">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-e85d3f"></a>
 </p>
 
 **tickettrain** (`ttt`) links the change request for your current Git branch to a tracker item. It works as a guided CLI for humans and as an approval-gated, provider-neutral JSON API for coding agents.
@@ -208,3 +209,8 @@ bb test
 The deterministic suite covers the core workflow, provider adapters, managed Markdown, JSON envelopes, and approval gating with local stubs.
 
 To add a provider, read [`docs/integrations.md`](docs/integrations.md). The core must stay free of provider-specific branches.
+
+
+## License
+
+[MIT](LICENSE) © 2026 Alexander Karpenko
