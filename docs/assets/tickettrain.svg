@@ -1,23 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 1040 280">
   <title id="title">tickettrain</title>
-  <desc id="desc">A railway ticket with converging tracks beside the tickettrain wordmark.</desc>
+  <desc id="desc">A moving ttt mark on a railway ticket beside a wordmark that highlights its three t letters.</desc>
 
   <rect x="4" y="4" width="1032" height="272" rx="24" fill="#f5efe3" stroke="#1c1917" stroke-width="8"/>
 
   <path d="M48 42h256v66c-19 0-34 14-34 32s15 32 34 32v66H48v-66c19 0 34-14 34-32s-15-32-34-32z" fill="#e85d3f" stroke="#1c1917" stroke-width="8" stroke-linejoin="round"/>
   <path d="M238 54v172" fill="none" stroke="#1c1917" stroke-width="5" stroke-dasharray="8 11"/>
 
-  <g fill="none" stroke="#f5efe3" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M102 91h91"/>
-    <path d="M102 189h91"/>
-    <path d="M102 189c48 0 43-98 91-98"/>
-    <path d="M112 78v26M139 78v26M166 78v26M112 176v26M139 174v27M166 147v28" stroke-width="6"/>
+  <g fill="#f5efe3" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="92" font-style="italic" font-weight="900" letter-spacing="-12">
+    <text x="91" y="168">ttt</text>
+  </g>
+  <g fill="none" stroke="#f5efe3" stroke-width="6" stroke-linecap="round">
+    <path d="M91 188h104M103 180v16M132 180v16M161 180v16M190 180v16"/>
+    <path d="M91 87h30M84 105h24M82 123h17"/>
   </g>
   <circle cx="271" cy="74" r="8" fill="#f5efe3"/>
   <circle cx="271" cy="206" r="8" fill="#f5efe3"/>
 
-  <text x="356" y="136" fill="#1c1917" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="74" font-weight="850" letter-spacing="-3">ticket<tspan fill="#d9472b">train</tspan></text>
+  <text x="356" y="136" fill="#1c1917" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="74" font-weight="850" letter-spacing="-3"><tspan fill="#d9472b">t</tspan>icke<tspan fill="#d9472b">tt</tspan>rain</text>
   <path d="M360 158h592" stroke="#1c1917" stroke-width="5"/>
   <path d="M858 148l18 10-18 10M894 148l18 10-18 10M930 148l18 10-18 10" fill="none" stroke="#d9472b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="360" y="202" fill="#57534e" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="22" font-weight="700" letter-spacing="1.1">TICKETS + PULL REQUESTS · ONE TRACK</text>
+  <text x="360" y="202" fill="#57534e" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="22" font-weight="700" letter-spacing="1.1">TTT · TICKETS + PULL REQUESTS IN MOTION</text>
 </svg>
