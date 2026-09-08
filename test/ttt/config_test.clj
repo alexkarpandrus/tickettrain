@@ -97,6 +97,11 @@
          (config/merge-config-layer
           {:forge {:provider :gitlab :token "old" :base-url "https://gitlab.old.example"}}
           {:forge {:provider :bitbucket :email "dev@example.com"}}))))
+  (is (= {:tracker {:api-key "existing" :team-id "team"
+                     :provider :linear :target-state "Todo"}}
+         (config/merge-config-layer
+          {:tracker {:api-key "existing" :team-id "team"}}
+          {:tracker {:provider :linear :target-state "Todo"}})))
 
 (deftest load-config-keeps-a-replaced-provider-clean
   (let [base (java.io.File/createTempFile "ttt-base-config" ".edn")
@@ -108,6 +113,9 @@
                     config/load-dotenv (constantly {})
                     config/env-overrides (fn [_ _] {})]
         (is (= {:provider :bitbucket :email "dev@example.com" :api-token "new"}
+               (:forge (config/load-config (.getPath base)))))
+        (spit local "{:forge {:provider :gitlab :token \"new\" :base-url nil}}")
+        (is (= {:provider :gitlab :token "new" :base-url nil}
                (:forge (config/load-config (.getPath base))))))
       (finally (.delete base) (.delete local)))))
 

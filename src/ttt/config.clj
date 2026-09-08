@@ -133,9 +133,11 @@
   (let [merged (deep-merge base layer)]
     (reduce
      (fn [config role]
-       (let [role-layer (get layer role)]
+       (let [role-layer (get layer role)
+             default-provider ({:forge :github :tracker :linear} role)
+             base-provider (keyword (or (get-in base [role :provider]) default-provider))]
          (if (and (contains? role-layer :provider)
-                  (not= (get-in base [role :provider]) (:provider role-layer)))
+                  (not= base-provider (keyword (:provider role-layer))))
            (assoc config role role-layer)
            config)))
      merged
