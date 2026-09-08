@@ -30,16 +30,50 @@
 (deftest version-advertises-agent-api-v2
   (is (= 2 (:agentApiVersion (agent/execute-command "version" [])))))
 (deftest preview-is-read-only-and-uses-neutral-wire-fields
-  (let [calls (atom []) proposal (agent/preview-data (runtime calls) {:action "link_existing" :item "APP-123" :labels []})]
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:config :tracker :target-state] "In Progress")
+        proposal (agent/preview-data runtime* {:action "link_existing" :item "APP-123" :labels []})]
     (is (empty? @calls))
     (is (.startsWith (:proposalId proposal) "lp2_"))
     (is (contains? proposal :changeRequestUpdate))
     (is (not (contains? proposal :linearDescription)))
-    (is (= "7" (get-in proposal [:source :changeRequest :identity :id])))))
+    (is (= "7" (get-in proposal [:source :changeRequest :identity :id])))
+    (is (= {:provider "linear" :kind "scope" :id "team-1"}
+           (get-in proposal [:approvalContext :trackerScope])))
+    (is (= "In Progress"
+           (get-in proposal [:approvalContext :trackerSettings :targetState])))))
+
+
+(deftest approval-context-matches-linear-legacy-state-precedence
+  (let [calls (atom [])
+        runtime* (-> (runtime calls)
+                     (assoc-in [:config :tracker :state-name] "Todo")
+                     (assoc-in [:config :tracker :state-id] "done-id"))
+        proposal (agent/preview-data runtime* {:action "link_existing" :item "APP-123" :labels []})]
+    (is (= "done-id"
+           (get-in proposal [:approvalContext :trackerSettings :targetState])))))
 (deftest mismatched-proposal-is-rejected-before-mutation
   (let [calls (atom [])]
     (is (thrown-with-msg? Exception #"Approval does not match" (agent/apply-data! (runtime calls) {:action "link_existing" :item "APP-123" :labels []} "lp2_wrong")))
     (is (empty? @calls))))
+
+
+(deftest configuration-change-invalidates-approval
+  (let [calls (atom [])
+        request {:action "create_new" :title "Retry" :labels []}
+        preview-runtime (assoc-in (runtime calls) [:config :tracker :team-id] "team-1")
+        apply-runtime (assoc-in preview-runtime [:config :tracker :team-id] "team-2")
+        approval (:proposalId (agent/preview-data preview-runtime request))]
+    (is (thrown-with-msg? Exception #"Approval does not match"
+                          (agent/apply-data! apply-runtime request approval)))
+    (is (empty? @calls))))
+
+
+(deftest preview-does-not-emit-configuration-secrets
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:config :tracker :api-token] "secret-value")
+        proposal (agent/preview-data runtime* {:action "link_existing" :item "APP-123" :labels []})]
+    (is (not (str/includes? (pr-str proposal) "secret-value")))))
 (deftest apply-routes-through-core-in-order
   (let [calls (atom []) runtime* (runtime calls) request {:action "link_existing" :item "APP-123" :labels []} approval (:proposalId (agent/preview-data runtime* request))]
     (agent/apply-data! runtime* request approval)

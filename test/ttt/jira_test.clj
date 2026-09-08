@@ -1,9 +1,11 @@
 (ns ttt.jira-test
   (:require [babashka.http-client :as http]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
-            [ttt.providers.tracker.jira :as jira]))
+            [ttt.providers.tracker.jira :as jira]
+            [ttt.text.links :as links]))
 
 (def config {:tracker {:provider :jira
                        :email "alex@example.com"
@@ -71,6 +73,42 @@
     (is (= "APP-1" (get-in item [:parent :display-id])))
     (is (= ["backend"] (mapv :display-id (:labels item))))
     (is (domain/entity-in-scope? item (domain/scope-identity :jira base)))))
+
+
+(deftest update-preserves-rich-adf-outside-the-managed-section
+  (let [mention {:type "paragraph"
+                 :content [{:type "mention" :attrs {:id "account-1" :text "Alex"}}]}
+        card {:type "inlineCard" :attrs {:url "https://example.com/card"}}
+        original {:type "doc"
+                  :version 1
+                  :content [mention
+                            {:type "heading"
+                             :attrs {:level 2}
+                             :content [{:type "text" :text "Pull requests"}]}
+                            {:type "paragraph" :content []}
+                            {:type "bulletList"
+                             :content [{:type "listItem"
+                                        :content [{:type "paragraph"
+                                                   :content [{:type "text" :text "old" :marks [{:type "link" :attrs {:href "https://example.com/old"}}]}]}]}]}
+                            card]}
+        issue {:key "APP-123"
+               :fields {:summary "Retry" :description original :labels []}}
+        item (jira/normalize-item base issue)
+        sent (atom nil)
+        description (links/upsert-change-request
+                     (jira/description->text original)
+                     {:display-id "acme/repo#1"
+                      :title "Retry"
+                      :url "https://github.com/acme/repo/pull/1"})]
+    (with-redefs [jira/api! (fn [_ method _ body]
+                              (case method
+                                :put (reset! sent body)
+                                :get issue))]
+      (jira/update-item-from-intent! config item {:description description :labels []}))
+    (let [content (get-in @sent [:fields :description :content])]
+      (is (= mention (first content)))
+      (is (= card (last content)))
+      (is (some #(str/includes? (jira/adf->text %) "acme/repo#1") content)))))
 
 (deftest resolve-item-uses-key-directly
   (with-redefs [jira/api! (fn [_ method path _]

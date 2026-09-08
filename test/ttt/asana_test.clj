@@ -3,14 +3,15 @@
             [clojure.test :refer [deftest is]]
             [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
-            [ttt.providers.tracker.asana :as asana]))
+            [ttt.providers.tracker.asana :as asana]
+            [ttt.text.links :as links]))
 
 (def config {:tracker {:provider :asana :token "tok" :workspace "w"}})
 
 (def scope (domain/scope-identity :asana "w"))
 
 (deftest task-fields-include-related-resource-names
-  (doseq [field ["html_notes" "projects.name" "tags.name" "parent.name"]]
+  (doseq [field ["html_notes" "workspace.gid" "projects.name" "tags.name" "parent.name"]]
     (is (str/includes? asana/task-fields field))))
 
 (deftest rich-notes-round-trip-generated-markdown
@@ -38,11 +39,54 @@
     (is (= ["bug"] (mapv :display-id (:labels item))))
     (is (domain/entity-in-scope? item scope))))
 
+
+(deftest task-scope-comes-from-the-api-response
+  (with-redefs [asana/api! (fn [& _]
+                             {:data {:gid "123"
+                                     :name "Other workspace"
+                                     :workspace {:gid "other"}}})]
+    (let [item (asana/task-by-gid config "123")]
+      (is (domain/entity-in-scope? item (domain/scope-identity :asana "other")))
+      (is (not (domain/entity-in-scope? item scope))))))
+
 (deftest normalizes-rich-task-notes
   (let [item (asana/normalize-task
               scope
               {:gid "123" :name "Retry" :html_notes "<body><h2>Links</h2><ul><li><a href=\"https://example.com\">Example</a></li></ul></body>"})]
     (is (= "## Links\n\n- [Example](https://example.com)" (:description item)))))
+
+
+(deftest update-preserves-rich-html-outside-the-managed-section
+  (let [original (str "<body><strong data-custom=\"keep\">Human</strong>\n"
+                      "<h2><u>Pull requests</u></h2><ul><li><a href=\"https://example.com/old\">old</a></li></ul>"
+                      "<h2>Notes</h2><mention data-asana-gid=\"user-1\">Alex</mention></body>")
+        item (asana/normalize-task scope {:gid "123" :name "Retry" :html_notes original})
+        description (links/upsert-change-request
+                     (:description item)
+                     {:display-id "acme/repo#1"
+                      :title "Retry"
+                      :url "https://github.com/acme/repo/pull/1"})
+        sent (atom nil)]
+    (with-redefs [asana/api! (fn [_ _ _ body] (reset! sent body))]
+      (asana/update-item-from-intent! config item {:description description :labels []}))
+    (let [html (get-in @sent [:data :html_notes])]
+      (is (str/includes? html "<strong data-custom=\"keep\">Human</strong>"))
+      (is (str/includes? html "<mention data-asana-gid=\"user-1\">Alex</mention>"))
+      (is (str/includes? html "https://github.com/acme/repo/pull/1"))
+      (is (not (str/includes? html "<u>Pull requests</u>"))))))
+
+(deftest update-preserves-a-user-authored-lowercase-heading
+  (let [original "<body><h2>pull requests</h2><strong>Keep these instructions</strong></body>"
+        item (asana/normalize-task scope {:gid "123" :name "Retry" :html_notes original})
+        description (links/upsert-change-request
+                     (:description item)
+                     {:display-id "acme/repo#1"
+                      :title "Retry"
+                      :url "https://github.com/acme/repo/pull/1"})
+        html (asana/update-description-html item description)]
+    (is (str/includes? html "<h2>pull requests</h2>"))
+    (is (str/includes? html "<strong>Keep these instructions</strong>"))
+    (is (str/includes? html "<h2>Pull requests</h2>"))))
 
 (deftest keeps-canonical-notes-for-legacy-plain-rich-text
   (let [notes "## Pull requests\n\n- [PR](https://example.com/pr/1)"
@@ -50,7 +94,8 @@
               scope
               {:gid "123" :name "Retry" :notes notes
                :html_notes "<body>## Pull requests\n\n- [PR](<a href=\"https://example.com/pr/1\">https://example.com/pr/1</a>)</body>"})]
-    (is (= notes (:description item)))))
+    (is (= notes (:description item)))
+    (is (nil? (:provider-description item)))))
 
 (deftest rejects-rich-text-entity-declarations
   (is (= :provider-data-invalid
@@ -73,7 +118,8 @@
       (asana/create-task!
        (assoc-in config [:tracker :target-state] "completed")
        {} "Title" "Body" []))
-    (is (true? (get-in @payload [:data :completed])))))
+    (is (true? (get-in @payload [:data :completed])))
+    (is (= "w" (get-in @payload [:data :workspace])))))
 
 (deftest setup-selects-a-target-state
   (with-redefs [asana/api! (fn [& _] {:data {:name "Alex"}})

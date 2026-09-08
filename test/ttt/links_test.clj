@@ -39,6 +39,17 @@
     (is (str/includes? updated "Improve retries safely"))
     (is (not (str/includes? updated "Improve retry handling")))))
 
+
+(deftest upsert-change-request-keeps-the-next-heading-separate
+  (let [existing (str "Context\n\n"
+                      "## Pull requests\n\n"
+                      "- [old](https://example.com/old)\n\n"
+                      "## Notes\n\nKeep this")
+        updated (links/upsert-change-request existing pull-request)]
+    (is (str/includes? updated "org/repo#7 — Improve retry handling"))
+    (is (str/includes? updated "\n\n## Notes\n\nKeep this"))
+    (is (= 2 (count (links/managed-entries updated))))))
+
 (deftest upsert-change-request-escapes-markdown-labels-and-destinations
   (let [updated (links/upsert-change-request
                  "Context"

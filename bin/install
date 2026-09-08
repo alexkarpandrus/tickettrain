@@ -12,7 +12,7 @@ BIN_DIR="${HOME}/.local/bin"
 
 # When piped through `curl | bash`, BASH_SOURCE[0] is "bash" (no real file), so
 # we clone/update the repo. When run from a checkout, use the checkout itself.
-if [[ -f "${BASH_SOURCE[0]}" ]]; then
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
   SOURCE="${BASH_SOURCE[0]}"
   while [ -L "${SOURCE}" ]; do
     SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
