@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/alexkarpandrus/tickettrain/compare/v0.1.0...v0.1.1) (2026-09-09)
+
+
+### Documentation
+
+* **agents:** add concise repository guidance ([ad74930](https://github.com/alexkarpandrus/tickettrain/commit/ad7493036a3ce4acbc86b53e6aebd91818d94e66))
+
 ## 0.1.0 (2026-09-09)
 
 
