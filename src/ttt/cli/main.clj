@@ -32,6 +32,9 @@
     "Maintenance:"
     "  ttt update         Update a tagged installation to the latest release"
     ""
+    "Help:"
+    "  ttt help [COMMAND] Show general or command help"
+    ""
     "Interactive workflow:"
     "  ttt --interactive --parent \"parent item key or fuzzy text\""
     "  ttt -i --project \"project name or slug\""
@@ -44,8 +47,32 @@
     "  --title TEXT      Override the tracker item title"
     "  --yes             Skip the final confirmation prompt"
     "  --dry-run         Print actions without creating or updating anything"
-    "  --help            Show this help"
+    ""
+    "Output options:"
+    "  --human           Print machine-command output for humans"
+    "  -h, --help        Show help"
     "  --llm             Print agent instructions (llm.txt) and exit"]))
+
+(def machine-commands
+  #{"version" "inspect" "search" "preview" "apply"})
+
+(def command-usages
+  {"version" "ttt version [--human]"
+   "inspect" "ttt inspect [--config PATH] [--human]"
+   "search" "ttt search --kind item|project|label --query TEXT [--limit N] [--project TEXT] [--scope-item ITEM] [--config PATH] [--human]"
+   "preview" "ttt preview (--request JSON | --request-file PATH) [--config PATH] [--human]"
+   "apply" "ttt apply (--request JSON | --request-file PATH) --approve PROPOSAL_ID [--config PATH] [--human]"
+   "setup" "ttt setup"
+   "update" "ttt update"})
+
+(defn help-for
+  [command]
+  (if-let [usage (get command-usages command)]
+    (str "Usage: " usage "\n\nOptions:\n"
+         (when (contains? machine-commands command)
+           "  --human     Print output for humans instead of JSON\n")
+         "  -h, --help  Show this help")
+    help-text))
 
 (defn llm-doc
   []
@@ -222,14 +249,57 @@
         runtime (adapters/runtime app-config forge/registry tracker/registry)]
     (workflow/execute! runtime options)))
 
+(defn human-label
+  [key]
+  (-> (name key)
+      (str/replace #"([a-z0-9])([A-Z])" "$1 $2")
+      (str/replace "-" " ")
+      str/capitalize
+      (str/replace #"(?i)\bapi\b" "API")
+      (str/replace #"(?i)\bid\b" "ID")
+      (str/replace #"(?i)\burl\b" "URL")))
+
+(defn print-human-value!
+  [value indent]
+  (let [padding (apply str (repeat indent " "))]
+    (cond
+      (map? value)
+      (if (empty? value)
+        (println (str padding "None"))
+        (doseq [[key item] value]
+          (if (coll? item)
+            (if (empty? item)
+              (println (str padding (human-label key) ": None"))
+              (do (println (str padding (human-label key) ":"))
+                  (print-human-value! item (+ indent 2))))
+            (println (str padding (human-label key) ": " (if (nil? item) "None" item))))))
+
+      (sequential? value)
+      (if (empty? value)
+        (println (str padding "None"))
+        (doseq [item value]
+          (if (coll? item)
+            (do (println (str padding "-"))
+                (print-human-value! item (+ indent 2)))
+            (println (str padding "- " item)))))
+
+      :else
+      (println (str padding value)))))
+
+(defn print-human-envelope!
+  [envelope]
+  (print-human-value! (if (:ok envelope) (:data envelope) (:error envelope)) 0))
+
 (defn run-agent!
   [args]
-  (let [{:keys [exit envelope]} (agent/run args)]
-    (println (json/generate-string envelope))
+  (let [human? (some #{"--human"} args)
+        agent-args (remove #{"--human"} args)
+        {:keys [exit envelope]} (agent/run agent-args)]
+    (if human?
+      (print-human-envelope! envelope)
+      (println (json/generate-string envelope)))
     exit))
 
-(def machine-commands
-  #{"version" "inspect" "search" "preview" "apply"})
 
 (defn interactive-request?
   [args]
@@ -268,6 +338,10 @@
   (cond
     (some #{"--llm"} args)
     (println (llm-doc))
+
+    (or (= "help" (first args)) (some #{"--help" "-h"} args))
+    (println (help-for (if (= "help" (first args)) (second args) (first args))))
+
     (= "setup" (first args))
     (when-let [exit (run-setup!)]
       (System/exit exit))
@@ -281,7 +355,7 @@
     (when-let [exit (run-interactive! args)]
       (System/exit exit))
 
-    (or (empty? args) (some #{"--help" "-h"} args))
+    (empty? args)
     (println help-text)
 
     :else
