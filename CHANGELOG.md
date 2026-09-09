@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.2.0...v0.3.0) (2026-09-09)
+
+
+### Features
+
+* **install:** offer Babashka installation ([512ba71](https://github.com/alexkarpandrus/tickettrain/commit/512ba71cc03792b03434e757f5865ecb5bf7092d))
+
+
+### Fixes
+
+* **install:** suppress detached-head advice ([29991b1](https://github.com/alexkarpandrus/tickettrain/commit/29991b1784fdfaa8548ac08c6442c17aa1e99616))
+
 ## [0.2.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.1.1...v0.2.0) (2026-09-09)
 
 
