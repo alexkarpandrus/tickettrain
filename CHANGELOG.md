@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.3.0...v0.4.0) (2026-09-09)
+
+
+### Features
+
+* **cli:** add human-readable output and command help ([8e97d02](https://github.com/alexkarpandrus/tickettrain/commit/8e97d026d6128c58235471550b3fceb803d861c9))
+
 ## [0.3.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.2.0...v0.3.0) (2026-09-09)
 
 
