@@ -1,7 +1,9 @@
 (ns ttt.agent-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [ttt.adapters :as adapters]
             [ttt.cli.agent :as agent]
+            [ttt.config :as config]
             [ttt.domain :as domain]))
 
 (def scope (domain/scope-identity :linear "team-1"))
@@ -30,7 +32,8 @@
 (deftest version-advertises-product-and-agent-api-versions
   (let [version (agent/execute-command "version" [])]
     (is (= (str/trim (slurp "version.txt")) (:version version)))
-    (is (= 2 (:agentApiVersion version)))))
+    (is (= 2 (:agentApiVersion version)))
+    (is (some #{"create-change-request"} (:capabilities version)))))
 (deftest preview-is-read-only-and-uses-neutral-wire-fields
   (let [calls (atom [])
         runtime* (assoc-in (runtime calls) [:config :tracker :target-state] "In Progress")
@@ -92,6 +95,53 @@
 (deftest create-new-allows-no-parent-or-project
   (is (= {:action "create_new" :labels []}
          (agent/validate-request! {:action "create_new" :labels []}))))
+
+
+(deftest standalone-change-request-validation
+  (is (= {:action "create_change_request" :title "Docs" :body "Body"}
+         (agent/validate-request! {:action "create_change_request" :title "Docs" :body "Body"})))
+  (is (thrown-with-msg? Exception #"requires title"
+                        (agent/validate-request! {:action "create_change_request"})))
+  (is (thrown-with-msg? Exception #"accepts only title and body"
+                        (agent/validate-request! {:action "create_change_request" :title "Docs" :labels []}))))
+
+(deftest standalone-change-request-ignores-every-tracker-provider
+  (doseq [tracker [:linear :jira :github-issues :asana]]
+    (let [built-roles (atom [])]
+      (with-redefs [config/load-config (fn [_] {:forge {:provider :github}
+                                                :tracker {:provider tracker}})
+                    adapters/build (fn [_ role _]
+                                     (swap! built-roles conj role)
+                                     {:provider :github})]
+        (is (= #{:config :forge}
+               (set (keys (agent/request-runtime {} {:action "create_change_request"}))))
+            (name tracker))
+        (is (= [:forge] @built-roles) (name tracker))))))
+
+(deftest standalone-change-request-needs-no-tracker
+  (let [calls (atom [])
+        source* (assoc source :change-request nil
+                       :repository (assoc (:repository source) :default-target-branch "main"))
+        runtime* (-> (runtime calls)
+                     (dissoc :tracker)
+                     (assoc-in [:forge :inspect-current] (fn [] source*)))
+        request {:action "create_change_request" :title "Docs" :body "PR body"}
+        proposal (agent/preview-data runtime* request)
+        result (agent/apply-data! runtime* request (:proposalId proposal))]
+    (is (= {:title "Docs" :body "PR body" :base "main" :head "retry"}
+           (:changeRequestIntent proposal)))
+    (is (= request (:request proposal)))
+    (is (not (contains? proposal :trackerIntent)))
+    (is (= [:forge-create] @calls))
+    (is (= "https://github/pr" (get-in result [:changeRequest :url])))))
+
+
+(deftest standalone-change-request-rejects-an-existing-one
+  (let [calls (atom [])
+        request {:action "create_change_request" :title "Docs"}]
+    (is (thrown-with-msg? Exception #"already has a change request"
+                          (agent/preview-data (dissoc (runtime calls) :tracker) request)))
+    (is (empty? @calls))))
 
 (deftest approved-create-new-opens-a-missing-change-request-before-linking-back
   (let [calls (atom [])

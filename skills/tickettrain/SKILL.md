@@ -1,11 +1,11 @@
 ---
 name: tickettrain
-description: Link a GitHub, GitLab, or Bitbucket change request to a Linear, GitHub Issues, Jira, or Asana item. Use when the user wants to create or link a tracker item for the current branch or change request. Triggers: "link to linear", "link to jira", "link to asana", "create a ticket", "track this work", or "ticket for this PR".
+description: Create a GitHub, GitLab, or Bitbucket change request, or link one to a Linear, GitHub Issues, Jira, or Asana item. Use when the user wants to open a pull or merge request, create or link a tracker item, or track work for the current branch.
 ---
 
 # tickettrain (`ttt`)
 
-`ttt` links the current GitHub, GitLab, or Bitbucket change request with a Linear, GitHub Issues, Jira, or Asana item and keeps both sides in sync. It is a local CLI with a provider-neutral JSON API.
+`ttt` creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, or Asana items. It is a local CLI with a provider-neutral JSON API.
 
 ## Bootstrap
 
@@ -38,6 +38,14 @@ ttt search --kind label --query "backend"          # find labels
    ```json
    {"action":"create_new","parent":"APP-100","project":"reliability","title":"Improve retry handling","labels":["Backend"]}
    ```
+
+   To create only a change request, use:
+
+   ```json
+   {"action":"create_change_request","title":"Improve agent guidance","body":"## What\n\nDocument the repository workflow."}
+   ```
+
+   Push the current branch before previewing `create_change_request`.
 
 2. `ttt preview --request-file req.json` — read-only; retain its proposal ID internally.
 3. Present the exact changes and ask the user to approve them. Do not ask the user to repeat the proposal ID.
