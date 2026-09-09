@@ -39,6 +39,9 @@ Setup:
 Maintenance:
   ttt update         Update a tagged installation to the latest release
 
+Help:
+  ttt help [COMMAND] Show general or command help
+
 Interactive workflow:
   ttt --interactive --parent "parent item key or fuzzy text"
   ttt -i --project "project name or slug"
@@ -51,7 +54,10 @@ Interactive options:
   --title TEXT      Override the tracker item title
   --yes             Skip the final confirmation prompt
   --dry-run         Print actions without creating or updating anything
-  --help            Show this help
+
+Output options:
+  --human           Print machine-command output for humans
+  -h, --help        Show help
   --llm             Print agent instructions (llm.txt) and exit
 
 ## Request JSON
