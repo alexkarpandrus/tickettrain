@@ -41,6 +41,21 @@ Setup guides you through forge and tracker selection, collects supported token a
 
 The installer clones tickettrain to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
 
+If the installer reports that `~/.local/bin` is not on `PATH`, add the printed `export` command to your shell profile and open a new terminal.
+
+### Update and uninstall
+
+Run the install command again to update an existing installation.
+
+To remove the default installation:
+
+```bash
+rm ~/.local/bin/ttt
+rm -rf ~/.local/share/tickettrain
+```
+
+The second command also removes `config/ttt.local.edn`, which can contain provider credentials. Back it up first if you need those settings. If you set `TTT_INSTALL_DIR`, remove that directory instead.
+
 Install the optional agent skill for Claude Code, Codex, Cursor, and other compatible tools:
 
 ```bash
