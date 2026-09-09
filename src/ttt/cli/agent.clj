@@ -85,23 +85,30 @@
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
 (defn wire-context [{:keys [parent project]}] {:parent (wire-entity parent) :project (wire-entity project)})
-(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new"))
+(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-change-request "create_change_request"))
 (defn wire-request [request]
-  (cond-> {:action (wire-action (:action request)) :labels (vec (:labels request))}
+  (cond-> {:action (wire-action (:action request))}
+    (contains? request :labels) (assoc :labels (vec (:labels request)))
     (:item-ref request) (assoc :item (:item-ref request))
     (:parent-ref request) (assoc :parent (:parent-ref request))
     (:project-ref request) (assoc :project (:project-ref request))
-    (:title request) (assoc :title (:title request))))
+    (:title request) (assoc :title (:title request))
+    (contains? request :body) (assoc :body (:body request))))
 (defn wire-intent [intent]
   (cond-> {:description (:description intent) :labels (mapv wire-entity (:labels intent))}
     (:title intent) (assoc :title (:title intent))))
 (defn proposal->wire [proposal]
-  {:proposalId (:proposal-id proposal) :source (wire-source (:source proposal))
-   :action (wire-action (:action proposal)) :request (wire-request (:request proposal))
-   :item (wire-entity (:item proposal)) :context (wire-context (:context proposal))
-   :labels (mapv wire-entity (:labels proposal)) :trackerIntent (wire-intent (:tracker-intent proposal))
-   :changeRequestUpdate (:change-request-update proposal)
-   :approvalContext (:approval-context proposal)})
+  (let [base {:proposalId (:proposal-id proposal) :source (wire-source (:source proposal))
+              :action (wire-action (:action proposal)) :request (wire-request (:request proposal))}]
+    (if (= :create-change-request (:action proposal))
+      (assoc base :changeRequestIntent (:change-request-intent proposal))
+      (assoc base
+             :item (wire-entity (:item proposal))
+             :context (wire-context (:context proposal))
+             :labels (mapv wire-entity (:labels proposal))
+             :trackerIntent (wire-intent (:tracker-intent proposal))
+             :changeRequestUpdate (:change-request-update proposal)
+             :approvalContext (:approval-context proposal)))))
 (defn inspect-data [runtime] (wire-source (core/inspect runtime)))
 (defn excerpt [value] (let [text (some-> value str str/trim)] (when-not (str/blank? text) (subs text 0 (min 500 (count text))))))
 (defn entity-candidate [entity]
@@ -150,7 +157,7 @@
       (throw (ex-info (str "Unsupported search kind: " kind) {:code :invalid-request})))}))
 (defn invalid-request! [message] (throw (ex-info message {:code :invalid-request})))
 (defn assert-request-shape! [request]
-  (doseq [field [:item :parent :project :title] :when (contains? request field)]
+  (doseq [field [:item :parent :project :title :body] :when (contains? request field)]
     (when-not (string? (get request field)) (invalid-request! (str (name field) " must be a string."))))
   (when (and (contains? request :labels) (not (and (sequential? (:labels request)) (every? string? (:labels request)))))
     (invalid-request! "labels must be a collection of strings.")) request)
@@ -159,16 +166,25 @@
   (case (:action request)
     "link_existing" (do
                       (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
-                      (when (or (:issue request) (:parent request) (:project request) (:title request)) (invalid-request! "link_existing accepts only item and labels.")))
-    "create_new" (when (or (:item request) (:issue request))
+                      (when (or (:issue request) (:parent request) (:project request) (:title request) (:body request))
+                        (invalid-request! "link_existing accepts only item and labels.")))
+    "create_new" (when (or (:item request) (:issue request) (:body request))
                    (invalid-request! "create_new accepts parent, project, title, and labels."))
+    "create_change_request" (do
+                              (when (str/blank? (:title request))
+                                (invalid-request! "create_change_request requires title."))
+                              (when (some #(contains? request %) [:item :issue :parent :project :labels])
+                                (invalid-request! "create_change_request accepts only title and body.")))
     (invalid-request! (str "Unsupported action: " (:action request))))
   request)
 
 (defn core-request [request]
-  (cond-> {:action (case (:action request) "link_existing" :link-existing "create_new" :create-new) :labels (vec (or (:labels request) []))}
-    (:item request) (assoc :item-ref (:item request)) (:parent request) (assoc :parent-ref (:parent request))
-    (:project request) (assoc :project-ref (:project request)) (:title request) (assoc :title (:title request))))
+  (if (= "create_change_request" (:action request))
+    {:action :create-change-request :title (:title request) :body (or (:body request) "")}
+    (cond-> {:action (case (:action request) "link_existing" :link-existing "create_new" :create-new)
+             :labels (vec (or (:labels request) []))}
+      (:item request) (assoc :item-ref (:item request)) (:parent request) (assoc :parent-ref (:parent request))
+      (:project request) (assoc :project-ref (:project request)) (:title request) (assoc :title (:title request)))))
 (defn canonicalize [value]
   (cond (map? value) (into (sorted-map-by #(compare (str %1) (str %2))) (map (fn [[key item]] [key (canonicalize item)])) value)
         (sequential? value) (mapv canonicalize value) :else value))
@@ -188,21 +204,37 @@
                         (not (str/blank? (str project))) (assoc :project project)
                         (not (str/blank? (str issue-type))) (assoc :issueType issue-type)
                         (not (str/blank? (str assignee-id))) (assoc :assigneeId assignee-id))}))
-(defn preview-proposal [runtime request] (validate-request! request) (let [proposal (assoc (core/preview runtime (core-request request)) :approval-context (approval-context runtime) :config-id (sha256 (:config runtime)))] (assoc proposal :proposal-id (proposal-id proposal))))
+(defn preview-proposal [runtime request]
+  (validate-request! request)
+  (let [proposal (cond-> (core/preview runtime (core-request request))
+                   (not= "create_change_request" (:action request)) (assoc :approval-context (approval-context runtime))
+                   true (assoc :config-id (sha256 (:config runtime))))]
+    (assoc proposal :proposal-id (proposal-id proposal))))
 (defn preview-data [runtime request] (proposal->wire (preview-proposal runtime request)))
 (defn apply-data! [runtime request approval]
   (let [proposal (preview-proposal runtime request)]
     (when-not (= approval (:proposal-id proposal)) (throw (ex-info "Approval does not match the current proposal. Preview again before applying." {:code :stale-proposal})))
     (let [result (core/apply! runtime proposal)]
       {:proposalId (:proposal-id proposal) :item (wire-entity (:item result)) :changeRequest (wire-entity (:change-request result)) :changeRequestUpdate (:change-request-update result)})))
+(defn forge-runtime [options]
+  (let [app-config (config/load-config (or (:config options) config/default-config-path))]
+    {:config app-config :forge (adapters/build app-config :forge forge/registry)}))
 (defn runtime [options]
-  (let [app-config (config/load-config (or (:config options) config/default-config-path))] (adapters/runtime app-config forge/registry tracker/registry)))
+  (let [app-config (config/load-config (or (:config options) config/default-config-path))]
+    (adapters/runtime app-config forge/registry tracker/registry)))
+(defn request-runtime [options request]
+  ((if (= "create_change_request" (:action request)) forge-runtime runtime) options))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "approval-gated-apply"]}
-    (let [options (parse-options args) runtime (runtime options) tracker-adapter (:tracker runtime)]
-      (case command "inspect" (inspect-data runtime) "search" (search-data tracker-adapter options)
-        "preview" (preview-data runtime (parse-request options)) "apply" (apply-data! runtime (parse-request options) (require-option options :approve))
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "approval-gated-apply"]}
+    (let [options (parse-options args)]
+      (case command
+        "inspect" (inspect-data (forge-runtime options))
+        "search" (search-data (:tracker (runtime options)) options)
+        "preview" (let [request (parse-request options)]
+                    (preview-data (request-runtime options request) request))
+        "apply" (let [request (parse-request options)]
+                  (apply-data! (request-runtime options request) request (require-option options :approve)))
         (throw (ex-info (str "Unknown agent command: " command) {:code :invalid-command}))))))
 
 (defn run [args]

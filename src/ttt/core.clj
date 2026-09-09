@@ -157,39 +157,65 @@
                       {:code :change-request-already-linked
                        :linked-item (or linked-ref linked-display-id)})))))
 
+
+(defn change-request-intent
+  [source content]
+  (assoc content
+         :base (get-in source [:repository :default-target-branch])
+         :head (:branch source)))
+
+(defn standalone-change-request-proposal
+  [source request]
+  (when (:change-request source)
+    (throw (ex-info "The current branch already has a change request."
+                    {:code :change-request-already-exists})))
+  {:source source
+   :action :create-change-request
+   :request request
+   :change-request-intent
+   (change-request-intent source
+                          (assoc (draft-change-request request nil)
+                                 :body (or (:body request) "")))})
+
+(defn preview-tracker-link
+  [runtime source request]
+  (let [action (:action request)
+        item (when (= :link-existing action)
+               (if-let [resolved (:item request)]
+                 (assert-entity-scope! runtime resolved :item)
+                 (resolve-item! runtime (:item-ref request))))
+        context (when (= :create-new action) (resolve-context runtime request))
+        change-request (:change-request source)
+        _ (assert-link-target-valid! runtime request change-request item)
+        planned-change-request (or change-request (draft-change-request request item))
+        planned-source (assoc source :change-request planned-change-request)
+        selected-labels (resolve-labels runtime (:labels request))
+        labels (if item (distinct-labels (item-labels item) selected-labels) selected-labels)
+        title (if item (:title item) (or (:title request) (:title change-request)))
+        description (if change-request
+                      (links/upsert-change-request
+                       (if item (:description item)
+                           (base-item-description (:config runtime) change-request))
+                       change-request)
+                      (if item (:description item)
+                          (base-item-description (:config runtime) planned-change-request)))
+        preview-item (or item {:display-id "<new tracker item>" :url "<created during apply>"})]
+    {:source source
+     :action action
+     :request request
+     :item item
+     :context context
+     :labels labels
+     :tracker-intent (cond-> {:description description :labels labels}
+                       (= :create-new action) (assoc :title title))
+     :change-request-update (change-request-update runtime planned-source preview-item context)}))
+
 (defn preview
   ([runtime request] (preview runtime (inspect runtime) request))
   ([runtime source request]
-   (let [action (:action request)
-         item (when (= :link-existing action)
-                (if-let [resolved (:item request)]
-                  (assert-entity-scope! runtime resolved :item)
-                  (resolve-item! runtime (:item-ref request))))
-         context (when (= :create-new action) (resolve-context runtime request))
-         change-request (:change-request source)
-         _ (assert-link-target-valid! runtime request change-request item)
-         planned-change-request (or change-request (draft-change-request request item))
-         planned-source (assoc source :change-request planned-change-request)
-         selected-labels (resolve-labels runtime (:labels request))
-         labels (if item (distinct-labels (item-labels item) selected-labels) selected-labels)
-         title (if item (:title item) (or (:title request) (:title change-request)))
-         description (if change-request
-                       (links/upsert-change-request
-                        (if item (:description item)
-                            (base-item-description (:config runtime) change-request))
-                        change-request)
-                       (if item (:description item)
-                           (base-item-description (:config runtime) planned-change-request)))
-         preview-item (or item {:display-id "<new tracker item>" :url "<created during apply>"})]
-     {:source source
-      :action action
-      :request request
-      :item item
-      :context context
-      :labels labels
-      :tracker-intent (cond-> {:description description :labels labels}
-                        (= :create-new action) (assoc :title title))
-      :change-request-update (change-request-update runtime planned-source preview-item context)})))
+   (if (= :create-change-request (:action request))
+     (standalone-change-request-proposal source request)
+     (preview-tracker-link runtime source request))))
 
 (defn update-change-request!
   [runtime source update]
@@ -210,13 +236,9 @@
   ((get-in runtime [:tracker :update-item!]) item intent))
 
 (defn create-change-request!
-  [runtime source update]
+  [runtime source intent]
   (let [repository (:repository source)
-        created ((get-in runtime [:forge :create-change-request!])
-                 {:title (:title update)
-                  :body (:body update)
-                  :base (:default-target-branch repository)
-                  :head (:branch source)})]
+        created ((get-in runtime [:forge :create-change-request!]) intent)]
     ((get-in runtime [:forge :identify-change-request]) repository created)))
 
 (defn apply-with-new-change-request!
@@ -228,13 +250,13 @@
                :create-new (create-item! runtime (:context proposal) (:tracker-intent proposal)))
         planned-source (assoc source :change-request (draft-change-request (:request proposal) item))
         update (change-request-update runtime planned-source item (:context proposal))
-        change-request (create-change-request! runtime source update)
+        change-request (create-change-request! runtime source (change-request-intent source update))
         intent (assoc (:tracker-intent proposal)
                       :description (links/upsert-change-request (:description item) change-request))
         item (update-item! runtime item intent)]
     {:item item :change-request change-request :change-request-update update}))
 
-(defn apply!
+(defn apply-tracker-link!
   [runtime proposal]
   (let [source (:source proposal)]
     (if-not (:change-request source)
@@ -247,3 +269,12 @@
                      (:change-request-update proposal))]
         (update-change-request! runtime source update)
         {:item item :change-request (:change-request source) :change-request-update update}))))
+
+(defn apply!
+  [runtime proposal]
+  (if (= :create-change-request (:action proposal))
+    (let [source (:source proposal)]
+      {:item nil
+       :change-request (create-change-request! runtime source (:change-request-intent proposal))
+       :change-request-update nil})
+    (apply-tracker-link! runtime proposal)))
