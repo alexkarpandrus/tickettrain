@@ -62,7 +62,7 @@ else
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
     update_checkout "${INSTALL_DIR}" "${RELEASE_TAG}"
   else
-    git clone --depth 1 --branch "${RELEASE_TAG}" "${REPO_URL}" "${INSTALL_DIR}"
+    git -c advice.detachedHead=false clone --quiet --depth 1 --branch "${RELEASE_TAG}" "${REPO_URL}" "${INSTALL_DIR}"
   fi
   ROOT_DIR="${INSTALL_DIR}"
   : > "${ROOT_DIR}/.git/ttt-install"

@@ -21,7 +21,7 @@ set -euo pipefail
 printf '%s\n' "$*" >> "${MOCK_GIT_LOG}"
 if [[ "${1}" == "ls-remote" ]]; then
   [[ "${MOCK_NO_RELEASE:-0}" == "1" ]] || printf '%s\t%s\n' "1111111111111111111111111111111111111111" "refs/tags/v0.1.0"
-elif [[ "${1}" == "clone" ]]; then
+elif [[ "${1}" == "-c" && "${2}" == "advice.detachedHead=false" && "${3}" == "clone" ]]; then
   destination="${*: -1}"
   mkdir -p "${destination}/.git" "${destination}/bin"
   cat > "${destination}/bin/ttt" <<'SCRIPT'
@@ -84,7 +84,7 @@ grep -Fq "No tickettrain release is available yet." "${TEMP_DIR}/no-release.out"
 PATH="${BASE_PATH}" /bin/bash <"${ROOT_DIR}/bin/install" >"${TEMP_DIR}/install.out"
 test -L "${HOME}/.local/bin/ttt"
 test "$(readlink "${HOME}/.local/bin/ttt")" = "${TTT_INSTALL_DIR}/bin/ttt"
-grep -Fq "clone --depth 1 --branch v0.1.0 https://github.com/alexkarpandrus/tickettrain.git ${TTT_INSTALL_DIR}" "${MOCK_GIT_LOG}"
+grep -Fq -- "-c advice.detachedHead=false clone --quiet --depth 1 --branch v0.1.0 https://github.com/alexkarpandrus/tickettrain.git ${TTT_INSTALL_DIR}" "${MOCK_GIT_LOG}"
 test -f "${TTT_INSTALL_DIR}/.git/ttt-install"
 grep -Fq "✓ Installed and verified:" "${TEMP_DIR}/install.out"
 grep -Fq "⚠ Add tickettrain to your PATH:" "${TEMP_DIR}/install.out"
