@@ -12,6 +12,10 @@ SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export TTT_HOME="${ROOT_DIR}"
 
+if [[ "${1:-}" == "update" ]]; then
+  exec "${ROOT_DIR}/bin/install" --update "${@:2}"
+fi
+
 if command -v bb >/dev/null 2>&1; then
   BB_BIN="$(command -v bb)"
 elif [ -x "${HOME}/.local/bin/bb" ]; then
