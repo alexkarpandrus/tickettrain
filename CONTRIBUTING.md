@@ -19,4 +19,6 @@ Use Conventional Commits. Use `feat:` for user-visible features and `fix:` for u
 
 Release Please opens and updates the release pull request from commits on `main`. Merging that pull request updates `version.txt` and `CHANGELOG.md`, creates the `vX.Y.Z` Git tag, and publishes the GitHub Release. Do not edit those release outputs or create release tags manually.
 
+The first public release is `v0.1.0`. Later versions follow Conventional Commit semantics.
+
 Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
