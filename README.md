@@ -14,7 +14,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-e85d3f"></a>
 </p>
 
-**tickettrain** (`ttt`) links the change request for your current Git branch to a tracker item. It works as a guided CLI for humans and as an approval-gated, provider-neutral JSON API for coding agents.
+**tickettrain** (`ttt`) creates a change request for your current Git branch, with or without linking it to a tracker item. It works as a guided CLI for humans and as an approval-gated, provider-neutral JSON API for coding agents.
 
 Use any supported forge with any supported tracker. `ttt` runs locally inside the repository where you are working.
 
@@ -146,9 +146,17 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
 
-`create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
+Create a change request without a tracker item:
 
-In the JSON API, `version`, `inspect`, `search`, and `preview` are read-only. Preview includes the tracker scope and non-secret mutation settings. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale, mismatched, or reconfigured approval.
+```bash
+REQUEST='{"action":"create_change_request","title":"Improve agent guidance","body":"## What\n\nDocument the repository workflow."}'
+ttt preview --request "$REQUEST"
+ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
+```
+
+`create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
+
+In the JSON API, `version`, `inspect`, `search`, and `preview` are read-only. Tracker previews include the tracker scope and non-secret mutation settings; standalone previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale, mismatched, or reconfigured approval.
 
 Run `ttt --llm` for the authoritative agent instructions. The same portable instructions ship in [`skills/tickettrain/SKILL.md`](skills/tickettrain/SKILL.md).
 
