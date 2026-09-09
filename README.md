@@ -141,6 +141,7 @@ The default mode is a non-interactive JSON API. Every response uses `schemaVersi
 ```bash
 ttt version
 ttt inspect
+ttt status --human
 ttt search --kind item --query "retry handling" --limit 5
 ttt search --kind project --query "reliability"
 ttt search --kind label --query "backend" --scope-item APP-123
@@ -165,7 +166,7 @@ ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 
 `create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
 
-In the JSON API, `version`, `inspect`, `search`, and `preview` are read-only. Tracker previews include the tracker scope and non-secret mutation settings; standalone previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale, mismatched, or reconfigured approval.
+In the JSON API, `version`, `status`, `inspect`, `search`, and `preview` are read-only. `status` reports the selected providers, configured setting names, and configuration source precedence without exposing values. Tracker previews include the tracker scope and non-secret mutation settings; standalone previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale, mismatched, or reconfigured approval.
 
 Run `ttt --llm` for the authoritative agent instructions. The same portable instructions ship in [`skills/tickettrain/SKILL.md`](skills/tickettrain/SKILL.md).
 
