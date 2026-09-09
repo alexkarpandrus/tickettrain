@@ -65,11 +65,16 @@ else
     git clone --depth 1 --branch "${RELEASE_TAG}" "${REPO_URL}" "${INSTALL_DIR}"
   fi
   ROOT_DIR="${INSTALL_DIR}"
+  : > "${ROOT_DIR}/.git/ttt-install"
 fi
 
 if [[ "${UPDATE_ONLY}" == true ]]; then
   if ! git -C "${ROOT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ttt update requires a Git-based release installation." >&2
+    exit 1
+  fi
+  if [[ ! -f "${ROOT_DIR}/.git/ttt-install" ]]; then
+    echo "ttt update only works for installer-managed release installations. Run the install command once to enable updates." >&2
     exit 1
   fi
   if git -C "${ROOT_DIR}" symbolic-ref -q HEAD >/dev/null 2>&1; then

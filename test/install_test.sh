@@ -85,6 +85,7 @@ PATH="${BASE_PATH}" /bin/bash <"${ROOT_DIR}/bin/install" >"${TEMP_DIR}/install.o
 test -L "${HOME}/.local/bin/ttt"
 test "$(readlink "${HOME}/.local/bin/ttt")" = "${TTT_INSTALL_DIR}/bin/ttt"
 grep -Fq "clone --depth 1 --branch v0.1.0 https://github.com/alexkarpandrus/tickettrain.git ${TTT_INSTALL_DIR}" "${MOCK_GIT_LOG}"
+test -f "${TTT_INSTALL_DIR}/.git/ttt-install"
 grep -Fq "✓ Installed and verified:" "${TEMP_DIR}/install.out"
 grep -Fq "⚠ Add tickettrain to your PATH:" "${TEMP_DIR}/install.out"
 grep -Fq "  ttt → ${HOME}/.local/bin/ttt" "${TEMP_DIR}/install.out"
@@ -107,6 +108,7 @@ UPDATE_ROOT="$(cd "${UPDATE_ROOT}" && pwd -P)"
 cp "${ROOT_DIR}/bin/ttt" "${ROOT_DIR}/bin/install" "${UPDATE_ROOT}/bin/"
 printf '0.0.9\n' >"${UPDATE_ROOT}/version.txt"
 printf '{:tracker {:provider :linear}}\n' >"${UPDATE_ROOT}/config/ttt.local.edn"
+: > "${UPDATE_ROOT}/.git/ttt-install"
 
 PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/self-update.out"
 grep -Fq "✓ Updated ttt 0.0.9 → 0.1.0." "${TEMP_DIR}/self-update.out"
@@ -117,6 +119,14 @@ grep -Fq -- "-C ${UPDATE_ROOT} checkout --detach --quiet v0.1.0" "${MOCK_GIT_LOG
 
 PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/up-to-date.out"
 grep -Fq "✓ ttt 0.1.0 is already up to date." "${TEMP_DIR}/up-to-date.out"
+
+rm "${UPDATE_ROOT}/.git/ttt-install"
+if PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/detached-source.out" 2>&1; then
+  echo "updater changed a detached source checkout" >&2
+  exit 1
+fi
+grep -Fq "only works for installer-managed release installations" "${TEMP_DIR}/detached-source.out"
+: > "${UPDATE_ROOT}/.git/ttt-install"
 
 if MOCK_ATTACHED=1 PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/attached.out" 2>&1; then
   echo "updater changed a source checkout" >&2
