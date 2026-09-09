@@ -9,6 +9,8 @@ set -euo pipefail
 REPO_URL="https://github.com/alexkarpandrus/tickettrain.git"
 INSTALL_DIR="${TTT_INSTALL_DIR:-${HOME}/.local/share/tickettrain}"
 BIN_DIR="${HOME}/.local/bin"
+BABASHKA_VERSION="1.12.217"
+BABASHKA_INSTALL_URL="https://raw.githubusercontent.com/babashka/babashka/v${BABASHKA_VERSION}/install"
 UPDATE_ONLY=false
 
 if [[ "${1:-}" == "--update" ]]; then
@@ -20,14 +22,43 @@ if (( $# )); then
   exit 1
 fi
 
+confirm_babashka_install() {
+  local answer=""
+  local input="/dev/tty"
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    input="/dev/stdin"
+  fi
+  [[ -r "${input}" ]] || return 1
+  printf 'Babashka %s+ is required. Install %s to %s? [y/N] ' "${BABASHKA_VERSION}" "${BABASHKA_VERSION}" "${BIN_DIR}" >&2
+  IFS= read -r answer <"${input}" 2>/dev/null || true
+  [[ "${answer}" =~ ^([yY]|[yY][eE][sS])$ ]]
+}
+
 if ! command -v git >/dev/null 2>&1; then
   echo "tickettrain requires git. Install it from https://git-scm.com/downloads and rerun this installer." >&2
   exit 1
 fi
 
-if ! command -v bb >/dev/null 2>&1 && [[ ! -x "${HOME}/.local/bin/bb" ]]; then
-  echo "tickettrain requires Babashka 1.12.217 or newer. Install it from https://babashka.org/ and rerun this installer." >&2
-  exit 1
+if ! command -v bb >/dev/null 2>&1 && [[ ! -x "${BIN_DIR}/bb" ]]; then
+  if confirm_babashka_install; then
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "Babashka installation requires curl. Install it and rerun this installer." >&2
+      exit 1
+    fi
+    mkdir -p "${BIN_DIR}"
+    if ! curl -fsSL "${BABASHKA_INSTALL_URL}" | /bin/bash -s -- --dir "${BIN_DIR}" --version "${BABASHKA_VERSION}"; then
+      echo "Babashka installation failed. Install it from https://babashka.org/ and rerun this installer." >&2
+      exit 1
+    fi
+    if [[ ! -x "${BIN_DIR}/bb" ]]; then
+      echo "Babashka installation did not create ${BIN_DIR}/bb." >&2
+      exit 1
+    fi
+    echo "✓ Installed Babashka ${BABASHKA_VERSION}."
+  else
+    echo "tickettrain requires Babashka ${BABASHKA_VERSION} or newer. Install it from https://babashka.org/ and rerun this installer." >&2
+    exit 1
+  fi
 fi
 
 latest_release_tag() {
