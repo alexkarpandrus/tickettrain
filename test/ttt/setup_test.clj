@@ -95,8 +95,9 @@
                                    :setup-settings []
                                    :setup (setup-fn :tracker
                                                     {:tracker {:target-state "open"}})}}
-                  config/load-file-config (constantly {:forge {:provider :github}
-                                                  :tracker {:provider :linear}})
+                  config/load-local-config (constantly {})
+                  config/load-file-config (fn [& _] {:forge {:provider :github}
+                                                     :tracker {:provider :linear}})
                   config/env-overrides (fn [_ _] {:forge {:token "environment-secret" :base-url "https://gitlab.example"}})
                   prompt/choose-index (fn [_ _ _] 1)
                   config/write-local-config! (fn [value replace-sections]
@@ -120,23 +121,32 @@
                      {:key :base-url :env "BITBUCKET_BASE_URL"}]}
         loaded {:forge {:provider :gitlab
                         :token "old-gitlab-token"
-                        :base-url "https://gitlab.previous.example"}}]
+                        :base-url "https://gitlab.previous.example"}}
+        selection (setup/selected-role-config loaded {} :forge :bitbucket descriptor)]
     (is (= {:provider :bitbucket
             :email nil
             :api-token nil
             :base-url nil}
-           (setup/selected-role-config loaded :forge :bitbucket descriptor)))))
+           (:effective selection)))
+    (is (= {:provider :bitbucket}
+           (:persisted selection)))))
 
-(deftest retaining-a-provider-preserves-its-declared-settings
+(deftest retaining-a-provider-persists-only-local-settings
   (let [descriptor {:setup-settings [{:key :token} {:key :base-url}]}
-        loaded {:forge {:provider "gitlab"
-                        :token "current-token"
-                        :base-url "https://gitlab.example.com"
-                        :obsolete "discard-me"}}]
+        effective {:forge {:provider "gitlab"
+                           :token "base-token"
+                           :base-url "https://gitlab.base.example.com"
+                           :obsolete "discard-me"}}
+        local {:forge {:base-url "https://gitlab.local.example.com"
+                       :obsolete "discard-me"}}
+        selection (setup/selected-role-config effective local :forge :gitlab descriptor)]
     (is (= {:provider :gitlab
-            :token "current-token"
-            :base-url "https://gitlab.example.com"}
-           (setup/selected-role-config loaded :forge :gitlab descriptor)))))
+            :token "base-token"
+            :base-url "https://gitlab.base.example.com"}
+           (:effective selection)))
+    (is (= {:provider :gitlab
+            :base-url "https://gitlab.local.example.com"}
+           (:persisted selection)))))
 
 (deftest environment-secrets-stay-external-while-endpoints-can-persist
   (let [descriptor {:setup-settings [{:key :token :secret? true}
@@ -171,3 +181,16 @@
             {:tracker {:provider :jira}}
             :tracker
             (get tracker/registry :jira))))))
+
+
+(deftest setup-prompts-for-blank-required-settings
+  (with-redefs [prompt/ask-secret (fn [& _] "replacement-token")]
+    (is (= {:forge {:token "replacement-token"}}
+           (setup/collect-required-settings
+            {:forge {:token ""}}
+            :forge
+            {:setup-settings [{:key :token
+                               :label "Token"
+                               :env "TEST_TOKEN"
+                               :required? true
+                               :secret? true}]})))))
