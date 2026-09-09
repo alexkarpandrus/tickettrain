@@ -27,8 +27,10 @@
     (is (= "APP-123" (:displayId candidate)))
     (is (= 1.0 (:score candidate)))))
 
-(deftest version-advertises-agent-api-v2
-  (is (= 2 (:agentApiVersion (agent/execute-command "version" [])))))
+(deftest version-advertises-product-and-agent-api-versions
+  (let [version (agent/execute-command "version" [])]
+    (is (= (str/trim (slurp "version.txt")) (:version version)))
+    (is (= 2 (:agentApiVersion version)))))
 (deftest preview-is-read-only-and-uses-neutral-wire-fields
   (let [calls (atom [])
         runtime* (assoc-in (runtime calls) [:config :tracker :target-state] "In Progress")

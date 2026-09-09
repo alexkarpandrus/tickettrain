@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "tickettrain",
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "bump-minor-pre-major": true,
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Fixes" },
+        { "type": "setup", "section": "Setup" },
+        { "type": "install", "section": "Installation" },
+        { "type": "jira", "section": "Jira" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "refactor", "section": "Internal Changes", "hidden": true },
+        { "type": "ci", "section": "CI", "hidden": true },
+        { "type": "release", "section": "Release", "hidden": true },
+        { "type": "chore", "section": "Maintenance", "hidden": true }
+      ]
+    }
+  }
+}

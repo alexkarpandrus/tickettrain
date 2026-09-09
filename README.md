@@ -39,13 +39,13 @@ ttt --interactive --project "reliability"
 
 Setup guides you through forge and tracker selection, collects supported token and email settings, gives exact remediation for provider-managed authentication, validates both providers, and saves an owner-only local configuration.
 
-The installer clones tickettrain to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
+The installer clones the latest tagged tickettrain release to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
 
 If the installer reports that `~/.local/bin` is not on `PATH`, add the printed `export` command to your shell profile and open a new terminal.
 
 ### Update and uninstall
 
-Run the install command again to update an existing installation.
+Run the install command again to update an existing installation to the latest release.
 
 To remove the default installation:
 
@@ -225,6 +225,14 @@ bb test
 The deterministic suite covers the core workflow, provider adapters, managed Markdown, JSON envelopes, and approval gating with local stubs.
 
 To add a provider, read [`docs/integrations.md`](docs/integrations.md). The core must stay free of provider-specific branches.
+
+## Releases
+
+`ttt version` reports the installed product version and agent API version. See [CHANGELOG.md](CHANGELOG.md) for release changes.
+
+Release Please runs after tests pass on `main`. It opens or updates a release pull request from Conventional Commits. Merging that pull request updates `version.txt` and `CHANGELOG.md`, creates the `vX.Y.Z` Git tag, and publishes the GitHub Release.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute. Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## License
 

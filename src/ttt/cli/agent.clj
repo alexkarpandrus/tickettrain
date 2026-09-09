@@ -13,6 +13,7 @@
             [ttt.providers.tracker :as tracker]))
 
 (def schema-version 2)
+(def product-version (str/trim (slurp (java.io.File. (or (System/getenv "TTT_HOME") ".") "version.txt"))))
 (def max-request-bytes 65536)
 (def option-spec {:config {:coerce :string}
                   :kind {:coerce :string}
@@ -198,7 +199,7 @@
   (let [app-config (config/load-config (or (:config options) config/default-config-path))] (adapters/runtime app-config forge/registry tracker/registry)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :agentApiVersion schema-version :capabilities ["inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "approval-gated-apply"]}
     (let [options (parse-options args) runtime (runtime options) tracker-adapter (:tracker runtime)]
       (case command "inspect" (inspect-data runtime) "search" (search-data tracker-adapter options)
         "preview" (preview-data runtime (parse-request options)) "apply" (apply-data! runtime (parse-request options) (require-option options :approve))
