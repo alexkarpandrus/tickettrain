@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.1.1...v0.2.0) (2026-09-09)
+
+
+### Features
+
+* **install:** add self-update command ([4facb49](https://github.com/alexkarpandrus/tickettrain/commit/4facb4953f4c3679b06d9be18b2da9404ca5c602))
+
+
+### Fixes
+
+* **install:** distinguish managed release checkouts ([3fcd6b1](https://github.com/alexkarpandrus/tickettrain/commit/3fcd6b1e42c2bd54709b830b5d73e950f1bad858))
+
 ## [0.1.1](https://github.com/alexkarpandrus/tickettrain/compare/v0.1.0...v0.1.1) (2026-09-09)
 
 
