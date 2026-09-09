@@ -27,13 +27,18 @@
 
 
 (defn selected-role-config
-  [app-config role provider-id descriptor]
+  [effective-config local-config role provider-id descriptor]
   (let [setting-keys (map :key (:setup-settings descriptor))
-        same-provider? (= provider-id (keyword (get-in app-config [role :provider])))
+        same-provider? (= provider-id
+                          (keyword (get-in effective-config [role :provider])))
+        effective (if same-provider?
+                    (select-keys (get effective-config role) setting-keys)
+                    (zipmap setting-keys (repeat nil)))
         persisted (if same-provider?
-                    (select-keys (get app-config role) setting-keys)
-                    (zipmap setting-keys (repeat nil)))]
-    (assoc persisted :provider provider-id)))
+                    (select-keys (get local-config role) setting-keys)
+                    {})]
+    {:effective (assoc effective :provider provider-id)
+     :persisted (assoc persisted :provider provider-id)}))
 
 (defn remove-environment-secrets
   [value role descriptor environment-config]
@@ -86,14 +91,17 @@
   []
   (println (ui/headline "tickettrain setup"))
   (println "Choose a forge and tracker. Press Enter to keep the current choice.")
-  (let [loaded (config/load-file-config)
+  (let [local-config (config/load-local-config)
+        loaded (config/load-file-config config/default-config-path local-config)
         forge-id (choose-provider :forge forge/registry (config/forge-provider loaded))
         tracker-id (choose-provider :tracker tracker/registry (config/tracker-provider loaded))
         forge-descriptor (adapters/descriptor forge/registry :forge forge-id)
         tracker-descriptor (adapters/descriptor tracker/registry :tracker tracker-id)
+        forge-selection (selected-role-config loaded local-config :forge forge-id forge-descriptor)
+        tracker-selection (selected-role-config loaded local-config :tracker tracker-id tracker-descriptor)
         selected (assoc loaded
-                        :forge (selected-role-config loaded :forge forge-id forge-descriptor)
-                        :tracker (selected-role-config loaded :tracker tracker-id tracker-descriptor))
+                        :forge (:effective forge-selection)
+                        :tracker (:effective tracker-selection))
         environment (config/merge-env-config
                      (config/load-dotenv)
                      (into {} (System/getenv)))
@@ -107,7 +115,8 @@
         tracker-label (:display-name tracker-descriptor)
         _ (println)
         _ (println (ui/accent (str "Checking " forge-label " → " tracker-label "...")))
-        persisted-selected (-> selected
+        persisted-selected (-> {:forge (:persisted forge-selection)
+                                :tracker (:persisted tracker-selection)}
                                (mask-environment-secrets :forge forge-descriptor
                                                          environment-config)
                                (mask-environment-secrets :tracker tracker-descriptor

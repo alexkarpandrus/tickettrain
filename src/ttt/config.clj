@@ -73,8 +73,12 @@
     {:key :target-state :env "TTT_TRACKER_STATE"}]})
 
 (defn setting-environment-value
-  [environment {:keys [env transform]}]
-  (when-let [value (some #(some-> (get environment %) str/trim not-empty)
+  [environment {:keys [env transform required?]}]
+  (when-let [value (some (fn [name]
+                           (when-let [value (get environment name)]
+                             (let [value (str/trim value)]
+                               (when (or required? (not (str/blank? value)))
+                                 value))))
                          (if (string? env) [env] env))]
     ((or transform identity) value)))
 
@@ -148,6 +152,10 @@
   (when (fs/exists? path)
     (edn/read-string (slurp path))))
 
+(defn load-local-config
+  []
+  (or (read-edn-map default-local-config-path) {}))
+
 (defn write-local-config!
   ([config-map]
    (write-local-config! config-map #{}))
@@ -155,10 +163,19 @@
    (let [path (fs/file default-local-config-path)
          existing (apply dissoc (or (read-edn-map path) {}) replace-sections)]
      (fs/create-dirs (fs/parent path))
-     (spit path (pr-str (deep-merge existing config-map)))
-     (try (fs/set-posix-file-permissions path "rw-------")
-          (catch Exception _ nil))
-     path)))
+     (let [temp (fs/create-temp-file {:dir (fs/parent path) :prefix ".ttt.local-"})]
+       (try
+         (try (fs/set-posix-file-permissions temp "rw-------")
+              (catch Exception _ nil))
+         (spit (str temp) (pr-str (deep-merge existing config-map)))
+         (fs/move temp path {:replace-existing true :atomic-move true})
+         (try (fs/set-posix-file-permissions path "rw-------")
+              (catch Exception _ nil))
+         path
+         (catch Exception error
+           (try (fs/delete-if-exists temp)
+                (catch Exception _ nil))
+           (throw error)))))))
 
 (defn merge-env-config
   "Merge .env values under the real process environment; real env wins."
@@ -166,15 +183,16 @@
   (merge dotenv system-env))
 
 (defn load-file-config
-  ([] (load-file-config default-config-path))
-  ([path]
+  ([] (load-file-config default-config-path (load-local-config)))
+  ([path] (load-file-config path (load-local-config)))
+  ([path local-config]
    (let [config-path (fs/file path)]
      (when-not (fs/exists? config-path)
        (throw (ex-info (str "Config file not found: " path)
                        {:path path})))
      (-> (merge-config-layer
           (read-edn-map config-path)
-          (read-edn-map default-local-config-path))
+          local-config)
          normalize-config))))
 
 (defn load-config

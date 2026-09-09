@@ -26,6 +26,24 @@
     (is (= "Review" (get-in merged [:tracker :state-name])))
     (is (= "https://linear.app/acme" (get-in merged [:tracker :workspace-url])))))
 
+
+(deftest blank-required-environment-values-mask-persisted-settings
+  (let [file-config {:tracker {:provider :linear
+                               :api-key "persisted-key"
+                               :team-id "team-1"}}
+        environment {"LINEAR_API_KEY" "  "
+                     "LINEAR_TEAM_ID" "  "}
+        overrides (config/env-overrides file-config environment)
+        effective (config/deep-merge file-config overrides)]
+    (is (= "" (get-in overrides [:tracker :api-key])))
+    (is (= "" (get-in effective [:tracker :api-key])))
+    (is (nil? (config/setting-environment-value
+               environment {:env "LINEAR_TEAM_ID"})))
+    (is (= [:api-key]
+           (try
+             (config/assert-settings! :linear (:tracker effective) [:api-key])
+             (catch Exception error (:missing (ex-data error))))))))
+
 (deftest dotenv-overrides-respect-configured-providers
   (let [merged (-> (config/deep-merge
                     {:tracker {:provider :example-tracker}
