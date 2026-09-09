@@ -9,6 +9,16 @@ set -euo pipefail
 REPO_URL="https://github.com/alexkarpandrus/tickettrain.git"
 INSTALL_DIR="${TTT_INSTALL_DIR:-${HOME}/.local/share/tickettrain}"
 BIN_DIR="${HOME}/.local/bin"
+UPDATE_ONLY=false
+
+if [[ "${1:-}" == "--update" ]]; then
+  UPDATE_ONLY=true
+  shift
+fi
+if (( $# )); then
+  echo "Usage: install [--update]" >&2
+  exit 1
+fi
 
 if ! command -v git >/dev/null 2>&1; then
   echo "tickettrain requires git. Install it from https://git-scm.com/downloads and rerun this installer." >&2
@@ -19,6 +29,23 @@ if ! command -v bb >/dev/null 2>&1 && [[ ! -x "${HOME}/.local/bin/bb" ]]; then
   echo "tickettrain requires Babashka 1.12.217 or newer. Install it from https://babashka.org/ and rerun this installer." >&2
   exit 1
 fi
+
+latest_release_tag() {
+  local tag
+  tag="$(git ls-remote --tags --refs --sort=-v:refname "${REPO_URL}" 'v[0-9]*' | awk '$2 ~ /^refs\/tags\/v[0-9]+\.[0-9]+\.[0-9]+$/ { sub("refs/tags/", "", $2); print $2; exit }')"
+  if [[ -z "${tag}" ]]; then
+    echo "No tickettrain release is available yet." >&2
+    exit 1
+  fi
+  printf '%s\n' "${tag}"
+}
+
+update_checkout() {
+  local root_dir="$1"
+  local release_tag="$2"
+  git -C "${root_dir}" fetch --depth 1 "${REPO_URL}" "refs/tags/${release_tag}:refs/tags/${release_tag}" --quiet
+  git -C "${root_dir}" checkout --detach --quiet "${release_tag}"
+}
 
 # When piped through `curl | bash`, BASH_SOURCE[0] is "bash" (no real file), so
 # we clone/update the repo. When run from a checkout, use the checkout itself.
@@ -31,18 +58,47 @@ if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
   done
   ROOT_DIR="$(cd -P "$(dirname "${SOURCE}")/.." && pwd)"
 else
-  RELEASE_TAG="$(git ls-remote --tags --refs --sort=-v:refname "${REPO_URL}" 'v[0-9]*' | awk 'NR == 1 { sub("refs/tags/", "", $2); print $2 }')"
-  if [[ -z "${RELEASE_TAG}" ]]; then
-    echo "No tickettrain release is available yet." >&2
-    exit 1
-  fi
+  RELEASE_TAG="$(latest_release_tag)"
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
-    git -C "${INSTALL_DIR}" fetch --depth 1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" --quiet
-    git -C "${INSTALL_DIR}" checkout --detach --quiet "${RELEASE_TAG}"
+    update_checkout "${INSTALL_DIR}" "${RELEASE_TAG}"
   else
     git clone --depth 1 --branch "${RELEASE_TAG}" "${REPO_URL}" "${INSTALL_DIR}"
   fi
   ROOT_DIR="${INSTALL_DIR}"
+fi
+
+if [[ "${UPDATE_ONLY}" == true ]]; then
+  if ! git -C "${ROOT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "ttt update requires a Git-based release installation." >&2
+    exit 1
+  fi
+  if git -C "${ROOT_DIR}" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    echo "ttt update only works for a tagged release installation. Use Git to update a source checkout." >&2
+    exit 1
+  fi
+  CURRENT_TAG="$(git -C "${ROOT_DIR}" describe --tags --exact-match HEAD 2>/dev/null || true)"
+  if [[ ! "${CURRENT_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ttt update requires the current checkout to match a version tag." >&2
+    exit 1
+  fi
+  if [[ -n "$(git -C "${ROOT_DIR}" status --porcelain)" ]]; then
+    echo "ttt update refused because the installation has local changes." >&2
+    exit 1
+  fi
+  RELEASE_TAG="$(latest_release_tag)"
+  if [[ "${CURRENT_TAG}" == "${RELEASE_TAG}" ]]; then
+    "${ROOT_DIR}/bin/ttt" version >/dev/null
+    echo "ttt ${CURRENT_TAG#v} is already up to date."
+    exit 0
+  fi
+  update_checkout "${ROOT_DIR}" "${RELEASE_TAG}"
+  if ! "${ROOT_DIR}/bin/ttt" version >/dev/null; then
+    git -C "${ROOT_DIR}" checkout --detach --quiet "${CURRENT_TAG}"
+    echo "Update verification failed; restored ttt ${CURRENT_TAG#v}." >&2
+    exit 1
+  fi
+  echo "Updated ttt ${CURRENT_TAG#v} -> ${RELEASE_TAG#v}."
+  exit 0
 fi
 
 mkdir -p "${BIN_DIR}"

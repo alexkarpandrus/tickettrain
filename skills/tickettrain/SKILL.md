@@ -11,6 +11,7 @@ description: Link a GitHub, GitLab, or Bitbucket change request to a Linear, Git
 
 - `ttt --llm` — print the full agent instructions (read this first when unsure).
 - `ttt version` — self-check and capability list.
+- `ttt update` — update a tagged installation to the latest release.
 - `ttt setup` — choose and validate a forge and tracker; run it inside a target repository after install.
 
 ## Target state
@@ -25,6 +26,7 @@ description: Link a GitHub, GitLab, or Bitbucket change request to a Linear, Git
 
 ```bash
 ttt version                                        # self-check + capabilities
+ttt update                                         # update a tagged installation
 ttt inspect                                        # current branch / PR / repo context
 ttt search --kind item --query "retry handling"    # find existing issues
 ttt search --kind project --query "reliability"    # find projects
