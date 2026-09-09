@@ -45,7 +45,14 @@ If the installer reports that `~/.local/bin` is not on `PATH`, add the printed `
 
 ### Update and uninstall
 
-Run the install command again to update an existing installation to the latest release.
+Update a tagged installation to the latest release, then confirm the installed version:
+
+```bash
+ttt update
+ttt version
+```
+
+`ttt update` preserves ignored local configuration and refuses source checkouts or installations with local changes. If an older installation does not recognize `update`, run the install command once to upgrade it.
 
 To remove the default installation:
 

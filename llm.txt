@@ -36,6 +36,9 @@ Non-interactive API (schema v2):
 Setup:
   ttt setup          Choose and validate a forge and tracker
 
+Maintenance:
+  ttt update         Update a tagged installation to the latest release
+
 Interactive workflow:
   ttt --interactive --parent "parent item key or fuzzy text"
   ttt -i --project "project name or slug"
