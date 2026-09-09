@@ -36,7 +36,7 @@
                     (zipmap setting-keys (repeat nil)))
         persisted (if same-provider?
                     (select-keys (get local-config role) setting-keys)
-                    {})]
+                    (zipmap setting-keys (repeat nil)))]
     {:effective (assoc effective :provider provider-id)
      :persisted (assoc persisted :provider provider-id)}))
 
@@ -61,6 +61,18 @@
        masked))
    value
    (:setup-settings descriptor)))
+
+
+(defn abort-invalid-environment-settings!
+  [app-config environment-config role descriptor]
+  (doseq [{:keys [key env required?]}
+          (filter :required? (:setup-settings descriptor))
+          :when (and (contains? (get environment-config role) key)
+                     (config/missing-setting? (get-in app-config [role key])))]
+    (let [environment-variable (if (string? env) env (first env))]
+      (throw (ex-info
+              (str "Set a valid " environment-variable " or unset it, then rerun `ttt setup`.")
+              {:code :aborted})))))
 
 (defn collect-required-settings
   [app-config role descriptor]
@@ -107,6 +119,8 @@
                      (into {} (System/getenv)))
         environment-config (config/env-overrides selected environment)
         configured (config/deep-merge selected environment-config)
+        _ (abort-invalid-environment-settings! configured environment-config :forge forge-descriptor)
+        _ (abort-invalid-environment-settings! configured environment-config :tracker tracker-descriptor)
         credentials (config/deep-merge
                      (collect-required-settings configured :forge forge-descriptor)
                      (collect-required-settings configured :tracker tracker-descriptor))
