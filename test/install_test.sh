@@ -85,14 +85,17 @@ PATH="${BASE_PATH}" /bin/bash <"${ROOT_DIR}/bin/install" >"${TEMP_DIR}/install.o
 test -L "${HOME}/.local/bin/ttt"
 test "$(readlink "${HOME}/.local/bin/ttt")" = "${TTT_INSTALL_DIR}/bin/ttt"
 grep -Fq "clone --depth 1 --branch v0.1.0 https://github.com/alexkarpandrus/tickettrain.git ${TTT_INSTALL_DIR}" "${MOCK_GIT_LOG}"
-grep -Fq "Installed and verified:" "${TEMP_DIR}/install.out"
-grep -Fq "Add tickettrain to your PATH:" "${TEMP_DIR}/install.out"
+grep -Fq "✓ Installed and verified:" "${TEMP_DIR}/install.out"
+grep -Fq "⚠ Add tickettrain to your PATH:" "${TEMP_DIR}/install.out"
+grep -Fq "  ttt → ${HOME}/.local/bin/ttt" "${TEMP_DIR}/install.out"
+grep -Fq "→ Optional: install the agent skill" "${TEMP_DIR}/install.out"
+grep -Fq "→ Next: enter a target repository" "${TEMP_DIR}/install.out"
 
 PATH="${HOME}/.local/bin:${BASE_PATH}" /bin/bash <"${ROOT_DIR}/bin/install" >"${TEMP_DIR}/update.out"
 grep -Fq -- "-C ${TTT_INSTALL_DIR} fetch --depth 1 https://github.com/alexkarpandrus/tickettrain.git refs/tags/v0.1.0:refs/tags/v0.1.0 --quiet" "${MOCK_GIT_LOG}"
 grep -Fq -- "-C ${TTT_INSTALL_DIR} checkout --detach --quiet v0.1.0" "${MOCK_GIT_LOG}"
 test "$(grep -c '^ls-remote --tags --refs --sort=-v:refname https://github.com/alexkarpandrus/tickettrain.git v\[0-9\]\*$' "${MOCK_GIT_LOG}")" -eq 3
-if grep -Fq "Add tickettrain to your PATH:" "${TEMP_DIR}/update.out"; then
+if grep -Fq "⚠ Add tickettrain to your PATH:" "${TEMP_DIR}/update.out"; then
   echo "installer reported a PATH problem when its bin directory was present" >&2
   exit 1
 fi
@@ -106,14 +109,14 @@ printf '0.0.9\n' >"${UPDATE_ROOT}/version.txt"
 printf '{:tracker {:provider :linear}}\n' >"${UPDATE_ROOT}/config/ttt.local.edn"
 
 PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/self-update.out"
-grep -Fq "Updated ttt 0.0.9 -> 0.1.0." "${TEMP_DIR}/self-update.out"
+grep -Fq "✓ Updated ttt 0.0.9 → 0.1.0." "${TEMP_DIR}/self-update.out"
 test "$(cat "${UPDATE_ROOT}/version.txt")" = "0.1.0"
 grep -Fq ':tracker {:provider :linear}' "${UPDATE_ROOT}/config/ttt.local.edn"
 grep -Fq -- "-C ${UPDATE_ROOT} fetch --depth 1 https://github.com/alexkarpandrus/tickettrain.git refs/tags/v0.1.0:refs/tags/v0.1.0 --quiet" "${MOCK_GIT_LOG}"
 grep -Fq -- "-C ${UPDATE_ROOT} checkout --detach --quiet v0.1.0" "${MOCK_GIT_LOG}"
 
 PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/up-to-date.out"
-grep -Fq "ttt 0.1.0 is already up to date." "${TEMP_DIR}/up-to-date.out"
+grep -Fq "✓ ttt 0.1.0 is already up to date." "${TEMP_DIR}/up-to-date.out"
 
 if MOCK_ATTACHED=1 PATH="${BASE_PATH}" "${UPDATE_ROOT}/bin/ttt" update >"${TEMP_DIR}/attached.out" 2>&1; then
   echo "updater changed a source checkout" >&2

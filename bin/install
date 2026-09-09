@@ -88,7 +88,7 @@ if [[ "${UPDATE_ONLY}" == true ]]; then
   RELEASE_TAG="$(latest_release_tag)"
   if [[ "${CURRENT_TAG}" == "${RELEASE_TAG}" ]]; then
     "${ROOT_DIR}/bin/ttt" version >/dev/null
-    echo "ttt ${CURRENT_TAG#v} is already up to date."
+    echo "✓ ttt ${CURRENT_TAG#v} is already up to date."
     exit 0
   fi
   update_checkout "${ROOT_DIR}" "${RELEASE_TAG}"
@@ -97,7 +97,7 @@ if [[ "${UPDATE_ONLY}" == true ]]; then
     echo "Update verification failed; restored ttt ${CURRENT_TAG#v}." >&2
     exit 1
   fi
-  echo "Updated ttt ${CURRENT_TAG#v} -> ${RELEASE_TAG#v}."
+  echo "✓ Updated ttt ${CURRENT_TAG#v} → ${RELEASE_TAG#v}."
   exit 0
 fi
 
@@ -105,21 +105,21 @@ mkdir -p "${BIN_DIR}"
 ln -sfn "${ROOT_DIR}/bin/ttt" "${BIN_DIR}/ttt"
 "${BIN_DIR}/ttt" version >/dev/null
 
-echo "Installed and verified:"
-echo "  ttt -> ${BIN_DIR}/ttt"
+echo "✓ Installed and verified:"
+echo "  ttt → ${BIN_DIR}/ttt"
 
 case ":${PATH:-}:" in
   *":${BIN_DIR}:"*) ;;
   *)
     echo
-    echo "Add tickettrain to your PATH:"
+    echo "⚠ Add tickettrain to your PATH:"
     echo "  export PATH=\"${BIN_DIR}:\$PATH\""
     echo "Add that line to your shell profile, then open a new terminal."
     ;;
 esac
 
 echo
-echo "Optional: install the agent skill for Claude Code, Codex, Cursor, and more:"
+echo "→ Optional: install the agent skill for Claude Code, Codex, Cursor, and more:"
 echo "  npx skills add alexkarpandrus/tickettrain"
 echo
-echo "Next: enter a target repository and run 'ttt setup', then 'ttt --llm' for agent instructions."
+echo "→ Next: enter a target repository and run 'ttt setup', then 'ttt --llm' for agent instructions."
