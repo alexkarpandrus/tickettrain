@@ -24,7 +24,7 @@ jobs:
           java-version: "21"
 
       - name: Set Up Clojure
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08 # v13.4
+        uses: DeLaGuardo/setup-clojure@f556541eb28a9303896cee0679ba9f60b898300f # v13.5
         with:
           bb: 1.12.217
 
