@@ -34,6 +34,16 @@
     (is (= (str/trim (slurp "version.txt")) (:version version)))
     (is (= 2 (:agentApiVersion version)))
     (is (some #{"create-change-request"} (:capabilities version)))))
+
+(deftest status-shows-providers-and-sources-without-secret-values
+  (with-redefs [config/load-config (fn [_]
+                                     {:forge {:provider :gitlab :token "forge-secret"}
+                                      :tracker {:provider :jira :email "dev@example.com" :api-token "tracker-secret"}})]
+    (let [status (agent/status-data {:config "/tmp/ttt.edn"})]
+      (is (= {:provider "gitlab" :configuredSettings ["token"]} (:forge status)))
+      (is (= {:provider "jira" :configuredSettings ["api-token" "email"]} (:tracker status)))
+      (is (= "/tmp/ttt.edn" (get-in status [:sources :baseConfig :path])))
+      (is (not (str/includes? (pr-str status) "secret"))))))
 (deftest preview-is-read-only-and-uses-neutral-wire-fields
   (let [calls (atom [])
         runtime* (assoc-in (runtime calls) [:config :tracker :target-state] "In Progress")

@@ -27,6 +27,7 @@ ttt
 Non-interactive API (schema v2):
   ttt version
   ttt inspect
+  ttt status
   ttt search --kind item|project|label --query TEXT
   ttt preview --request JSON
   ttt preview --request-file PATH
@@ -81,7 +82,7 @@ ttt apply --request-file REQUEST_FILE_PATH --approve lp2_...
 
 Rules:
 - Provide exactly one of `--request` or `--request-file`; use an owner-only file for untrusted content.
-- `version`, `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command.
+- `version`, `status`, `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command.
 - `apply` recomputes the proposal and rejects stale or mismatched approval.
 - `link_existing` accepts `item`; v1 `issue` input is not supported.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.

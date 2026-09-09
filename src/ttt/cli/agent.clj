@@ -110,6 +110,26 @@
              :changeRequestUpdate (:change-request-update proposal)
              :approvalContext (:approval-context proposal)))))
 (defn inspect-data [runtime] (wire-source (core/inspect runtime)))
+(defn- configured-setting-names [settings]
+  (->> (dissoc settings :provider)
+       (keep (fn [[key value]]
+               (when-not (config/missing-setting? value) (name key))))
+       sort
+       vec))
+(defn- config-source [path]
+  {:path path :present (.isFile (java.io.File. path))})
+(defn status-data [options]
+  (let [path (or (:config options) config/default-config-path)
+        app-config (config/load-config path)]
+    {:forge {:provider (name (config/forge-provider app-config))
+             :configuredSettings (configured-setting-names (:forge app-config))}
+     :tracker {:provider (name (config/tracker-provider app-config))
+               :configuredSettings (configured-setting-names (:tracker app-config))}
+     :sources {:baseConfig (config-source path)
+               :localConfig (config-source config/default-local-config-path)
+               :dotenv (config-source config/default-dotenv-path)
+               :processEnvironment {:checked true}}
+     :precedence ["baseConfig" "localConfig" "dotenv" "processEnvironment"]}))
 (defn excerpt [value] (let [text (some-> value str str/trim)] (when-not (str/blank? text) (subs text 0 (min 500 (count text))))))
 (defn entity-candidate [entity]
   (cond-> (wire-entity entity) (excerpt (:description entity)) (assoc :descriptionExcerpt (excerpt (:description entity)))))
@@ -226,9 +246,10 @@
   ((if (= "create_change_request" (:action request)) forge-runtime runtime) options))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
+        "status" (status-data options)
         "inspect" (inspect-data (forge-runtime options))
         "search" (search-data (:tracker (runtime options)) options)
         "preview" (let [request (parse-request options)]
