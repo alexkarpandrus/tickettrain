@@ -10,6 +10,16 @@ REPO_URL="https://github.com/alexkarpandrus/tickettrain.git"
 INSTALL_DIR="${TTT_INSTALL_DIR:-${HOME}/.local/share/tickettrain}"
 BIN_DIR="${HOME}/.local/bin"
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "tickettrain requires git. Install it from https://git-scm.com/downloads and rerun this installer." >&2
+  exit 1
+fi
+
+if ! command -v bb >/dev/null 2>&1 && [[ ! -x "${HOME}/.local/bin/bb" ]]; then
+  echo "tickettrain requires Babashka 1.12.217 or newer. Install it from https://babashka.org/ and rerun this installer." >&2
+  exit 1
+fi
+
 # When piped through `curl | bash`, BASH_SOURCE[0] is "bash" (no real file), so
 # we clone/update the repo. When run from a checkout, use the checkout itself.
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
@@ -31,11 +41,23 @@ fi
 
 mkdir -p "${BIN_DIR}"
 ln -sfn "${ROOT_DIR}/bin/ttt" "${BIN_DIR}/ttt"
+"${BIN_DIR}/ttt" version >/dev/null
 
-echo "Installed:"
+echo "Installed and verified:"
 echo "  ttt -> ${BIN_DIR}/ttt"
+
+case ":${PATH:-}:" in
+  *":${BIN_DIR}:"*) ;;
+  *)
+    echo
+    echo "Add tickettrain to your PATH:"
+    echo "  export PATH=\"${BIN_DIR}:\$PATH\""
+    echo "Add that line to your shell profile, then open a new terminal."
+    ;;
+esac
+
 echo
-echo "Install the agent skill (Claude Code, Codex, Cursor, and more):"
+echo "Optional: install the agent skill for Claude Code, Codex, Cursor, and more:"
 echo "  npx skills add alexkarpandrus/tickettrain"
 echo
 echo "Next: enter a target repository and run 'ttt setup', then 'ttt --llm' for agent instructions."
