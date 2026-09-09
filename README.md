@@ -129,13 +129,14 @@ Useful options:
 | `--title TEXT` | Override the proposed item and change-request title |
 | `--yes` | Skip the final interactive confirmation |
 | `--dry-run` | Print planned actions without provider mutations |
-| `--help` | Show all commands and flags |
+| `--human` | Print non-interactive command output for humans instead of JSON |
+| `--help` | Show general or command help |
 
 If the forge resolves no PR/MR for the current branch, `ttt` derives a draft from the latest non-merge commit. It then resolves or creates the tracker item, records local branch metadata, renames a new-item branch to `<item-key>-<slug>`, pushes it, and opens the change request against the default branch.
 
 ## Agent API
 
-The default mode is a non-interactive JSON API. Every response uses `schemaVersion: 2`.
+The default mode is a non-interactive JSON API. Every response uses `schemaVersion: 2`. Pass `--human` to print all command data in a terminal-friendly format instead.
 
 ```bash
 ttt version

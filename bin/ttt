@@ -12,6 +12,11 @@ SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export TTT_HOME="${ROOT_DIR}"
 
+if [[ "${1:-}" == "update" && ( "${2:-}" == "--help" || "${2:-}" == "-h" ) ]]; then
+  printf '%s\n' 'Usage: ttt update' '' 'Options:' '  -h, --help  Show this help'
+  exit 0
+fi
+
 if [[ "${1:-}" == "update" ]]; then
   exec "${ROOT_DIR}/bin/install" --update "${@:2}"
 fi

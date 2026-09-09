@@ -8,6 +8,7 @@ trap 'rm -rf "${TEMP_DIR}"' EXIT
 mkdir -p "${TEMP_DIR}/empty-bin" "${TEMP_DIR}/mock-bin"
 
 "${ROOT_DIR}/bin/ttt" --help | grep -Fq "ttt update"
+"${ROOT_DIR}/bin/ttt" update --help | grep -Fq "Usage: ttt update"
 
 if PATH="${TEMP_DIR}/empty-bin" HOME="${TEMP_DIR}/no-git-home" /bin/bash <"${ROOT_DIR}/bin/install" >"${TEMP_DIR}/no-git.out" 2>&1; then
   echo "installer succeeded without git" >&2
