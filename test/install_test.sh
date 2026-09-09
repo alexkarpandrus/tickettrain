@@ -57,11 +57,50 @@ fi
 EOF
 chmod +x "${TEMP_DIR}/mock-bin/git"
 
-if PATH="${TEMP_DIR}/mock-bin" HOME="${TEMP_DIR}/no-bb-home" /bin/bash <"${ROOT_DIR}/bin/install" >"${TEMP_DIR}/no-bb.out" 2>&1; then
-  echo "installer succeeded without Babashka" >&2
+if printf 'n\n' | PATH="${TEMP_DIR}/mock-bin" HOME="${TEMP_DIR}/no-bb-home" /bin/bash "${ROOT_DIR}/bin/install" >"${TEMP_DIR}/no-bb.out" 2>&1; then
+  echo "installer succeeded after Babashka installation was declined" >&2
   exit 1
 fi
+grep -Fq "Install 1.12.217" "${TEMP_DIR}/no-bb.out"
 grep -Fq "tickettrain requires Babashka" "${TEMP_DIR}/no-bb.out"
+
+if printf 'y\n' | PATH="${TEMP_DIR}/mock-bin" HOME="${TEMP_DIR}/no-curl-home" /bin/bash "${ROOT_DIR}/bin/install" >"${TEMP_DIR}/no-curl.out" 2>&1; then
+  echo "installer succeeded without curl" >&2
+  exit 1
+fi
+grep -Fq "Babashka installation requires curl" "${TEMP_DIR}/no-curl.out"
+
+export MOCK_CURL_LOG="${TEMP_DIR}/curl.log"
+export MOCK_BB_INSTALL_LOG="${TEMP_DIR}/bb-install.log"
+cat >"${TEMP_DIR}/mock-bin/curl" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${MOCK_CURL_LOG}"
+cat <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+install_dir=""
+version=""
+while (( $# )); do
+  case "$1" in
+    --dir) install_dir="$2"; shift 2 ;;
+    --version) version="$2"; shift 2 ;;
+    *) exit 1 ;;
+  esac
+done
+printf '%s %s\n' "${install_dir}" "${version}" > "${MOCK_BB_INSTALL_LOG}"
+mkdir -p "${install_dir}"
+printf '#!/bin/bash\nexit 0\n' > "${install_dir}/bb"
+chmod +x "${install_dir}/bb"
+SCRIPT
+EOF
+chmod +x "${TEMP_DIR}/mock-bin/curl"
+
+BB_HOME="${TEMP_DIR}/bb-install-home"
+printf 'y\n' | PATH="${TEMP_DIR}/mock-bin:/usr/bin:/bin" HOME="${BB_HOME}" /bin/bash "${ROOT_DIR}/bin/install" >"${TEMP_DIR}/bb-install.out" 2>&1
+test -x "${BB_HOME}/.local/bin/bb"
+grep -Fq -- "-fsSL https://raw.githubusercontent.com/babashka/babashka/v1.12.217/install" "${MOCK_CURL_LOG}"
+grep -Fq "${BB_HOME}/.local/bin 1.12.217" "${MOCK_BB_INSTALL_LOG}"
+grep -Fq "✓ Installed Babashka 1.12.217." "${TEMP_DIR}/bb-install.out"
 
 cat >"${TEMP_DIR}/mock-bin/bb" <<'EOF'
 #!/usr/bin/env bash

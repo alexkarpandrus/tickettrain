@@ -40,6 +40,7 @@ ttt --interactive --project "reliability"
 Setup guides you through forge and tracker selection, collects supported token and email settings, gives exact remediation for provider-managed authentication, validates both providers, and saves an owner-only local configuration.
 
 The installer clones the latest tagged tickettrain release to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
+If Babashka is missing and a terminal is available, the installer asks before installing version 1.12.217 to `~/.local/bin`.
 
 If the installer reports that `~/.local/bin` is not on `PATH`, add the printed `export` command to your shell profile and open a new terminal.
 
