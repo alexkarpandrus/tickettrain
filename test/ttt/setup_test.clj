@@ -128,8 +128,24 @@
             :api-token nil
             :base-url nil}
            (:effective selection)))
-    (is (= {:provider :bitbucket}
+    (is (= {:provider :bitbucket
+            :email nil
+            :api-token nil
+            :base-url nil}
            (:persisted selection)))))
+
+
+(deftest switching-back-to-a-provider-masks-its-base-settings-on-reload
+  (let [base {:forge {:provider :gitlab
+                      :token "base-token"
+                      :base-url "https://gitlab.custom.example"}}
+        local {:forge {:provider :bitbucket}}
+        loaded (config/merge-config-layer base local)
+        descriptor {:setup-settings [{:key :token} {:key :base-url}]}
+        selection (setup/selected-role-config loaded local :forge :gitlab descriptor)
+        reloaded (config/merge-config-layer base {:forge (:persisted selection)})]
+    (is (= {:provider :gitlab :token nil :base-url nil}
+           (:forge reloaded)))))
 
 (deftest retaining-a-provider-persists-only-local-settings
   (let [descriptor {:setup-settings [{:key :token} {:key :base-url}]}
@@ -181,6 +197,33 @@
             {:tracker {:provider :jira}}
             :tracker
             (get tracker/registry :jira))))))
+
+
+(deftest setup-aborts-for-a-blank-required-environment-setting
+  (let [prompted? (atom false)
+        written (atom nil)]
+    (with-redefs [forge/registry
+                  {:gitlab {:display-name "GitLab" :setup-order 0
+                            :setup-settings [{:key :token
+                                              :label "GitLab token"
+                                              :env "GITLAB_TOKEN"
+                                              :required? true
+                                              :secret? true}]}}
+                  tracker/registry
+                  {:linear {:display-name "Linear" :setup-order 0 :setup-settings []}}
+                  config/load-local-config (constantly {})
+                  config/load-file-config (fn [& _] {:forge {:provider :gitlab}
+                                                     :tracker {:provider :linear}})
+                  config/env-overrides (constantly {:forge {:token ""}})
+                  prompt/choose-index (constantly 0)
+                  prompt/ask-secret (fn [& _] (reset! prompted? true) "replacement-token")
+                  config/write-local-config! (fn [& _] (reset! written :written))]
+      (is (thrown-with-msg?
+           Exception
+           #"Set a valid GITLAB_TOKEN or unset it, then rerun `ttt setup`\."
+           (with-out-str (setup/setup!))))
+      (is (false? @prompted?))
+      (is (nil? @written)))))
 
 
 (deftest setup-prompts-for-blank-required-settings
