@@ -26,6 +26,7 @@ description: Create a GitHub, GitLab, or Bitbucket change request, or link one t
 
 ```bash
 ttt version                                        # self-check + capabilities
+ttt status --human                                # selected providers and configuration sources
 ttt update                                         # update a tagged installation
 ttt inspect                                        # current branch / PR / repo context
 ttt search --kind item --query "retry handling"    # find existing issues
