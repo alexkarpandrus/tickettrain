@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.4.0...v0.5.0) (2026-09-10)
+
+
+### Features
+
+* **cli:** add configuration status command ([d2c8b1a](https://github.com/alexkarpandrus/tickettrain/commit/d2c8b1afd74d2369e3154af9f600ac256e5ab3b7))
+
 ## [0.4.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.3.0...v0.4.0) (2026-09-09)
 
 
