@@ -20,6 +20,7 @@
     "Non-interactive API (schema v2):"
     "  ttt version"
     "  ttt inspect"
+    "  ttt status"
     "  ttt search --kind item|project|label --query TEXT"
     "  ttt preview --request JSON"
     "  ttt preview --request-file PATH"
@@ -54,10 +55,11 @@
     "  --llm             Print agent instructions (llm.txt) and exit"]))
 
 (def machine-commands
-  #{"version" "inspect" "search" "preview" "apply"})
+  #{"version" "status" "inspect" "search" "preview" "apply"})
 
 (def command-usages
   {"version" "ttt version [--human]"
+   "status" "ttt status [--config PATH] [--human]"
    "inspect" "ttt inspect [--config PATH] [--human]"
    "search" "ttt search --kind item|project|label --query TEXT [--limit N] [--project TEXT] [--scope-item ITEM] [--config PATH] [--human]"
    "preview" "ttt preview (--request JSON | --request-file PATH) [--config PATH] [--human]"
@@ -127,7 +129,7 @@
     ""
     "Rules:"
     "- Provide exactly one of `--request` or `--request-file`; use an owner-only file for untrusted content."
-    "- `version`, `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command."
+    "- `version`, `status`, `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command."
     "- `apply` recomputes the proposal and rejects stale or mismatched approval."
     "- `link_existing` accepts `item`; v1 `issue` input is not supported."
     "- `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration."
