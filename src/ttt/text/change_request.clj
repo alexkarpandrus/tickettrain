@@ -30,11 +30,31 @@
         (config/change-request-settings app-config)]
     [body-begin-marker body-end-marker]))
 
+(defn resource-reference
+  ([resource]
+   (resource-reference resource (domain/display-id resource)))
+  ([resource label]
+   (if (seq (:url resource))
+     (markdown/link label (:url resource))
+     (markdown/escape-label label))))
+
+(defn reference-text?
+  [value allow-plain?]
+  (or (markdown/link-text? value)
+      (and allow-plain?
+           (not (str/blank? value))
+           (not (str/starts-with? value "[")))))
+
+(defn prefixed-reference?
+  [line prefix allow-plain?]
+  (and (str/starts-with? line prefix)
+       (reference-text? (subs line (count prefix)) allow-plain?)))
+
 (defn context-link-line?
-  [line]
+  [line allow-plain?]
   (when (str/starts-with? line "- ")
-    (when-let [separator (str/index-of line ": [")]
-      (markdown/link-text? (subs line (+ separator 2))))))
+    (when-let [separator (str/index-of line ": ")]
+      (reference-text? (subs line (+ separator 2)) allow-plain?))))
 
 (defn outer-section
   [body app-config]
@@ -53,13 +73,14 @@
           [item-ref content-lines] (if key
                                      [(domain/key-identity key) (rest content-lines)]
                                      [nil content-lines])
-          [issue-link & context-links] content-lines]
+          [issue-link & context-links] content-lines
+          allow-plain? (boolean item-ref)]
       (when-not (and (= (str "## " (markdown/escape-label section-title)) heading)
                      (or (nil? key)
                          (and item-ref (= :tracker-item (:kind item-ref))))
-                     (markdown/prefixed-link? (or issue-link "") "- Issue: ")
+                     (prefixed-reference? (or issue-link "") "- Issue: " allow-plain?)
                      (<= (count context-links) 1)
-                     (every? context-link-line? context-links))
+                     (every? #(context-link-line? % allow-plain?) context-links))
         (throw (ex-info (:message malformed-options)
                         {:code (:code malformed-options)})))
       (assoc section
@@ -86,10 +107,10 @@
            (str "<!-- ttt:item "
                 (domain/identity-key item-ref)
                 " -->\n"))
-         "- Issue: " (markdown/link (domain/display-id item) (:url item)) "\n"
+         "- Issue: " (resource-reference item) "\n"
          (when context
            (str "- " (markdown/escape-label (context-label context)) ": "
-                (markdown/link (context-title context) (:url context)) "\n"))
+                (resource-reference context (context-title context)) "\n"))
          body-end-marker)))
 
 (defn upsert-managed-section
