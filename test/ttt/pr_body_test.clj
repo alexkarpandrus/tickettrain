@@ -151,3 +151,25 @@
     (is (str/includes? updated "- Project: [MDP Containers](https://linear.app/example/project/mdp-containers)"))
     (is (not (str/includes? updated "[mdp-containers](")))
     (is (not (str/includes? updated "]()")))))
+
+
+(deftest managed-section-supports-local-resources-without-urls
+  (let [task {:ref (domain/identity :taskwarrior :tracker-item "abc")
+              :display-id "a360fc44"}
+        project {:ref (domain/identity :taskwarrior :project "App")
+                 :display-id "App"
+                 :title "App"
+                 :label "Project"}
+        updated (change-request/upsert-managed-section "Body" config task project)]
+    (is (str/includes? updated "- Issue: a360fc44"))
+    (is (str/includes? updated "- Project: App"))
+    (is (domain/same-identity? (:ref task)
+                               (change-request/managed-item-ref updated config)))))
+
+(deftest markerless-managed-sections-still-require-links
+  (let [body (str "<!-- ttt:begin -->\n"
+                  "## Tracker\n\n"
+                  "- Issue: PAY-99\n"
+                  "<!-- ttt:end -->")]
+    (is (thrown-with-msg? Exception #"malformed or duplicate"
+                          (change-request/managed-item-ref body config)))))

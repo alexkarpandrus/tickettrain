@@ -15,3 +15,7 @@
                                 1
                                 "stdout detail"
                                 ""))))
+
+
+(deftest run-input-passes-stdin
+  (is (= "hello" (shell/run-input "hello\n" "cat"))))

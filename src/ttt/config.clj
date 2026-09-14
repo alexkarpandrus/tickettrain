@@ -25,7 +25,8 @@
   {:linear "Linear"
    :jira "Jira"
    :github-issues "GitHub Issues"
-   :asana "Asana"})
+   :asana "Asana"
+   :taskwarrior "Taskwarrior"})
 
 (defn normalize-linear-workspace
   [workspace]
@@ -70,7 +71,9 @@
      :required? true :secret? true}
     {:key :workspace :env "ASANA_WORKSPACE"}
     {:key :base-url}
-    {:key :target-state :env "TTT_TRACKER_STATE"}]})
+    {:key :target-state :env "TTT_TRACKER_STATE"}]
+   [:tracker :taskwarrior]
+   [{:key :taskrc :label "Taskwarrior taskrc" :env "TASKRC"}]})
 
 (defn setting-environment-value
   [environment {:keys [env transform required?]}]

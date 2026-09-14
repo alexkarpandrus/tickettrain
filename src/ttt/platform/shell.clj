@@ -24,10 +24,10 @@
          (when detail
            (str ": " detail)))))
 
-(defn run
-  [& args]
+(defn run-process
+  [options args]
   (let [{:keys [exit out err]}
-        @(apply process/process {:out :string :err :string} args)]
+        @(apply process/process (merge {:out :string :err :string} options) args)]
     (if (zero? exit)
       (str/trim (or out ""))
       (throw (ex-info (failure-message args exit out err)
@@ -36,3 +36,11 @@
                        :exit exit
                        :out (str/trim (or out ""))
                        :err (str/trim (or err ""))})))))
+
+(defn run
+  [& args]
+  (run-process {} args))
+
+(defn run-input
+  [input & args]
+  (run-process {:in input} args))

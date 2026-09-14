@@ -11,7 +11,7 @@
 5. `ttt.cli.workflow` owns prompts, dry-runs, progress output, and local Git operations.
 6. Concrete adapters own GraphQL, subprocess calls, native IDs, and native payloads.
 
-The core must not know GraphQL, `gh`, Linear payload fields, GitHub routes, Jira, or GitLab.
+The core must not know GraphQL, `gh`, `task`, Linear payload fields, GitHub routes, Jira, Taskwarrior, or GitLab.
 
 ## Normalized resources
 
@@ -57,7 +57,10 @@ Bundled registries live at the composition boundary:
                  :setup github-issues/setup}
  :asana {:build asana/neutral-adapter
          :validate-config! asana/assert-ready!
-         :setup asana/setup}}
+         :setup asana/setup}
+ :taskwarrior {:build taskwarrior/neutral-adapter
+               :validate-config! taskwarrior/assert-ready!
+               :setup taskwarrior/setup}}
 ```
 
 A descriptor has a required `:build` function and optional `:validate-config!` and `:setup` functions. Runtime construction calls `:validate-config!` before `:build`; `ttt setup` calls `:setup`. `ttt.adapters/build` rejects unknown providers, registry/provider mismatches, undeclared capabilities, and missing capability functions. Dynamic plugin discovery and config-resolved symbols are intentionally unsupported.
@@ -77,7 +80,7 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
 
 Shared code passes normalized label entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution, then validates the resolved labels before mutation.
 
-Trackers also own `:target-state`. Their setup function must expose valid native states, and `:create-item!` must validate and apply the configured state without adding provider branches to `ttt.core`.
+Trackers also own provider-specific creation state. State-capable tracker setup must expose valid native states, and `:create-item!` must validate and apply the configured state without adding provider branches to `ttt.core`. Providers without configurable creation states, such as Taskwarrior, must document their native default.
 
 ## Registering a bundled provider
 
@@ -91,7 +94,7 @@ Trackers also own `:target-state`. Their setup function must expose valid native
 
 ## Managed links and tests
 
-Change-request bodies and tracker descriptions use validated managed Markdown sections. Renderers escape labels and destinations; malformed content is rejected before rewrite for manual repair. Change-request bodies serialize the normalized tracker identity in a `ttt:item` marker. Tracker descriptions store change-request links and remove legacy `ttt:source` markers during updates.
+Change-request bodies and tracker descriptions use validated managed Markdown sections. Renderers escape labels and destinations; resources without native URLs render as escaped plain text. Malformed content is rejected before rewrite for manual repair. Change-request bodies serialize the normalized tracker identity in a `ttt:item` marker. Tracker descriptions store change-request links and remove legacy `ttt:source` markers during updates. Taskwarrior stores the managed description in one reserved annotation and preserves every other exported field during import.
 
 `bb test` is local and deterministic: it runs pure core tests, provider unit tests, and registry-backed provider integration tests with GraphQL/subprocess stubs. Tests must not require credentials, `gh auth`, or network access. Provider contract tests cover capabilities, normalized identities/scopes, native payload translation, and tracker mutation before forge mutation.
 
