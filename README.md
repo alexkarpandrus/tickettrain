@@ -21,14 +21,14 @@ Use any supported forge with any supported tracker. `ttt` runs locally inside th
 ## Why tickettrain?
 
 - **One workflow:** find or create a PR/MR, find or create its tracker item, and link both sides.
-- **Provider-neutral:** pair GitHub, GitLab, or Bitbucket with Linear, Jira, GitHub Issues, or Asana.
+- **Provider-neutral:** pair GitHub, GitLab, or Bitbucket with Linear, Jira, GitHub Issues, Asana, or Taskwarrior.
 - **Agent-safe:** inspect and preview are read-only; JSON API mutations require an exact proposal ID.
 - **Non-destructive Markdown:** managed sections preserve content written by people.
 - **Retry-aware:** local branch metadata helps reuse the right tracker item when a run is repeated.
 
 ## Quick start
 
-Prerequisites: `git`, [Babashka](https://babashka.org/) 1.12.217 or newer, and credentials for your selected providers. The GitHub forge and GitHub Issues tracker also require the [GitHub CLI](https://cli.github.com/) (`gh`).
+Prerequisites: `git`, [Babashka](https://babashka.org/) 1.12.217 or newer, and credentials for your selected providers. The GitHub forge and GitHub Issues tracker require the [GitHub CLI](https://cli.github.com/) (`gh`). The Taskwarrior tracker requires the [`task` CLI](https://github.com/GothenburgBitFactory/taskwarrior).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
@@ -88,23 +88,25 @@ Every registered adapter implements the shared contract for its role. Provider-n
 
 ### Trackers
 
-| Capability | Linear | Jira | GitHub Issues | Asana |
-| --- | :---: | :---: | :---: | :---: |
-| Search and resolve items | ✓ | ✓ | ✓ | ✓¹ |
-| Parent hierarchy | ✓ | ✓ | —² | ✓ |
-| Search and resolve projects | ✓ | ✓ | ✓² | ✓ |
-| Search and resolve labels | ✓ | ✓ | ✓ | ✓ |
-| Create items | ✓ | ✓ | ✓ | ✓ |
-| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ |
-| Update items and backlinks | ✓ | ✓ | ✓ | ✓ |
-| Setup/auth check | ✓ | ✓ | ✓ | ✓ |
-| Transport | GraphQL | REST API | `gh` CLI | REST API |
+| Capability | Linear | Jira | GitHub Issues | Asana | Taskwarrior |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| Search and resolve items | ✓ | ✓ | ✓ | ✓¹ | ✓ |
+| Parent hierarchy | ✓ | ✓ | —² | ✓ | —⁴ |
+| Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ |
+| Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Create items | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ |
+| Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI |
 
 1. Asana's full-workspace search requires a paid plan. On HTTP 402, `ttt` searches only tasks assigned to the authenticated user.
 2. GitHub Issues does not support parent issues. GitHub milestones provide the project scope.
 3. Jira applies the configured state through an available direct transition for the selected project and issue type.
+4. Taskwarrior does not support native parent tasks. Use Taskwarrior projects for hierarchy.
+5. Taskwarrior creates pending tasks and preserves native status during updates.
 
-All 12 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
+All 15 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
 
 ## Human workflow
 
@@ -198,11 +200,11 @@ Change-request bodies use a managed block:
 <!-- ttt:end -->
 ```
 
-The heading and links follow the selected tracker. Tracker descriptions use a separate `ttt:pull-requests` block. Content outside managed markers is preserved.
+The heading and references follow the selected tracker. Resources without native URLs render as escaped plain text. Tracker descriptions use a separate `ttt:pull-requests` block. Taskwarrior stores that description in a reserved annotation and preserves other task fields and annotations. Content outside managed markers is preserved.
 
 ## Configuration
 
-Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Setup prompts for missing required credentials, validates both providers, and lets you choose the state for newly created items. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Setup saves selected providers and interactively entered values to the gitignored `config/ttt.local.edn` with owner-only permissions. Secrets supplied through environment variables stay in the environment and are not copied to the file.
+Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Setup prompts for missing required credentials and validates both providers. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Taskwarrior validates the local CLI and selected task database. Setup saves selected providers and interactively entered values to the gitignored `config/ttt.local.edn` with owner-only permissions. Secrets supplied through environment variables stay in the environment and are not copied to the file.
 
 To automate setup, set the provider environment variables listed below. You can also select providers in EDN before setup:
 
@@ -221,10 +223,11 @@ To automate setup, set the provider environment variables listed below. You can 
 | Linear | `LINEAR_API_KEY`; setup discovers the team and workspace; optional assignee and state variables |
 | Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE` |
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
+| Taskwarrior | Local `task` CLI; optional `TASKRC` selects a taskrc file |
 
-All trackers accept `TTT_TRACKER_STATE`. Linear also accepts the legacy `LINEAR_STATE_ID` and `LINEAR_STATE_NAME` variables, plus `LINEAR_ASSIGNEE_ID`.
+Linear, Jira, GitHub Issues, and Asana accept `TTT_TRACKER_STATE`. Linear also accepts the legacy `LINEAR_STATE_ID` and `LINEAR_STATE_NAME` variables, plus `LINEAR_ASSIGNEE_ID`.
 
-State names are provider-specific. Never copy a workflow name between trackers. Linear accepts team workflow states. Jira accepts states for its configured project and issue type. GitHub Issues accepts `open` or `closed`. Asana accepts `incomplete` or `completed`.
+State names are provider-specific. Never copy a workflow name between trackers. Linear accepts team workflow states. Jira accepts states for its configured project and issue type. GitHub Issues accepts `open` or `closed`. Asana accepts `incomplete` or `completed`. Taskwarrior creates pending tasks and does not use `TTT_TRACKER_STATE`.
 
 ## Safety and limitations
 
@@ -233,6 +236,7 @@ State names are provider-specific. Never copy a workflow name between trackers. 
 - JSON API approval is bound to the exact recomputed proposal.
 - Managed Markdown is validated before rewrite; malformed blocks require manual repair.
 - Creation is not a durable transaction. If tracker creation succeeds and a later forge update fails, inspect the tracker before retrying.
+- Taskwarrior is a local integration. Live behavior depends on the installed `task` version and taskrc configuration.
 
 ## Development
 
