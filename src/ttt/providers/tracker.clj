@@ -3,7 +3,8 @@
             [ttt.providers.tracker.asana :as asana]
             [ttt.providers.tracker.github-issues :as github-issues]
             [ttt.providers.tracker.jira :as jira]
-            [ttt.providers.tracker.linear :as linear]))
+            [ttt.providers.tracker.linear :as linear]
+            [ttt.providers.tracker.taskwarrior :as taskwarrior]))
 
 (def registry
   {:linear {:display-name "Linear"
@@ -29,4 +30,10 @@
            :setup-settings (get config/provider-settings [:tracker :asana])
            :build asana/neutral-adapter
            :validate-config! asana/assert-ready!
-           :setup asana/setup}})
+           :setup asana/setup}
+   :taskwarrior {:display-name "Taskwarrior"
+                 :setup-order 4
+                 :setup-settings (get config/provider-settings [:tracker :taskwarrior])
+                 :build taskwarrior/neutral-adapter
+                 :validate-config! taskwarrior/assert-ready!
+                 :setup taskwarrior/setup}})

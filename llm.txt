@@ -1,14 +1,14 @@
 # tickettrain
 
-`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, or Asana items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Run it inside the target application repository.
+`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Run it inside the target application repository.
 
 ## Preconditions
 
 - `ttt version` succeeds
-- `git` and `bb` are installed; `gh` is required for GitHub
+- `git` and `bb` are installed; `gh` is required for GitHub and `task` for Taskwarrior
 - Forge authentication is configured
 - The current branch is pushed before applying an action that creates a change request
-- Credentials are configured for the selected tracker when the request uses a tracker
+- Credentials or local Taskwarrior configuration are ready for the selected tracker
 
 Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local.edn`, not from the target application repository. Local config overrides base config; environment variables override both; the process environment overrides `.env`.
 
@@ -17,6 +17,7 @@ Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local
 - Use `TTT_TRACKER_STATE="Exact state name" ttt setup` to validate and persist the state for newly created items.
 - Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
+- Taskwarrior creates pending tasks and preserves native status during updates.
 - Set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket.
 - Never guess a state name. Present the available states and ask the user to choose.
 
