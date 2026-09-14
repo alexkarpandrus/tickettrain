@@ -107,7 +107,7 @@
            (catch Exception ex (:code (ex-data ex)))))))
 
 (deftest taskrc-is-passed-as-a-native-cli-override
-  (is (= ["task" "rc:/tmp/taskrc" "export"]
+  (is (= ["task" "export" "rc:/tmp/taskrc"]
          (taskwarrior/command-args {:tracker {:taskrc "/tmp/taskrc"}} ["export"]))))
 
 (deftest neutral-adapter-declares-every-tracker-capability
