@@ -9,13 +9,18 @@
 (defn command-args
   [app-config args]
   (into ["task"]
-        (concat (when-let [taskrc (get-in app-config [:tracker :taskrc])]
-                  [(str "rc:" taskrc)])
-                args)))
+        (concat args
+                (when-let [taskrc (get-in app-config [:tracker :taskrc])]
+                  [(str "rc:" taskrc)]))))
 
 (defn task-run
   [app-config & args]
   (apply shell/run (command-args app-config args)))
+
+
+(defn task-version
+  []
+  (shell/run "task" "--version"))
 
 (defn task-run-input
   [app-config input & args]
@@ -232,7 +237,7 @@
 (defn assert-ready!
   [app-config]
   (try
-    (task-run app-config "--version")
+    (task-version)
     (configured-scope app-config)
     nil
     (catch Exception ex
@@ -243,7 +248,7 @@
 (defn setup
   [app-config]
   (assert-ready! app-config)
-  (println (str "Taskwarrior tracker: " (task-run app-config "--version")
+  (println (str "Taskwarrior tracker: " (task-version)
                 ", data " (get-in (configured-scope app-config) [:id])))
   nil)
 
