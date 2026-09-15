@@ -230,3 +230,74 @@
   (is (= {"LINEAR_API_KEY" "real"}
          (config/merge-env-config {"LINEAR_API_KEY" "dotenv"} {"LINEAR_API_KEY" "real"})))
   (is (= {"LINEAR_API_KEY" "dotenv"} (config/merge-env-config {"LINEAR_API_KEY" "dotenv"} {}))))
+
+
+(deftest named-profiles-select-the-default-or-explicit-profile
+  (let [base (java.io.File/createTempFile "ttt-base-config" ".edn")
+        local (java.io.File/createTempFile "ttt-local-config" ".edn")]
+    (spit base (pr-str {:default-profile :work
+                        :search {:candidate-count 5}
+                        :profiles {:work {:forge {:provider :github}
+                                          :tracker {:provider :linear :team-id "work"}}
+                                   :client {:forge {:provider :gitlab}
+                                            :tracker {:provider :jira :project "CLIENT"}}}}))
+    (spit local (pr-str {:profiles {:client {:tracker {:project "LOCAL"}}}}))
+    (try
+      (with-redefs [config/default-local-config-path (.getPath local)
+                    config/load-dotenv (constantly {})
+                    config/env-overrides (fn [app-config _]
+                                           (when (= :jira (config/tracker-provider app-config))
+                                             {:tracker {:api-token "from-env"}}))]
+        (let [default-config (config/load-config (.getPath base))
+              client-config (config/load-config (.getPath base) "client")]
+          (is (= :work (:profile default-config)))
+          (is (= :github (get-in default-config [:forge :provider])))
+          (is (= :linear (get-in default-config [:tracker :provider])))
+          (is (= 5 (get-in default-config [:search :candidate-count])))
+          (is (= :client (:profile client-config)))
+          (is (= :gitlab (get-in client-config [:forge :provider])))
+          (is (= :jira (get-in client-config [:tracker :provider])))
+          (is (= "LOCAL" (get-in client-config [:tracker :project])))
+          (is (= "from-env" (get-in client-config [:tracker :api-token])))))
+      (finally (.delete base) (.delete local)))))
+
+(deftest profile-provider-switch-does-not-inherit-shared-provider-settings
+  (is (= {:provider :taskwarrior :taskrc "/tmp/taskrc"}
+         (:tracker
+          (config/profile-layer
+           {:tracker {:provider :linear :api-key "linear-key"}
+            :profiles {:tasks {:tracker {:provider :taskwarrior
+                                         :taskrc "/tmp/taskrc"}}}}
+           :tasks)))))
+
+(deftest named-profiles-reject-an-unknown-profile
+  (is (thrown-with-msg?
+       Exception
+       #"Unknown profile: missing. Available profiles: work"
+       (config/selected-profile
+        {:default-profile :work :profiles {:work {}}}
+        "missing"))))
+
+(deftest named-profiles-reject-namespaced-names
+  (is (thrown-with-msg?
+       Exception
+       #"unqualified keyword names"
+       (config/selected-profile
+        {:default-profile :customer/client
+         :profiles {:customer/client {}}}
+        nil))))
+
+(deftest named-profile-local-settings-preserve-other-profiles
+  (let [tmp (java.io.File/createTempFile "ttt-local-config" ".edn")]
+    (try
+      (spit tmp "{:profiles {:work {:tracker {:team-id \"work\"}}}}")
+      (with-redefs [config/default-local-config-path (.getPath tmp)]
+        (config/write-local-config!
+         {:tracker {:provider :jira :project "CLIENT"}}
+         #{:forge :tracker}
+         :client))
+      (let [saved (edn/read-string (slurp tmp))]
+        (is (= "work" (get-in saved [:profiles :work :tracker :team-id])))
+        (is (= {:provider :jira :project "CLIENT"}
+               (get-in saved [:profiles :client :tracker]))))
+      (finally (.delete tmp)))))

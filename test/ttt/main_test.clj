@@ -9,8 +9,11 @@
             [ttt.cli.workflow :as workflow]))
 
 (deftest parse-args-handles-interactive-options
-  (let [parsed (main/parse-args ["--parent" "APP-100" "--yes" "--dry-run"])]
-    (is (= "APP-100" (:parent parsed))) (is (:yes parsed)) (is (:dry-run parsed))))
+  (let [parsed (main/parse-args ["--profile" "client" "--parent" "APP-100" "--yes" "--dry-run"])]
+    (is (= "client" (:profile parsed)))
+    (is (= "APP-100" (:parent parsed)))
+    (is (:yes parsed))
+    (is (:dry-run parsed))))
 
 (deftest value-flags-are-not-misread-as-parent
   (let [parsed (main/parse-args ["--interactive" "--title" "Fix bug"])]
@@ -18,16 +21,17 @@
     (is (= "Fix bug" (:title parsed)))))
 (deftest help-publishes-v2-neutral-contract
   (is (str/includes? main/help-text "schema v2"))
-  (is (str/includes? main/help-text "item|project|label")))
+  (is (str/includes? main/help-text "item|project|label"))
+  (is (str/includes? main/help-text "--profile NAME")))
 (deftest llm-guidance-keeps-proposal-ids-internal
   (let [doc (main/llm-doc)]
     (is (str/includes? doc "Keep the proposal ID internal"))
     (is (str/includes? doc "do not ask them to repeat the ID"))))
 (deftest execute-builds-one-registry-runtime-and-delegates
   (let [app-config {:tracker {:provider :linear} :forge {:provider :github}} runtime {:config app-config} called (atom nil)]
-    (with-redefs [config/load-config (fn [_] app-config) adapters/runtime (fn [cfg _ _] (is (= app-config cfg)) runtime) workflow/execute! (fn [received options] (reset! called [received options]))]
-      (main/execute! {:parent "APP-100"}))
-    (is (= [runtime {:parent "APP-100"}] @called))))
+    (with-redefs [config/load-config (fn [_ profile] (is (= "client" profile)) app-config) adapters/runtime (fn [cfg _ _] (is (= app-config cfg)) runtime) workflow/execute! (fn [received options] (reset! called [received options]))]
+      (main/execute! {:profile "client" :parent "APP-100"}))
+    (is (= [runtime {:profile "client" :parent "APP-100"}] @called))))
 (deftest connectivity-guidance-does-not-promise-recovery
   (let [writer (java.io.StringWriter.) ex (ex-info "offline" {:kind :github-connectivity})]
     (binding [*err* writer] (main/print-error! ex))

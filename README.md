@@ -128,6 +128,7 @@ Useful options:
 | Option | Purpose |
 | --- | --- |
 | `--config PATH` | Load a specific EDN config file |
+| `--profile NAME` | Select a named forge/tracker profile |
 | `--title TEXT` | Override the proposed item and change-request title |
 | `--yes` | Skip the final interactive confirmation |
 | `--dry-run` | Print planned actions without provider mutations |
@@ -143,7 +144,7 @@ The default mode is a non-interactive JSON API. Every response uses `schemaVersi
 ```bash
 ttt version
 ttt inspect
-ttt status --human
+ttt status --profile client --human
 ttt search --kind item --query "retry handling" --limit 5
 ttt search --kind project --query "reliability"
 ttt search --kind label --query "backend" --scope-item APP-123
@@ -168,7 +169,7 @@ ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 
 `create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
 
-In the JSON API, `version`, `status`, `inspect`, `search`, and `preview` are read-only. `status` reports the selected providers, configured setting names, and configuration source precedence without exposing values. Tracker previews include the tracker scope and non-secret mutation settings; standalone previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID and rejects stale, mismatched, or reconfigured approval.
+In the JSON API, `version`, `status`, `inspect`, `search`, and `preview` are read-only. `status` reports the selected profile, providers, configured setting names, and configuration source precedence without exposing values. Tracker previews include the tracker scope and non-secret mutation settings; standalone previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID, including the selected profile, and rejects stale, mismatched, or reconfigured approval.
 
 Run `ttt --llm` for the authoritative agent instructions. The same portable instructions ship in [`skills/tickettrain/SKILL.md`](skills/tickettrain/SKILL.md).
 
@@ -204,16 +205,22 @@ The heading and references follow the selected tracker. Resources without native
 
 ## Configuration
 
-Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Setup prompts for missing required credentials and validates both providers. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Taskwarrior validates the local CLI and selected task database. Setup saves selected providers and interactively entered values to the gitignored `config/ttt.local.edn` with owner-only permissions. Secrets supplied through environment variables stay in the environment and are not copied to the file.
+Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Pass `--profile NAME` to configure one named profile. Setup prompts for missing required credentials and validates both providers. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Taskwarrior validates the local CLI and selected task database. Setup saves selected providers and interactively entered values to the gitignored `config/ttt.local.edn` with owner-only permissions. Secrets supplied through environment variables stay in the environment and are not copied to the file.
 
-To automate setup, set the provider environment variables listed below. You can also select providers in EDN before setup:
+Configure `:default-profile` and `:profiles` to switch forge/tracker pairs without separate config paths:
 
 ```clojure
-{:forge {:provider :gitlab}
- :tracker {:provider :jira}}
+{:default-profile :work
+ :profiles
+ {:work {:forge {:provider :github}
+         :tracker {:provider :linear}}
+  :client {:forge {:provider :gitlab}
+           :tracker {:provider :jira :project "APP"}}}}
 ```
 
-`ttt` loads `.env`, `config/ttt.edn`, and `config/ttt.local.edn` from the tickettrain installation—not from the target repository. Local config overrides base config; environment variables override both; the real process environment overrides `.env` values.
+Run `ttt status --profile client`, then use the same `--profile client` on `inspect`, `search`, `preview`, and `apply`. The default profile applies when `--profile` is absent. Unknown names fail before provider access. Existing flat `:forge` and `:tracker` configuration remains valid.
+
+`ttt` loads `.env`, `config/ttt.edn`, and `config/ttt.local.edn` from the tickettrain installation—not from the target repository. Shared settings apply to every profile. Matching entries under `:profiles` override them. Local config overrides base config; environment variables override both; the real process environment overrides `.env` values. Put profile-specific file credentials under the same profile name in `config/ttt.local.edn`.
 
 | Provider | Authentication and main settings |
 | --- | --- |
