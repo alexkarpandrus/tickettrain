@@ -1,11 +1,15 @@
-{:tracker
- {:api-key "YOUR_LINEAR_API_KEY"
-  :team-id "YOUR_LINEAR_TEAM_ID"
-  :assignee-id "self"
-  :workspace-url "https://linear.app/YOUR_WORKSPACE"}
+{:default-profile :default
 
- :forge
- {:provider :github}
+ :profiles
+ {:default
+  {:tracker
+   {:api-key "YOUR_LINEAR_API_KEY"
+    :team-id "YOUR_LINEAR_TEAM_ID"
+    :assignee-id "self"
+    :workspace-url "https://linear.app/YOUR_WORKSPACE"}
+
+   :forge
+   {:provider :github}}}
 
  :change-request
  {:body-begin-marker "<!-- ttt:begin -->"

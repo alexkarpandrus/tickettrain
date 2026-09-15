@@ -65,7 +65,7 @@
 
 (defn abort-invalid-environment-settings!
   [app-config environment-config role descriptor]
-  (doseq [{:keys [key env required?]}
+  (doseq [{:keys [key env]}
           (filter :required? (:setup-settings descriptor))
           :when (and (contains? (get environment-config role) key)
                      (config/missing-setting? (get-in app-config [role key])))]
@@ -100,59 +100,64 @@
     (setup-fn app-config)))
 
 (defn setup!
-  []
-  (println (ui/headline "tickettrain setup"))
-  (println "Choose a forge and tracker. Press Enter to keep the current choice.")
-  (let [local-config (config/load-local-config)
-        loaded (config/load-file-config config/default-config-path local-config)
-        forge-id (choose-provider :forge forge/registry (config/forge-provider loaded))
-        tracker-id (choose-provider :tracker tracker/registry (config/tracker-provider loaded))
-        forge-descriptor (adapters/descriptor forge/registry :forge forge-id)
-        tracker-descriptor (adapters/descriptor tracker/registry :tracker tracker-id)
-        forge-selection (selected-role-config loaded local-config :forge forge-id forge-descriptor)
-        tracker-selection (selected-role-config loaded local-config :tracker tracker-id tracker-descriptor)
-        selected (assoc loaded
-                        :forge (:effective forge-selection)
-                        :tracker (:effective tracker-selection))
-        environment (config/merge-env-config
-                     (config/load-dotenv)
-                     (into {} (System/getenv)))
-        environment-config (config/env-overrides selected environment)
-        configured (config/deep-merge selected environment-config)
-        _ (abort-invalid-environment-settings! configured environment-config :forge forge-descriptor)
-        _ (abort-invalid-environment-settings! configured environment-config :tracker tracker-descriptor)
-        credentials (config/deep-merge
-                     (collect-required-settings configured :forge forge-descriptor)
-                     (collect-required-settings configured :tracker tracker-descriptor))
-        app-config (config/deep-merge configured credentials)
-        forge-label (:display-name forge-descriptor)
-        tracker-label (:display-name tracker-descriptor)
-        _ (println)
-        _ (println (ui/accent (str "Checking " forge-label " → " tracker-label "...")))
-        persisted-selected (-> {:forge (:persisted forge-selection)
-                                :tracker (:persisted tracker-selection)}
-                               (mask-environment-secrets :forge forge-descriptor
-                                                         environment-config)
-                               (mask-environment-secrets :tracker tracker-descriptor
-                                                         environment-config))
-        persisted-environment (-> environment-config
-                                  (remove-environment-secrets :forge forge-descriptor
-                                                              environment-config)
-                                  (remove-environment-secrets :tracker tracker-descriptor
-                                                              environment-config))
-        forge-delta (-> (run-provider-setup app-config forge-descriptor)
-                        (remove-environment-secrets :forge forge-descriptor
-                                                    environment-config))
-        tracker-delta (-> (run-provider-setup app-config tracker-descriptor)
-                          (remove-environment-secrets :tracker tracker-descriptor
-                                                      environment-config))
-        deltas (config/deep-merge
-                (select-keys persisted-selected [:forge :tracker])
-                persisted-environment
-                credentials
-                forge-delta
-                tracker-delta)
-        path (config/write-local-config! deltas #{:forge :tracker})]
-    (println (ui/success (str "Configured " forge-label " → " tracker-label ".")))
-    (println (ui/muted (str "Saved to " path " (owner-only).")))
-    (println (ui/success "Setup complete. Run `ttt version` to verify."))))
+  ([] (setup! config/default-config-path nil))
+  ([config-path profile]
+   (println (ui/headline "tickettrain setup"))
+   (println "Choose a forge and tracker. Press Enter to keep the current choice.")
+   (let [local-config (config/load-local-config)
+         loaded (config/load-file-config config-path local-config profile)
+         active-profile (:profile loaded)
+         local-profile (config/profile-layer local-config active-profile)
+         forge-id (choose-provider :forge forge/registry (config/forge-provider loaded))
+         tracker-id (choose-provider :tracker tracker/registry (config/tracker-provider loaded))
+         forge-descriptor (adapters/descriptor forge/registry :forge forge-id)
+         tracker-descriptor (adapters/descriptor tracker/registry :tracker tracker-id)
+         forge-selection (selected-role-config loaded local-profile :forge forge-id forge-descriptor)
+         tracker-selection (selected-role-config loaded local-profile :tracker tracker-id tracker-descriptor)
+         selected (assoc loaded
+                         :forge (:effective forge-selection)
+                         :tracker (:effective tracker-selection))
+         environment (config/merge-env-config
+                      (config/load-dotenv)
+                      (into {} (System/getenv)))
+         environment-config (config/env-overrides selected environment)
+         configured (config/deep-merge selected environment-config)
+         _ (abort-invalid-environment-settings! configured environment-config :forge forge-descriptor)
+         _ (abort-invalid-environment-settings! configured environment-config :tracker tracker-descriptor)
+         credentials (config/deep-merge
+                      (collect-required-settings configured :forge forge-descriptor)
+                      (collect-required-settings configured :tracker tracker-descriptor))
+         app-config (config/deep-merge configured credentials)
+         forge-label (:display-name forge-descriptor)
+         tracker-label (:display-name tracker-descriptor)
+         _ (println)
+         _ (println (ui/accent (str "Checking " forge-label " → " tracker-label "...")))
+         persisted-selected (-> {:forge (:persisted forge-selection)
+                                 :tracker (:persisted tracker-selection)}
+                                (mask-environment-secrets :forge forge-descriptor
+                                                          environment-config)
+                                (mask-environment-secrets :tracker tracker-descriptor
+                                                          environment-config))
+         persisted-environment (-> environment-config
+                                   (remove-environment-secrets :forge forge-descriptor
+                                                               environment-config)
+                                   (remove-environment-secrets :tracker tracker-descriptor
+                                                               environment-config))
+         forge-delta (-> (run-provider-setup app-config forge-descriptor)
+                         (remove-environment-secrets :forge forge-descriptor
+                                                     environment-config))
+         tracker-delta (-> (run-provider-setup app-config tracker-descriptor)
+                           (remove-environment-secrets :tracker tracker-descriptor
+                                                       environment-config))
+         deltas (config/deep-merge
+                 (select-keys persisted-selected [:forge :tracker])
+                 persisted-environment
+                 credentials
+                 forge-delta
+                 tracker-delta)
+         path (if active-profile
+                (config/write-local-config! deltas #{:forge :tracker} active-profile)
+                (config/write-local-config! deltas #{:forge :tracker}))]
+     (println (ui/success (str "Configured " forge-label " → " tracker-label ".")))
+     (println (ui/muted (str "Saved to " path " (owner-only).")))
+     (println (ui/success "Setup complete. Run `ttt version` to verify.")))))

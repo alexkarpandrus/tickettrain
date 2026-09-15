@@ -135,6 +135,39 @@
                         left right))]
     (reduce merge-entry {} maps)))
 
+(defn selected-profile
+  [config requested-profile]
+  (when (or requested-profile
+            (contains? config :profiles)
+            (contains? config :default-profile))
+    (let [profiles (or (:profiles config) {})
+          profile-value (or requested-profile (:default-profile config))
+          profile (cond
+                    (keyword? profile-value) profile-value
+                    (string? profile-value) (keyword profile-value)
+                    (nil? profile-value) nil
+                    :else (throw (ex-info "Profile names must be keywords or strings."
+                                          {:code :invalid-profile-config})))]
+      (when-not (and (map? profiles) (every? keyword? (keys profiles)))
+        (throw (ex-info ":profiles must be a map with keyword names."
+                        {:code :invalid-profile-config})))
+      (when-not profile
+        (throw (ex-info "Select a profile with --profile or configure :default-profile."
+                        {:code :profile-required})))
+      (when-not (contains? profiles profile)
+        (throw (ex-info
+                (str "Unknown profile: " (name profile)
+                     ". Available profiles: "
+                     (str/join ", " (sort (map name (keys profiles)))))
+                {:code :profile-not-found
+                 :profile profile
+                 :available-profiles (set (keys profiles))})))
+      (when-not (map? (get profiles profile))
+        (throw (ex-info (str "Profile " (name profile) " must contain a configuration map.")
+                        {:code :invalid-profile-config
+                         :profile profile})))
+      profile)))
+
 (defn merge-config-layer
   [base layer]
   (let [merged (deep-merge base layer)]
@@ -150,6 +183,23 @@
      merged
      [:forge :tracker])))
 
+(defn profile-layer
+  [config profile]
+  (let [shared (dissoc config :profiles :default-profile)]
+    (if profile
+      (merge-config-layer shared (get-in config [:profiles profile]))
+      shared)))
+
+(defn resolve-config
+  [base-config local-config env-config requested-profile]
+  (let [profile (selected-profile (deep-merge base-config local-config)
+                                  requested-profile)]
+    (-> (merge-config-layer (profile-layer base-config profile)
+                            (profile-layer local-config profile))
+        (deep-merge env-config)
+        (cond-> profile (assoc :profile profile))
+        normalize-config)))
+
 (defn read-edn-map
   [path]
   (when (fs/exists? path)
@@ -161,10 +211,17 @@
 
 (defn write-local-config!
   ([config-map]
-   (write-local-config! config-map #{}))
+   (write-local-config! config-map #{} nil))
   ([config-map replace-sections]
+   (write-local-config! config-map replace-sections nil))
+  ([config-map replace-sections profile]
    (let [path (fs/file default-local-config-path)
-         existing (apply dissoc (or (read-edn-map path) {}) replace-sections)]
+         existing (or (read-edn-map path) {})
+         existing (if profile
+                    (update-in existing [:profiles profile]
+                               #(apply dissoc (or % {}) replace-sections))
+                    (apply dissoc existing replace-sections))
+         config-map (if profile {:profiles {profile config-map}} config-map)]
      (fs/create-dirs (fs/parent path))
      (let [temp (fs/create-temp-file {:dir (fs/parent path) :prefix ".ttt.local-"})]
        (try
@@ -186,22 +243,24 @@
   (merge dotenv system-env))
 
 (defn load-file-config
-  ([] (load-file-config default-config-path (load-local-config)))
-  ([path] (load-file-config path (load-local-config)))
-  ([path local-config]
+  ([] (load-file-config default-config-path (load-local-config) nil))
+  ([path] (load-file-config path (load-local-config) nil))
+  ([path local-config] (load-file-config path local-config nil))
+  ([path local-config requested-profile]
    (let [config-path (fs/file path)]
      (when-not (fs/exists? config-path)
        (throw (ex-info (str "Config file not found: " path)
                        {:path path})))
-     (-> (merge-config-layer
-          (read-edn-map config-path)
-          local-config)
-         normalize-config))))
+     (resolve-config (read-edn-map config-path)
+                     local-config
+                     {}
+                     requested-profile))))
 
 (defn load-config
-  ([] (load-config default-config-path))
-  ([path]
-   (let [base-config (load-file-config path)
+  ([] (load-config default-config-path nil))
+  ([path] (load-config path nil))
+  ([path profile]
+   (let [base-config (load-file-config path (load-local-config) profile)
          environment (merge-env-config (load-dotenv) (into {} (System/getenv)))
          env-config (env-overrides base-config environment)]
      (-> (deep-merge base-config env-config)
