@@ -16,6 +16,7 @@
 (def product-version (str/trim (slurp (java.io.File. (or (System/getenv "TTT_HOME") ".") "version.txt"))))
 (def max-request-bytes 65536)
 (def option-spec {:config {:coerce :string}
+                  :profile {:coerce :string}
                   :kind {:coerce :string}
                   :query {:coerce :string}
                   :limit {:coerce :long}
@@ -98,8 +99,11 @@
   (cond-> {:description (:description intent) :labels (mapv wire-entity (:labels intent))}
     (:title intent) (assoc :title (:title intent))))
 (defn proposal->wire [proposal]
-  (let [base {:proposalId (:proposal-id proposal) :source (wire-source (:source proposal))
-              :action (wire-action (:action proposal)) :request (wire-request (:request proposal))}]
+  (let [base (cond-> {:proposalId (:proposal-id proposal)
+                      :source (wire-source (:source proposal))
+                      :action (wire-action (:action proposal))
+                      :request (wire-request (:request proposal))}
+               (:profile proposal) (assoc :profile (name (:profile proposal))))]
     (if (= :create-change-request (:action proposal))
       (assoc base :changeRequestIntent (:change-request-intent proposal))
       (assoc base
@@ -120,16 +124,18 @@
   {:path path :present (.isFile (java.io.File. path))})
 (defn status-data [options]
   (let [path (or (:config options) config/default-config-path)
-        app-config (config/load-config path)]
-    {:forge {:provider (name (config/forge-provider app-config))
-             :configuredSettings (configured-setting-names (:forge app-config))}
-     :tracker {:provider (name (config/tracker-provider app-config))
-               :configuredSettings (configured-setting-names (:tracker app-config))}
-     :sources {:baseConfig (config-source path)
-               :localConfig (config-source config/default-local-config-path)
-               :dotenv (config-source config/default-dotenv-path)
-               :processEnvironment {:checked true}}
-     :precedence ["baseConfig" "localConfig" "dotenv" "processEnvironment"]}))
+        app-config (config/load-config path (:profile options))]
+    (cond->
+     {:forge {:provider (name (config/forge-provider app-config))
+              :configuredSettings (configured-setting-names (:forge app-config))}
+      :tracker {:provider (name (config/tracker-provider app-config))
+                :configuredSettings (configured-setting-names (:tracker app-config))}
+      :sources {:baseConfig (config-source path)
+                :localConfig (config-source config/default-local-config-path)
+                :dotenv (config-source config/default-dotenv-path)
+                :processEnvironment {:checked true}}
+      :precedence ["baseConfig" "localConfig" "dotenv" "processEnvironment"]}
+      (:profile app-config) (assoc :profile (name (:profile app-config))))))
 (defn excerpt [value] (let [text (some-> value str str/trim)] (when-not (str/blank? text) (subs text 0 (min 500 (count text))))))
 (defn entity-candidate [entity]
   (cond-> (wire-entity entity) (excerpt (:description entity)) (assoc :descriptionExcerpt (excerpt (:description entity)))))
@@ -226,8 +232,10 @@
                         (not (str/blank? (str assignee-id))) (assoc :assigneeId assignee-id))}))
 (defn preview-proposal [runtime request]
   (validate-request! request)
-  (let [proposal (cond-> (core/preview runtime (core-request request))
+  (let [profile (get-in runtime [:config :profile])
+        proposal (cond-> (core/preview runtime (core-request request))
                    (not= "create_change_request" (:action request)) (assoc :approval-context (approval-context runtime))
+                   profile (assoc :profile profile)
                    true (assoc :config-id (sha256 (:config runtime))))]
     (assoc proposal :proposal-id (proposal-id proposal))))
 (defn preview-data [runtime request] (proposal->wire (preview-proposal runtime request)))
@@ -237,16 +245,18 @@
     (let [result (core/apply! runtime proposal)]
       {:proposalId (:proposal-id proposal) :item (wire-entity (:item result)) :changeRequest (wire-entity (:change-request result)) :changeRequestUpdate (:change-request-update result)})))
 (defn forge-runtime [options]
-  (let [app-config (config/load-config (or (:config options) config/default-config-path))]
+  (let [app-config (config/load-config (or (:config options) config/default-config-path)
+                                       (:profile options))]
     {:config app-config :forge (adapters/build app-config :forge forge/registry)}))
 (defn runtime [options]
-  (let [app-config (config/load-config (or (:config options) config/default-config-path))]
+  (let [app-config (config/load-config (or (:config options) config/default-config-path)
+                                       (:profile options))]
     (adapters/runtime app-config forge/registry tracker/registry)))
 (defn request-runtime [options request]
   ((if (= "create_change_request" (:action request)) forge-runtime runtime) options))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

@@ -17,8 +17,9 @@
    :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] (swap! calls conj :tracker-create) item)}})
 
 (deftest numeric-text-options-remain-strings
-  (is (= {:query "1218235721923599" :project "1182987059881499"}
-         (agent/parse-options ["--query" "1218235721923599"
+  (is (= {:profile "client" :query "1218235721923599" :project "1182987059881499"}
+         (agent/parse-options ["--profile" "client"
+                               "--query" "1218235721923599"
                                "--project" "1182987059881499"]))))
 
 (deftest item-search-returns-an-exact-reference
@@ -33,13 +34,17 @@
   (let [version (agent/execute-command "version" [])]
     (is (= (str/trim (slurp "version.txt")) (:version version)))
     (is (= 2 (:agentApiVersion version)))
-    (is (some #{"create-change-request"} (:capabilities version)))))
+    (is (some #{"create-change-request"} (:capabilities version)))
+    (is (some #{"named-profiles"} (:capabilities version)))))
 
 (deftest status-shows-providers-and-sources-without-secret-values
-  (with-redefs [config/load-config (fn [_]
-                                     {:forge {:provider :gitlab :token "forge-secret"}
+  (with-redefs [config/load-config (fn [_ profile]
+                                     (is (= "client" profile))
+                                     {:profile :client
+                                      :forge {:provider :gitlab :token "forge-secret"}
                                       :tracker {:provider :jira :email "dev@example.com" :api-token "tracker-secret"}})]
-    (let [status (agent/status-data {:config "/tmp/ttt.edn"})]
+    (let [status (agent/status-data {:config "/tmp/ttt.edn" :profile "client"})]
+      (is (= "client" (:profile status)))
       (is (= {:provider "gitlab" :configuredSettings ["token"]} (:forge status)))
       (is (= {:provider "jira" :configuredSettings ["api-token" "email"]} (:tracker status)))
       (is (= "/tmp/ttt.edn" (get-in status [:sources :baseConfig :path])))
@@ -57,6 +62,14 @@
            (get-in proposal [:approvalContext :trackerScope])))
     (is (= "In Progress"
            (get-in proposal [:approvalContext :trackerSettings :targetState])))))
+
+(deftest selected-profile-is-visible-and-bound-to-the-proposal
+  (let [calls (atom [])
+        request {:action "link_existing" :item "APP-123" :labels []}
+        work-proposal (agent/preview-data (assoc-in (runtime calls) [:config :profile] :work) request)
+        client-proposal (agent/preview-data (assoc-in (runtime calls) [:config :profile] :client) request)]
+    (is (= "work" (:profile work-proposal)))
+    (is (not= (:proposalId work-proposal) (:proposalId client-proposal)))))
 
 
 (deftest approval-context-matches-linear-legacy-state-precedence
@@ -118,7 +131,7 @@
 (deftest standalone-change-request-ignores-every-tracker-provider
   (doseq [tracker [:linear :jira :github-issues :asana]]
     (let [built-roles (atom [])]
-      (with-redefs [config/load-config (fn [_] {:forge {:provider :github}
+      (with-redefs [config/load-config (fn [_ _] {:forge {:provider :github}
                                                 :tracker {:provider tracker}})
                     adapters/build (fn [_ role _]
                                      (swap! built-roles conj role)
