@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.5.0...v0.6.0) (2026-09-15)
+
+
+### Features
+
+* **config:** add named provider profiles ([f451ca5](https://github.com/alexkarpandrus/tickettrain/commit/f451ca5f9d6032c633367a4d5682de8f8a4cbc51))
+* **taskwarrior:** add tracker integration ([53a413b](https://github.com/alexkarpandrus/tickettrain/commit/53a413ba18df7e4c41a633cf7b1644219842c30d))
+
+
+### Fixes
+
+* **config:** reject namespaced profile names ([88e0b62](https://github.com/alexkarpandrus/tickettrain/commit/88e0b6233f20148aa0cae6140e27af3eabbacdca))
+* **taskwarrior:** place taskrc override after command ([dd302ab](https://github.com/alexkarpandrus/tickettrain/commit/dd302ab99849e7e659cbbeec47b8c2836262dc73))
+
+
+### Documentation
+
+* **agent:** allow review administration ([de402f1](https://github.com/alexkarpandrus/tickettrain/commit/de402f105caa07985dc74074bd43035c178f8d97))
+
 ## [0.5.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.4.0...v0.5.0) (2026-09-10)
 
 
