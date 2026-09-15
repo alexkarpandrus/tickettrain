@@ -278,6 +278,15 @@
         {:default-profile :work :profiles {:work {}}}
         "missing"))))
 
+(deftest named-profiles-reject-namespaced-names
+  (is (thrown-with-msg?
+       Exception
+       #"unqualified keyword names"
+       (config/selected-profile
+        {:default-profile :customer/client
+         :profiles {:customer/client {}}}
+        nil))))
+
 (deftest named-profile-local-settings-preserve-other-profiles
   (let [tmp (java.io.File/createTempFile "ttt-local-config" ".edn")]
     (try

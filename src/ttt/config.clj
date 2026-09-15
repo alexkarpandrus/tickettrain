@@ -148,8 +148,10 @@
                     (nil? profile-value) nil
                     :else (throw (ex-info "Profile names must be keywords or strings."
                                           {:code :invalid-profile-config})))]
-      (when-not (and (map? profiles) (every? keyword? (keys profiles)))
-        (throw (ex-info ":profiles must be a map with keyword names."
+      (when-not (and (map? profiles)
+                     (every? #(and (keyword? %) (nil? (namespace %)))
+                             (keys profiles)))
+        (throw (ex-info ":profiles must be a map with unqualified keyword names."
                         {:code :invalid-profile-config})))
       (when-not profile
         (throw (ex-info "Select a profile with --profile or configure :default-profile."
