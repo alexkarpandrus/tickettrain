@@ -10,41 +10,57 @@
   <a href="https://github.com/alexkarpandrus/tickettrain/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/alexkarpandrus/tickettrain/actions/workflows/test.yml/badge.svg"></a>
   <img alt="Babashka 1.12.217+" src="https://img.shields.io/badge/Babashka-1.12.217%2B-8b5cf6?logo=clojure&logoColor=white">
   <img alt="Agent API v2" src="https://img.shields.io/badge/Agent_API-v2-06b6d4">
-  <img alt="7 providers" src="https://img.shields.io/badge/providers-7-14b8a6">
+  <img alt="8 providers" src="https://img.shields.io/badge/providers-8-14b8a6">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-e85d3f"></a>
 </p>
 
-**tickettrain** (`ttt`) creates a change request for your current Git branch, with or without linking it to a tracker item. It works as a guided CLI for humans and as an approval-gated, provider-neutral JSON API for coding agents.
+**tickettrain** (`ttt`) gives coding agents one safe workflow for pull requests, tracker items, and comments. It works with GitHub, GitLab, or Bitbucket and Linear, Jira, GitHub Issues, Asana, or Taskwarrior—without provider-specific prompts or API code.
 
-Use any supported forge with any supported tracker. `ttt` runs locally inside the repository where you are working.
-
-## Why tickettrain?
-
-- **One workflow:** find or create a PR/MR, find or create its tracker item, and link both sides.
-- **Provider-neutral:** pair GitHub, GitLab, or Bitbucket with Linear, Jira, GitHub Issues, Asana, or Taskwarrior.
-- **Agent-safe:** inspect and preview are read-only; JSON API mutations require an exact proposal ID.
-- **Non-destructive Markdown:** managed sections preserve content written by people.
-- **Retry-aware:** local branch metadata helps reuse the right tracker item when a run is repeated.
+- **One prompt:** find or create the PR/MR and tracker item, link both sides, and comment on either.
+- **Safe by default:** agents can inspect and preview freely; only an exact approved proposal can mutate a provider.
+- **Local and portable:** `ttt` runs in the current Git repository and exposes the same provider-neutral JSON API everywhere.
 
 ## Quick start
 
-Prerequisites: `git`, [Babashka](https://babashka.org/) 1.12.217 or newer, and credentials for your selected providers. The GitHub forge and GitHub Issues tracker require the [GitHub CLI](https://cli.github.com/) (`gh`). The Taskwarrior tracker requires the [`task` CLI](https://github.com/GothenburgBitFactory/taskwarrior).
+Prerequisites: `git`, [Babashka](https://babashka.org/) 1.12.217 or newer, and credentials for your providers. The GitHub forge and GitHub Issues tracker require the [GitHub CLI](https://cli.github.com/) (`gh`). Taskwarrior requires the [`task` CLI](https://github.com/GothenburgBitFactory/taskwarrior).
+
+### 1. Install and configure
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alexkarpandrus/tickettrain/main/bin/install | bash
 cd path/to/your-project
 ttt setup
+```
+
+Setup selects one forge and one tracker, checks authentication, and saves an owner-only local configuration. Any supported forge works with any supported tracker.
+
+### 2. Paste this into your coding agent
+
+```text
+Run `ttt --llm`, then use `ttt` to open a pull request for the current branch and link it to the right tracker item. Show me the exact preview and wait for my approval before applying it.
+```
+
+That is enough for an agent to inspect the branch, search existing items, propose the provider changes, and ask before it mutates anything.
+
+For reusable agent instructions, install the optional skill:
+
+```bash
+npx skills add alexkarpandrus/tickettrain
+```
+
+### Prefer a terminal?
+
+Run the guided workflow directly:
+
+```bash
 ttt --interactive --project "reliability"
 ```
 
-Setup guides you through forge and tracker selection, collects supported token and email settings, gives exact remediation for provider-managed authentication, validates both providers, and saves an owner-only local configuration.
+### Installation notes
 
-The installer clones the latest tagged tickettrain release to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead.
-If Babashka is missing and a terminal is available, the installer asks before installing version 1.12.217 to `~/.local/bin`.
+The installer clones the latest tagged release to `~/.local/share/tickettrain` and links `ttt` into `~/.local/bin`. From a local checkout, run `./bin/install` instead. If Babashka is missing and a terminal is available, the installer asks before installing version 1.12.217. If it reports that `~/.local/bin` is not on `PATH`, add the printed `export` command to your shell profile and open a new terminal.
 
-If the installer reports that `~/.local/bin` is not on `PATH`, add the printed `export` command to your shell profile and open a new terminal.
-
-### Update and uninstall
+## Update and uninstall
 
 Update a tagged installation to the latest release, then confirm the installed version:
 
@@ -64,12 +80,6 @@ rm -rf ~/.local/share/tickettrain
 
 The second command also removes `config/ttt.local.edn`, which can contain provider credentials. Back it up first if you need those settings. If you set `TTT_INSTALL_DIR`, remove that directory instead.
 
-Install the optional agent skill for Claude Code, Codex, Cursor, and other compatible tools:
-
-```bash
-npx skills add alexkarpandrus/tickettrain
-```
-
 ## Supported providers
 
 Every registered adapter implements the shared contract for its role. Provider-native limits are shown below.
@@ -81,6 +91,7 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Find the current PR/MR | ✓ | ✓ | ✓ |
 | Inspect repository and branch | ✓ | ✓ | ✓ |
 | Create a PR/MR | ✓ | ✓ | ✓ |
+| Comment on the current PR/MR | ✓ | ✓ | ✓ |
 | Update title and managed body section | ✓ | ✓ | ✓ |
 | Prefix the title with the tracker key | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ |
@@ -95,6 +106,7 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ |
 | Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Create items | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ |
 | Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ |
