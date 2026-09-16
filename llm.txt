@@ -80,6 +80,10 @@ Output options:
 ```
 
 ```json
+{"action":"update_change_request","body":"## What\n\nClarify the implementation."}
+```
+
+```json
 {"action":"comment_item","item":"APP-123","body":"The fix is ready for verification."}
 ```
 
@@ -98,10 +102,11 @@ Rules:
 - `apply` recomputes the proposal, including the selected profile, and rejects stale or mismatched approval.
 - `link_existing` accepts `item`; v1 `issue` input is not supported.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.
+- `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request; it needs no tracker configuration.
 - `comment_item` accepts `item` and `body`; it needs no forge configuration or repository context.
 - `comment_change_request` accepts `body` and targets the current branch's open change request; it needs no tracker configuration.
 - Labels are existing neutral tracker entities in the selected scope.
-- Comment previews include the exact target and comment body. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; standalone previews include `changeRequestIntent`.
+- Comment previews include the exact target and comment body. Change-request update previews include the exact target and `changeRequestUpdate`. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; create previews include `changeRequestIntent`.
 
 ## Managed metadata
 
@@ -121,7 +126,7 @@ Tracker item descriptions use a separate `ttt:pull-requests` managed section. Us
 ## LLM usage pattern
 
 1. Run `ttt status`, choose the intended profile, and use the same `--profile NAME` for every command in the operation.
-2. For `create_change_request`, set the exact title and body, then skip tracker searches.
+2. For `create_change_request` or `update_change_request`, set the exact title/body change, then skip tracker searches.
 3. For tracker actions, derive two or three short queries from the change request and search existing items first.
 4. If creating a new item, search projects, parent items, and relevant existing labels.
 5. Ask the user when candidates or hierarchy are ambiguous.

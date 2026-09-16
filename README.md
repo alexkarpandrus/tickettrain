@@ -179,6 +179,14 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
 
+Update the current branch's open change request:
+
+```bash
+REQUEST='{"action":"update_change_request","body":"## What\n\nClarify the implementation."}'
+ttt preview --request "$REQUEST"
+ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
+```
+
 Comment on a tracker item or the current change request:
 
 ```bash
@@ -191,9 +199,9 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
 
-`create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `comment_change_request` accepts `body` and targets the current branch's open change request. `comment_item` accepts `item` and `body` and needs no repository context. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
+`create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request. `comment_change_request` accepts `body` and targets the same change request. `comment_item` accepts `item` and `body` and needs no repository context. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
 
-In the JSON API, `version`, `status`, `inspect`, `search`, and `preview` are read-only. `status` reports the selected profile, providers, configured setting names, and configuration source precedence without exposing values. Comment previews include the exact target and comment body. Tracker link previews include the tracker scope and non-secret mutation settings; standalone previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID, including the selected profile, and rejects stale, mismatched, or reconfigured approval.
+In the JSON API, `version`, `status`, `inspect`, `search`, and `preview` are read-only. `status` reports the selected profile, providers, configured setting names, and configuration source precedence without exposing values. Comment and change-request update previews include the exact target and mutation. Tracker link previews include the tracker scope and non-secret mutation settings; create previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID, including the selected profile, and rejects stale, mismatched, or reconfigured approval.
 
 Run `ttt --llm` for the authoritative agent instructions. The same portable instructions ship in [`skills/tickettrain/SKILL.md`](skills/tickettrain/SKILL.md).
 
