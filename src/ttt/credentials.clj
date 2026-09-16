@@ -22,14 +22,14 @@
   [helper]
   (str "docker-credential-" helper))
 
-(defn detected-helper
+(defn detected-helpers
   []
   (let [os (str/lower-case (System/getProperty "os.name"))
         candidates (cond
                      (str/includes? os "mac") ["osxkeychain"]
                      (str/includes? os "win") ["wincred"]
                      :else ["pass" "secretservice"])]
-    (some #(when (fs/which (helper-executable %)) %) candidates)))
+    (filterv #(fs/which (helper-executable %)) candidates)))
 
 (defn credential-id
   [profile role provider key]

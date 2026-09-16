@@ -140,6 +140,23 @@
           "test"
           false)))))
 
+(deftest credential-helper-reads-only-selected-adapters
+  (let [calls (atom [])]
+    (with-redefs [credentials/get-secret
+                  (fn [_ id]
+                    (swap! calls conj id)
+                    "helper-token")]
+      (is (= {:forge {:token "helper-token"}}
+             (config/credential-overrides
+              {:forge {:provider :gitlab}
+               :tracker {:provider :linear}}
+              {}
+              "test"
+              false
+              [:forge])))
+      (is (= ["https://tickettrain.invalid/default/forge/gitlab/token"]
+             @calls)))))
+
 
 (deftest provider-switch-does-not-inherit-other-provider-settings
   (is (= {:email "dev@example.com" :api-token "new"}
