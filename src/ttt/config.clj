@@ -1,6 +1,7 @@
 (ns ttt.config
   (:require [babashka.fs :as fs]
             [clojure.edn :as edn]
+            [ttt.credentials :as credentials]
             [clojure.string :as str]))
 
 (defn app-home
@@ -85,7 +86,7 @@
                          (if (string? env) [env] env))]
     ((or transform identity) value)))
 
-(declare normalize-config)
+(declare normalize-config missing-setting?)
 
 (defn parse-dotenv-line
   [line]
@@ -124,6 +125,34 @@
          (seq values) (assoc role values))))
    {}
    [:forge :tracker]))
+
+(defn credential-overrides
+  ([config environment-config helper missing-ok?]
+   (credential-overrides config environment-config helper missing-ok? [:forge :tracker]))
+  ([config environment-config helper missing-ok? roles]
+   (if-not helper
+     {}
+     (reduce
+      (fn [overrides role]
+        (let [provider (keyword (get-in config [role :provider]))]
+          (reduce
+           (fn [values {:keys [key secret?]}]
+             (if (or (not secret?)
+                     (contains? (get environment-config role) key))
+               values
+               (let [id (credentials/credential-id (:profile config) role provider key)
+                     existing (get-in config [role key])
+                     value (try
+                             (credentials/get-secret helper id)
+                             (catch Exception error
+                               (if (or missing-ok? (not (missing-setting? existing)))
+                                 nil
+                                 (throw error))))]
+                 (cond-> values value (assoc-in [role key] value)))))
+           overrides
+           (get provider-settings [role provider]))))
+      {}
+      roles))))
 
 (defn deep-merge
   [& maps]
@@ -261,12 +290,16 @@
 (defn load-config
   ([] (load-config default-config-path nil))
   ([path] (load-config path nil))
-  ([path profile]
+  ([path profile] (load-config path profile [:forge :tracker]))
+  ([path profile roles]
    (let [base-config (load-file-config path (load-local-config) profile)
          environment (merge-env-config (load-dotenv) (into {} (System/getenv)))
-         env-config (env-overrides base-config environment)]
-     (-> (deep-merge base-config env-config)
-         normalize-config))))
+         env-config (env-overrides base-config environment)
+         helper (credentials/helper-name base-config environment)
+         helper-config (credential-overrides base-config env-config helper false roles)]
+     (cond-> (-> (deep-merge base-config helper-config env-config)
+                 normalize-config)
+       helper (assoc :credential-helper helper)))))
 
 (defn normalize-config
   [config]

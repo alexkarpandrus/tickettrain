@@ -4,6 +4,7 @@
             [ttt.cli.prompt :as prompt]
             [ttt.cli.ui :as ui]
             [ttt.config :as config]
+            [ttt.credentials :as credentials]
             [ttt.providers.forge :as forge]
             [ttt.providers.tracker :as tracker]))
 
@@ -60,6 +61,40 @@
        (assoc-in masked [role key] nil)
        masked))
    value
+   (:setup-settings descriptor)))
+
+(defn remove-secret-settings
+  [value role descriptor]
+  (reduce
+   (fn [clean {:keys [key secret?]}]
+     (if (and secret? (contains? clean role))
+       (update-in clean [role] dissoc key)
+       clean))
+   (or value {})
+   (:setup-settings descriptor)))
+
+(defn prompted-secret?
+  [prompted role descriptor]
+  (some (fn [{:keys [key secret?]}]
+          (and secret? (contains? (get prompted role) key)))
+        (:setup-settings descriptor)))
+
+(defn store-role-secrets!
+  [helper app-config role provider-id descriptor environment-config]
+  (reduce
+   (fn [stored {:keys [key secret?]}]
+     (let [value (get-in app-config [role key])]
+       (if (or (not secret?)
+               (contains? (get environment-config role) key)
+               (config/missing-setting? value))
+         stored
+         (do
+           (credentials/store-secret!
+            helper
+            (credentials/credential-id (:profile app-config) role provider-id key)
+            value)
+           (inc stored)))))
+   0
    (:setup-settings descriptor)))
 
 
@@ -121,13 +156,20 @@
                       (config/load-dotenv)
                       (into {} (System/getenv)))
          environment-config (config/env-overrides selected environment)
-         configured (config/deep-merge selected environment-config)
+         configured-helper (credentials/helper-name selected environment)
+         helpers (if configured-helper
+                   [configured-helper]
+                   (credentials/detected-helpers))
+         helper (first helpers)
+         helper-config (config/credential-overrides selected environment-config helper true)
+         configured (config/deep-merge selected helper-config environment-config)
          _ (abort-invalid-environment-settings! configured environment-config :forge forge-descriptor)
          _ (abort-invalid-environment-settings! configured environment-config :tracker tracker-descriptor)
-         credentials (config/deep-merge
-                      (collect-required-settings configured :forge forge-descriptor)
-                      (collect-required-settings configured :tracker tracker-descriptor))
-         app-config (config/deep-merge configured credentials)
+         prompted-settings (config/deep-merge
+                            (collect-required-settings configured :forge forge-descriptor)
+                            (collect-required-settings configured :tracker tracker-descriptor))
+         app-config (cond-> (config/deep-merge configured prompted-settings)
+                      helper (assoc :credential-helper helper))
          forge-label (:display-name forge-descriptor)
          tracker-label (:display-name tracker-descriptor)
          _ (println)
@@ -149,15 +191,60 @@
          tracker-delta (-> (run-provider-setup app-config tracker-descriptor)
                            (remove-environment-secrets :tracker tracker-descriptor
                                                        environment-config))
+         store-secrets (fn [candidate]
+                         (+ (store-role-secrets! candidate app-config :forge forge-id forge-descriptor
+                                                 environment-config)
+                            (store-role-secrets! candidate app-config :tracker tracker-id tracker-descriptor
+                                                 environment-config)))
+         store-result (if configured-helper
+                        {:helper configured-helper
+                         :count (store-secrets configured-helper)}
+                        (reduce
+                         (fn [result candidate]
+                           (if (:helper result)
+                             (reduced result)
+                             (try
+                               {:helper candidate
+                                :count (store-secrets candidate)
+                                :errors (:errors result)}
+                               (catch Exception error
+                                 (update result :errors conj error)))))
+                         {:errors []}
+                         helpers))
+         stored-helper (:helper store-result)
+         auto-helper-failed? (boolean (and (seq helpers) (nil? stored-helper)))
+         stored-secrets (:count store-result)
+         persist-helper? (boolean (and stored-helper
+                                       (or configured-helper (pos? (or stored-secrets 0)))))
+         _ (doseq [error (:errors store-result)]
+             (println (ui/warning (.getMessage error))))
+         _ (when (and (or (empty? helpers) auto-helper-failed?)
+                      (or auto-helper-failed?
+                          (prompted-secret? prompted-settings :forge forge-descriptor)
+                          (prompted-secret? prompted-settings :tracker tracker-descriptor))
+                      (not (prompt/confirm?
+                            "No working system credential helper is available. Save credentials as owner-only plaintext?")))
+             (throw (ex-info "No credential was saved. Configure TTT_CREDENTIAL_HELPER and rerun `ttt setup`."
+                             {:code :aborted})))
          deltas (config/deep-merge
                  (select-keys persisted-selected [:forge :tracker])
                  persisted-environment
-                 credentials
+                 prompted-settings
                  forge-delta
                  tracker-delta)
+         deltas (cond-> deltas
+                  persist-helper? (assoc :credential-helper stored-helper))
+         deltas (if persist-helper?
+                  (-> deltas
+                      (remove-secret-settings :forge forge-descriptor)
+                      (remove-secret-settings :tracker tracker-descriptor))
+                  deltas)
          path (if active-profile
                 (config/write-local-config! deltas #{:forge :tracker} active-profile)
                 (config/write-local-config! deltas #{:forge :tracker}))]
      (println (ui/success (str "Configured " forge-label " → " tracker-label ".")))
-     (println (ui/muted (str "Saved to " path " (owner-only).")))
+     (println (ui/muted
+               (if persist-helper?
+                 (str "Saved settings to " path "; credentials use docker-credential-" stored-helper ".")
+                 (str "Saved to " path " (owner-only)."))))
      (println (ui/success "Setup complete. Run `ttt version` to verify.")))))

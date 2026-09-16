@@ -172,8 +172,10 @@
 (deftest standalone-change-request-ignores-every-tracker-provider
   (doseq [tracker [:linear :jira :github-issues :asana :taskwarrior]]
     (let [built-roles (atom [])]
-      (with-redefs [config/load-config (fn [_ _] {:forge {:provider :github}
-                                                :tracker {:provider tracker}})
+      (with-redefs [config/load-config (fn [_ _ roles]
+                                         (is (= [:forge] roles))
+                                         {:forge {:provider :github}
+                                          :tracker {:provider tracker}})
                     adapters/build (fn [_ role _]
                                      (swap! built-roles conj role)
                                      {:provider :github})]
@@ -184,7 +186,9 @@
 
 (deftest update-change-request-needs-no-tracker
   (let [built-roles (atom [])]
-    (with-redefs [config/load-config (fn [_ _] {:forge {:provider :github}})
+    (with-redefs [config/load-config (fn [_ _ roles]
+                                       (is (= [:forge] roles))
+                                       {:forge {:provider :github}})
                   adapters/build (fn [_ role _]
                                    (swap! built-roles conj role)
                                    {:provider :github})]
@@ -203,6 +207,19 @@
     (is (= {:body "Updated body"} (:changeRequestUpdate proposal)))
     (is (= [["org/repo" "7" {:body "Updated body"}]] @calls))
     (is (= "Updated body" (get-in result [:changeRequestUpdate :body])))))
+
+(deftest item-comments-load-only-tracker-credentials
+  (let [built-roles (atom [])]
+    (with-redefs [config/load-config (fn [_ _ roles]
+                                       (is (= [:tracker] roles))
+                                       {:forge {:provider :github}
+                                        :tracker {:provider :linear}})
+                  adapters/build (fn [_ role _]
+                                   (swap! built-roles conj role)
+                                   {:provider :linear})]
+      (is (= #{:config :tracker}
+             (set (keys (agent/request-runtime {} {:action "comment_item"})))))
+      (is (= [:tracker] @built-roles)))))
 
 (deftest standalone-change-request-needs-no-tracker
   (let [calls (atom [])

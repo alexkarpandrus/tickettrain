@@ -10,7 +10,7 @@
 - The current branch is pushed before applying an action that creates a change request
 - Credentials or local Taskwarrior configuration are ready for the selected tracker
 
-Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local.edn`, not from the target application repository. Named profiles use `:default-profile` and `:profiles`; pass `--profile NAME` to override the default. Local config overrides base config; environment variables override both; the process environment overrides `.env`.
+Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local.edn`, not from the target application repository. Named profiles use `:default-profile` and `:profiles`; pass `--profile NAME` to override the default. Credential helpers resolve secrets after local config; `.env` and then the process environment override them.
 
 ## Target state
 
