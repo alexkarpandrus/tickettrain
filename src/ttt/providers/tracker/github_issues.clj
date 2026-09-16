@@ -131,6 +131,13 @@
     (apply shell/run "gh" args)
     (issue-by-number scope number)))
 
+(defn comment-item!
+  [scope item body]
+  (shell/run "gh" "issue" "comment" (str (:number item))
+             "--repo" (:id scope)
+             "--body" body)
+  nil)
+
 (defn create-item-from-intent!
   [app-config scope context {:keys [title description labels]}]
   (when (:parent context)
@@ -168,6 +175,7 @@
     :search-labels
     :resolve-labels
     :create-item!
+    :comment-item!
     :update-item!})
 
 (defn neutral-adapter
@@ -184,4 +192,5 @@
      :search-labels #(labels @scope*)
      :resolve-labels #(resolve-labels @scope* %1 %2)
      :create-item! #(create-item-from-intent! app-config @scope* %1 %2)
+     :comment-item! #(comment-item! @scope* %1 %2)
      :update-item! #(update-item-from-intent! @scope* %1 %2)}))

@@ -366,6 +366,16 @@
               :issuetype {:id "10002"}}
              (select-keys @created-fields [:parent :project :issuetype]))))))
 
+
+(deftest comments-on-issues-use-adf
+  (let [request (atom nil)]
+    (with-redefs [jira/api! (fn [& args] (reset! request args))]
+      (jira/comment-item! config {:ref (domain/identity :jira :tracker-item "KAN-3")} "Looks **good**"))
+    (is (= config (first @request)))
+    (is (= :post (second @request)))
+    (is (= "/issue/KAN-3/comment" (nth @request 2)))
+    (is (= "Looks **good**" (jira/adf->text (:body (nth @request 3)))))))
+
 (deftest neutral-adapter-declares-every-tracker-capability
   (let [adapter (jira/neutral-adapter config)]
     (is (= :jira (:provider adapter)))

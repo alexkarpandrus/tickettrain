@@ -67,7 +67,7 @@ A descriptor has a required `:build` function and optional `:validate-config!` a
 
 ## Capability maps
 
-A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, creation, update, and title prefixing. A tracker declares configured scope, searches and resolvers, and `:create-item!`/`:update-item!`.
+A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, creation, update, commenting, and title prefixing. A tracker declares configured scope, searches and resolvers, `:create-item!`/`:update-item!`, and `:comment-item!`.
 
 ```clojure
 {:provider :example-tracker
@@ -75,7 +75,8 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
  :configured-scope (fn [] normalized-scope)
  :resolve-labels (fn [label-refs scope] [normalized-label ...])
  :create-item! (fn [context intent] normalized-item)
- :update-item! (fn [item intent] normalized-item)}
+ :update-item! (fn [item intent] normalized-item)
+ :comment-item! (fn [item body] nil)}
 ```
 
 Shared code passes normalized label entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution, then validates the resolved labels before mutation.

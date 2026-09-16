@@ -362,6 +362,13 @@
   (api! app-config :put (str "/issue/" (url-encode item-id)) {:fields input})
   (api! app-config :get (str "/issue/" (url-encode item-id)) nil))
 
+(defn comment-item!
+  [app-config item body]
+  (api! app-config :post
+        (str "/issue/" (url-encode (provider-id item)) "/comment")
+        {:body (text->adf body)})
+  nil)
+
 (defn apply-target-state!
   [app-config issue]
   (let [target (get-in app-config [:tracker :target-state])
@@ -533,6 +540,7 @@
     :search-labels
     :resolve-labels
     :create-item!
+    :comment-item!
     :update-item!})
 
 (defn neutral-adapter
@@ -548,4 +556,5 @@
    :search-labels #(labels app-config)
    :resolve-labels #(resolve-labels app-config %1 %2)
    :create-item! #(create-item-from-intent! app-config %1 %2)
+   :comment-item! #(comment-item! app-config %1 %2)
    :update-item! #(update-item-from-intent! app-config %1 %2)})

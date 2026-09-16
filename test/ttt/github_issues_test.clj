@@ -67,6 +67,14 @@
          #"gh auth login"
          (github-issues/setup {})))))
 
+(deftest comments-on-issues-use-the-configured-repository
+  (let [request (atom nil)
+        item {:number 7}]
+    (with-redefs [shell/run (fn [& args] (reset! request args))]
+      (github-issues/comment-item! scope item "Looks good"))
+    (is (= ["gh" "issue" "comment" "7" "--repo" "org/repo" "--body" "Looks good"]
+           @request))))
+
 (deftest parent-resolution-is-rejected-before-preview
   (let [adapter (with-redefs [github-issues/repo-slug (fn [] "org/repo")]
                   (github-issues/neutral-adapter {}))]

@@ -1,6 +1,6 @@
 ---
 name: tickettrain
-description: Create a GitHub, GitLab, or Bitbucket change request, or link one to a Linear, GitHub Issues, Jira, Asana, or Taskwarrior item. Use when the user wants to open a pull or merge request, create or link a tracker item, or track work for the current branch.
+description: Create or comment on a GitHub, GitLab, or Bitbucket change request, or create, link, or comment on a Linear, GitHub Issues, Jira, Asana, or Taskwarrior item. Use when the user wants to open or comment on a pull or merge request, create or comment on a tracker item, or track work for the current branch.
 origin: https://github.com/alexkarpandrus/tickettrain
 license: MIT
 compatibility: Requires tickettrain (ttt), Git, Babashka 1.12.217 or newer, and configured provider credentials.
@@ -25,7 +25,7 @@ context:
 
 # tickettrain (`ttt`)
 
-`ttt` creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API.
+`ttt` creates and comments on GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It can also comment on those tracker items. It is a local CLI with a provider-neutral JSON API.
 
 ## Bootstrap
 
@@ -74,6 +74,16 @@ ttt search --kind label --query "backend"          # find labels
 
    ```json
    {"action":"create_change_request","title":"Improve agent guidance","body":"## What\n\nDocument the repository workflow."}
+   ```
+
+   To comment on a tracker item or the current change request, use:
+
+   ```json
+   {"action":"comment_item","item":"APP-123","body":"The fix is ready for verification."}
+   ```
+
+   ```json
+   {"action":"comment_change_request","body":"The linked ticket is ready."}
    ```
 
    Push the current branch before previewing `create_change_request`.

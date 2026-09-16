@@ -10,6 +10,7 @@
             :inspect-current
             :identify-change-request
             :update-change-request!
+            :comment-change-request!
             :create-change-request!
             :prefix-change-request-title}
    :tracker #{:configured-scope
@@ -21,7 +22,8 @@
               :search-labels
               :resolve-labels
               :create-item!
-              :update-item!}})
+              :update-item!
+              :comment-item!}})
 
 (defn provider
   [app-config role]
