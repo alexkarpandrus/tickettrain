@@ -27,7 +27,7 @@
 
 (defn parse-entry
   [line]
-  (when-not (str/starts-with? line "- ")
+  (when-not (re-find #"^[-*+] " line)
     (malformed!))
   (let [link (subs line 2)]
     (if-let [url (markdown/link-destination link)]
