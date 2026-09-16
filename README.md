@@ -78,7 +78,7 @@ rm ~/.local/bin/ttt
 rm -rf ~/.local/share/tickettrain
 ```
 
-The second command also removes `config/ttt.local.edn`, which can contain provider credentials. Back it up first if you need those settings. If you set `TTT_INSTALL_DIR`, remove that directory instead.
+The second command also removes `config/ttt.local.edn`, which can contain provider credentials. Credential-helper entries remain in the system credential store and can be removed with that store's tooling. If you set `TTT_INSTALL_DIR`, remove that directory instead.
 
 ## Supported providers
 
@@ -237,7 +237,11 @@ The heading and references follow the selected tracker. Resources without native
 
 ## Configuration
 
-Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Pass `--profile NAME` to configure one named profile. Setup prompts for missing required credentials and validates both providers. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Taskwarrior validates the local CLI and selected task database. Setup saves selected providers and interactively entered values to the gitignored `config/ttt.local.edn` with owner-only permissions. Secrets supplied through environment variables stay in the environment and are not copied to the file.
+Run `ttt setup` inside a target repository. Choose any supported forge and tracker, then press Enter to keep the current choice. Pass `--profile NAME` to configure one named profile. Setup prompts for missing required credentials and validates both providers. Linear discovers team states. Jira discovers states for the configured project and issue type. GitHub Issues and Asana offer their native states. Taskwarrior validates the local CLI and selected task database.
+
+For entered API keys, setup uses an available Docker-compatible system credential helper: `osxkeychain` on macOS, `wincred` on Windows, or `pass`/`secretservice` on Linux. Set `TTT_CREDENTIAL_HELPER` to choose a helper explicitly, for example `TTT_CREDENTIAL_HELPER=osxkeychain ttt setup`. The executable must be named `docker-credential-<name>` and implement Docker's `get`, `store`, and `erase` protocol. Setup saves only the helper name and non-secret settings to the gitignored, owner-only `config/ttt.local.edn`.
+
+If no working helper is available, setup asks before saving an entered secret as owner-only plaintext. Secrets supplied through environment variables stay in the environment and are not copied to the file or helper.
 
 Configure `:default-profile` and `:profiles` to switch forge/tracker pairs without separate config paths:
 
@@ -252,7 +256,7 @@ Configure `:default-profile` and `:profiles` to switch forge/tracker pairs witho
 
 Run `ttt status --profile client`, then use the same `--profile client` on `inspect`, `search`, `preview`, and `apply`. The default profile applies when `--profile` is absent. Unknown names fail before provider access. Existing flat `:forge` and `:tracker` configuration remains valid.
 
-`ttt` loads `.env`, `config/ttt.edn`, and `config/ttt.local.edn` from the tickettrain installation—not from the target repository. Shared settings apply to every profile. Matching entries under `:profiles` override them. Local config overrides base config; environment variables override both; the real process environment overrides `.env` values. Put profile-specific file credentials under the same profile name in `config/ttt.local.edn`.
+`ttt` loads `.env`, `config/ttt.edn`, and `config/ttt.local.edn` from the tickettrain installation—not from the target repository. Shared settings apply to every profile. Matching entries under `:profiles` override them. The precedence is base config, local config, credential helper, `.env`, then the real process environment. Put profile-specific plaintext fallback credentials under the same profile name in `config/ttt.local.edn`.
 
 | Provider | Authentication and main settings |
 | --- | --- |

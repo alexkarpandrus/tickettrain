@@ -146,9 +146,11 @@
                 :configuredSettings (configured-setting-names (:tracker app-config))}
       :sources {:baseConfig (config-source path)
                 :localConfig (config-source config/default-local-config-path)
+                :credentialHelper {:configured (boolean (:credential-helper app-config))
+                                   :name (:credential-helper app-config)}
                 :dotenv (config-source config/default-dotenv-path)
                 :processEnvironment {:checked true}}
-      :precedence ["baseConfig" "localConfig" "dotenv" "processEnvironment"]}
+      :precedence ["baseConfig" "localConfig" "credentialHelper" "dotenv" "processEnvironment"]}
       (:profile app-config) (assoc :profile (name (:profile app-config))))))
 (defn excerpt [value] (let [text (some-> value str str/trim)] (when-not (str/blank? text) (subs text 0 (min 500 (count text))))))
 (defn entity-candidate [entity]
@@ -285,11 +287,13 @@
         (:comment result) (assoc :comment (:comment result))))))
 (defn forge-runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
-                                       (:profile options))]
+                                       (:profile options)
+                                       [:forge])]
     {:config app-config :forge (adapters/build app-config :forge forge/registry)}))
 (defn tracker-runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
-                                       (:profile options))]
+                                       (:profile options)
+                                       [:tracker])]
     {:config app-config :tracker (adapters/build app-config :tracker tracker/registry)}))
 (defn runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
