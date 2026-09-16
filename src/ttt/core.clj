@@ -177,6 +177,18 @@
                           (assoc (draft-change-request request nil)
                                  :body (or (:body request) "")))})
 
+(defn update-change-request-proposal
+  [source request]
+  (let [change-request (:change-request source)]
+    (when-not change-request
+      (throw (ex-info "No current change request found."
+                      {:code :change-request-not-found})))
+    {:source source
+     :action :update-change-request
+     :request request
+     :change-request change-request
+     :change-request-update (select-keys request [:title :body])}))
+
 (defn comment-item-proposal
   [runtime request]
   (let [item (resolve-item! runtime (:item-ref request))]
@@ -238,6 +250,7 @@
   ([runtime source request]
    (case (:action request)
      :create-change-request (standalone-change-request-proposal source request)
+     :update-change-request (update-change-request-proposal source request)
      :comment-change-request (comment-change-request-proposal source request)
      :comment-item (comment-item-proposal runtime request)
      (preview-tracker-link runtime source request))))
@@ -325,5 +338,13 @@
       {:item nil
        :change-request (create-change-request! runtime source (:change-request-intent proposal))
        :change-request-update nil})
+
+    :update-change-request
+    (let [source (:source proposal)
+          update (:change-request-update proposal)]
+      (update-change-request! runtime source update)
+      {:item nil
+       :change-request (merge (:change-request source) update)
+       :change-request-update update})
 
     (apply-tracker-link! runtime proposal)))

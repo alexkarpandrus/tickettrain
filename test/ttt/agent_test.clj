@@ -35,6 +35,7 @@
     (is (= (str/trim (slurp "version.txt")) (:version version)))
     (is (= 2 (:agentApiVersion version)))
     (is (some #{"create-change-request"} (:capabilities version)))
+    (is (some #{"update-change-requests"} (:capabilities version)))
     (is (some #{"named-profiles"} (:capabilities version)))
     (is (some #{"comment-items"} (:capabilities version)))
     (is (some #{"comment-change-requests"} (:capabilities version)))))
@@ -130,6 +131,18 @@
   (is (thrown-with-msg? Exception #"accepts only title and body"
                         (agent/validate-request! {:action "create_change_request" :title "Docs" :labels []}))))
 
+(deftest update-change-request-validation
+  (is (= {:action "update_change_request" :body "Body"}
+         (agent/validate-request! {:action "update_change_request" :body "Body"})))
+  (is (= {:action "update_change_request" :title "New title"}
+         (agent/validate-request! {:action "update_change_request" :title "New title"})))
+  (is (thrown-with-msg? Exception #"requires title or body"
+                        (agent/validate-request! {:action "update_change_request"})))
+  (is (thrown-with-msg? Exception #"title must not be blank"
+                        (agent/validate-request! {:action "update_change_request" :title " "})))
+  (is (thrown-with-msg? Exception #"accepts only title and body"
+                        (agent/validate-request! {:action "update_change_request" :body "Body" :labels []}))))
+
 (deftest comment-request-validation
   (is (= {:action "comment_item" :item "APP-123" :body "Note"}
          (agent/validate-request! {:action "comment_item" :item "APP-123" :body "Note"})))
@@ -168,6 +181,28 @@
                (set (keys (agent/request-runtime {} {:action "create_change_request"}))))
             (name tracker))
         (is (= [:forge] @built-roles) (name tracker))))))
+
+(deftest update-change-request-needs-no-tracker
+  (let [built-roles (atom [])]
+    (with-redefs [config/load-config (fn [_ _] {:forge {:provider :github}})
+                  adapters/build (fn [_ role _]
+                                   (swap! built-roles conj role)
+                                   {:provider :github})]
+      (is (= #{:config :forge}
+             (set (keys (agent/request-runtime {} {:action "update_change_request"})))))
+      (is (= [:forge] @built-roles)))))
+
+(deftest approved-change-request-update-is-exact-and-forge-only
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:forge :update-change-request!]
+                           (fn [& args] (swap! calls conj args)))
+        request {:action "update_change_request" :body "Updated body"}
+        proposal (agent/preview-data runtime* request)
+        result (agent/apply-data! runtime* request (:proposalId proposal))]
+    (is (= "org/repo#7" (get-in proposal [:changeRequest :displayId])))
+    (is (= {:body "Updated body"} (:changeRequestUpdate proposal)))
+    (is (= [["org/repo" "7" {:body "Updated body"}]] @calls))
+    (is (= "Updated body" (get-in result [:changeRequestUpdate :body])))))
 
 (deftest standalone-change-request-needs-no-tracker
   (let [calls (atom [])

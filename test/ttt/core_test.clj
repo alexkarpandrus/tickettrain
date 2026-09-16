@@ -58,6 +58,22 @@
       (core/apply! runtime forge-proposal)
       (is (= [[:forge-comment ["org/repo" "7" "PR note"]]] @calls)))))
 
+(deftest change-request-updates-are-read-only-until-apply
+  (let [calls (atom [])
+        runtime (fake-runtime calls {})
+        proposal (core/preview runtime {:action :update-change-request :body "Updated body"})]
+    (is (empty? @calls))
+    (is (= change-request (:change-request proposal)))
+    (is (= {:body "Updated body"} (:change-request-update proposal)))
+    (is (= "Updated body"
+           (get-in (core/apply! runtime proposal) [:change-request :body])))
+    (is (= [[:forge ["org/repo" "7" {:body "Updated body"}]]] @calls))))
+
+(deftest change-request-updates-require-a-current-change-request
+  (let [runtime (fake-runtime (atom []) {:forge {:inspect-current (fn [] (assoc source :change-request nil))}})]
+    (is (thrown-with-msg? Exception #"No current change request found"
+                          (core/preview runtime {:action :update-change-request :body "Updated body"})))))
+
 (deftest change-request-comments-require-a-current-change-request
   (let [runtime (fake-runtime (atom []) {:forge {:inspect-current (fn [] (assoc source :change-request nil))}})]
     (is (thrown-with-msg? Exception #"No current change request found"
