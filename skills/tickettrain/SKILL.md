@@ -76,6 +76,12 @@ ttt search --kind label --query "backend"          # find labels
    {"action":"create_change_request","title":"Improve agent guidance","body":"## What\n\nDocument the repository workflow."}
    ```
 
+   To update the current branch's open change request, use:
+
+   ```json
+   {"action":"update_change_request","body":"## What\n\nClarify the implementation."}
+   ```
+
    To comment on a tracker item or the current change request, use:
 
    ```json

@@ -86,7 +86,7 @@
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
 (defn wire-context [{:keys [parent project]}] {:parent (wire-entity parent) :project (wire-entity project)})
-(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-change-request "create_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request"))
+(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-change-request "create_change_request" :update-change-request "update_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request"))
 (defn wire-request [request]
   (cond-> {:action (wire-action (:action request))}
     (contains? request :labels) (assoc :labels (vec (:labels request)))
@@ -107,6 +107,11 @@
     (case (:action proposal)
       :create-change-request
       (assoc base :changeRequestIntent (:change-request-intent proposal))
+
+      :update-change-request
+      (assoc base
+             :changeRequest (wire-entity (:change-request proposal))
+             :changeRequestUpdate (:change-request-update proposal))
 
       :comment-item
       (assoc base :item (wire-entity (:item proposal)) :comment (:comment proposal)
@@ -210,6 +215,13 @@
                                 (invalid-request! "create_change_request requires title."))
                               (when (some #(contains? request %) [:item :issue :parent :project :labels])
                                 (invalid-request! "create_change_request accepts only title and body.")))
+    "update_change_request" (do
+                              (when-not (or (contains? request :title) (contains? request :body))
+                                (invalid-request! "update_change_request requires title or body."))
+                              (when (and (contains? request :title) (str/blank? (:title request)))
+                                (invalid-request! "update_change_request title must not be blank."))
+                              (when (some #(contains? request %) [:item :issue :parent :project :labels])
+                                (invalid-request! "update_change_request accepts only title and body.")))
     "comment_item" (do
                      (when-not (seq (:item request)) (invalid-request! "comment_item requires item."))
                      (when (str/blank? (:body request)) (invalid-request! "comment_item requires body."))
@@ -225,6 +237,9 @@
 (defn core-request [request]
   (case (:action request)
     "create_change_request" {:action :create-change-request :title (:title request) :body (or (:body request) "")}
+    "update_change_request" (cond-> {:action :update-change-request}
+                              (contains? request :title) (assoc :title (:title request))
+                              (contains? request :body) (assoc :body (:body request)))
     "comment_item" {:action :comment-item :item-ref (:item request) :body (:body request)}
     "comment_change_request" {:action :comment-change-request :body (:body request)}
     (cond-> {:action (case (:action request) "link_existing" :link-existing "create_new" :create-new)
@@ -282,12 +297,12 @@
     (adapters/runtime app-config forge/registry tracker/registry)))
 (defn request-runtime [options request]
   (case (:action request)
-    ("create_change_request" "comment_change_request") (forge-runtime options)
+    ("create_change_request" "update_change_request" "comment_change_request") (forge-runtime options)
     "comment_item" (tracker-runtime options)
     (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)
