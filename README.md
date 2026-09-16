@@ -81,6 +81,7 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Find the current PR/MR | ✓ | ✓ | ✓ |
 | Inspect repository and branch | ✓ | ✓ | ✓ |
 | Create a PR/MR | ✓ | ✓ | ✓ |
+| Comment on the current PR/MR | ✓ | ✓ | ✓ |
 | Update title and managed body section | ✓ | ✓ | ✓ |
 | Prefix the title with the tracker key | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ |
@@ -95,6 +96,7 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ |
 | Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Create items | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ |
 | Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ |
