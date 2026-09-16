@@ -11,10 +11,10 @@
 (def source {:branch "retry" :repository {:ref (domain/identity :github :repository "org/repo") :display-id "org/repo"} :change-request {:ref (domain/contained-identity :github :change-request "org/repo" 7) :display-id "org/repo#7" :title "Retry" :body "Body" :url "https://github/pr"}})
 (def config {:change-request {:body-begin-marker "<!-- ttt:begin -->" :body-end-marker "<!-- ttt:end -->" :section-title "Tracker"}})
 (defn runtime [calls]
-  {:config config :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& _] (swap! calls conj :forge))
+  {:config config :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& _] (swap! calls conj :forge)) :comment-change-request! (fn [& _] (swap! calls conj :forge-comment))
                           :create-change-request! (fn [intent] (swap! calls conj :forge-create) (assoc (:change-request source) :title (:title intent) :body (:body intent)))
                           :identify-change-request (fn [_ created] created)}
-   :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] (swap! calls conj :tracker-create) item)}})
+   :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] (swap! calls conj :tracker-create) item) :comment-item! (fn [& _] (swap! calls conj :tracker-comment))}})
 
 (deftest numeric-text-options-remain-strings
   (is (= {:profile "client" :query "1218235721923599" :project "1182987059881499"}
@@ -35,7 +35,9 @@
     (is (= (str/trim (slurp "version.txt")) (:version version)))
     (is (= 2 (:agentApiVersion version)))
     (is (some #{"create-change-request"} (:capabilities version)))
-    (is (some #{"named-profiles"} (:capabilities version)))))
+    (is (some #{"named-profiles"} (:capabilities version)))
+    (is (some #{"comment-items"} (:capabilities version)))
+    (is (some #{"comment-change-requests"} (:capabilities version)))))
 
 (deftest status-shows-providers-and-sources-without-secret-values
   (with-redefs [config/load-config (fn [_ profile]
@@ -128,8 +130,34 @@
   (is (thrown-with-msg? Exception #"accepts only title and body"
                         (agent/validate-request! {:action "create_change_request" :title "Docs" :labels []}))))
 
+(deftest comment-request-validation
+  (is (= {:action "comment_item" :item "APP-123" :body "Note"}
+         (agent/validate-request! {:action "comment_item" :item "APP-123" :body "Note"})))
+  (is (= {:action "comment_change_request" :body "Note"}
+         (agent/validate-request! {:action "comment_change_request" :body "Note"})))
+  (is (thrown-with-msg? Exception #"requires body"
+                        (agent/validate-request! {:action "comment_item" :item "APP-123" :body " "})))
+  (is (thrown-with-msg? Exception #"accepts only body"
+                        (agent/validate-request! {:action "comment_change_request" :body "Note" :item "APP-123"}))))
+
+(deftest approved-comments-route-to-only-the-selected-provider
+  (let [calls (atom [])
+        runtime* (runtime calls)
+        item-request {:action "comment_item" :item "APP-123" :body "Tracker note"}
+        item-proposal (agent/preview-data runtime* item-request)]
+    (is (empty? @calls))
+    (is (= "Tracker note" (get-in item-proposal [:comment :body])))
+    (agent/apply-data! runtime* item-request (:proposalId item-proposal))
+    (is (= [:tracker-comment] @calls))
+    (reset! calls [])
+    (let [forge-request {:action "comment_change_request" :body "PR note"}
+          forge-proposal (agent/preview-data runtime* forge-request)]
+      (is (= "org/repo#7" (get-in forge-proposal [:changeRequest :displayId])))
+      (agent/apply-data! runtime* forge-request (:proposalId forge-proposal))
+      (is (= [:forge-comment] @calls)))))
+
 (deftest standalone-change-request-ignores-every-tracker-provider
-  (doseq [tracker [:linear :jira :github-issues :asana]]
+  (doseq [tracker [:linear :jira :github-issues :asana :taskwarrior]]
     (let [built-roles (atom [])]
       (with-redefs [config/load-config (fn [_ _] {:forge {:provider :github}
                                                 :tracker {:provider tracker}})

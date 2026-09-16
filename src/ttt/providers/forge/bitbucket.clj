@@ -160,6 +160,13 @@
           (some? title) (assoc :title title)))
   nil)
 
+(defn comment-change-request!
+  [app-config repo-slug pr-id body]
+  (api! app-config :post
+        (str "/repositories/" repo-slug "/pullrequests/" pr-id "/comments")
+        {:content {:raw body}})
+  nil)
+
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
   (let [slug (remote-slug)
@@ -178,6 +185,7 @@
     :inspect-current
     :identify-change-request
     :update-change-request!
+    :comment-change-request!
     :create-change-request!
     :prefix-change-request-title})
 
@@ -204,5 +212,6 @@
    :inspect-current #(inspect-current app-config)
    :identify-change-request identify-change-request
    :update-change-request! #(update-change-request! app-config %1 %2 %3)
+   :comment-change-request! #(comment-change-request! app-config %1 %2 %3)
    :create-change-request! #(create-change-request! app-config %)
    :prefix-change-request-title prefix-change-request-title})

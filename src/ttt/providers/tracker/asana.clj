@@ -363,6 +363,13 @@
   [app-config item-id input]
   (get (api! app-config :put (str "/tasks/" item-id) {:data input}) :data))
 
+(defn comment-item!
+  [app-config item body]
+  (api! app-config :post
+        (str "/tasks/" (provider-id item) "/stories")
+        {:data {:text body}})
+  nil)
+
 (defn update-tags!
   [app-config item-id current-labels labels]
   (let [current (set (tag-ids current-labels))
@@ -419,6 +426,7 @@
     :search-labels
     :resolve-labels
     :create-item!
+    :comment-item!
     :update-item!})
 
 (defn neutral-adapter
@@ -434,4 +442,5 @@
    :search-labels #(tags app-config)
    :resolve-labels #(resolve-labels app-config %1 %2)
    :create-item! #(create-item-from-intent! app-config %1 %2)
+   :comment-item! #(comment-item! app-config %1 %2)
    :update-item! #(update-item-from-intent! app-config %1 %2)})

@@ -134,6 +134,13 @@
       (finally
         (io/delete-file tmp-file true)))))
 
+(defn comment-change-request!
+  [repo-slug change-request-number body]
+  (shell/run "gh" "pr" "comment" (str change-request-number)
+             "--repo" repo-slug
+             "--body" body)
+  nil)
+
 (defn create-change-request!
   [{:keys [title body base head]}]
   (let [tmp-file (java.io.File/createTempFile "ttt-pr-create" ".md")]
@@ -195,6 +202,7 @@
     :inspect-current
     :identify-change-request
     :update-change-request!
+    :comment-change-request!
     :create-change-request!
     :prefix-change-request-title})
 
@@ -209,6 +217,7 @@
    :inspect-current inspect-current
    :identify-change-request identify-change-request
    :update-change-request! update-change-request!
+   :comment-change-request! comment-change-request!
    :create-change-request! create-change-request!
    :prefix-change-request-title prefix-change-request-title})
 

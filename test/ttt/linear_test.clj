@@ -236,6 +236,18 @@
         (is (= (domain/identity :linear :tracker-item "issue-1")
                (:ref item)))))))
 
+
+(deftest comments-on-items-use-comment-create
+  (let [variables (atom nil)]
+    (with-redefs [linear/graphql! (fn [_ query input]
+                                    (is (= linear/create-comment-mutation query))
+                                    (reset! variables input)
+                                    {:commentCreate {:success true}})]
+      (linear/comment-item! config
+                            {:ref (domain/identity :linear :tracker-item "issue-1")}
+                            "Looks good"))
+    (is (= {:input {:issueId "issue-1" :body "Looks good"}} @variables))))
+
 (deftest configured-scope-and-neutral-adapter-capabilities-are-neutral
   (is (= (domain/scope-identity :linear "team-1")
          (linear/configured-scope config)))
