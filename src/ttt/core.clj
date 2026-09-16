@@ -177,6 +177,26 @@
                           (assoc (draft-change-request request nil)
                                  :body (or (:body request) "")))})
 
+(defn comment-item-proposal
+  [runtime request]
+  (let [item (resolve-item! runtime (:item-ref request))]
+    {:action :comment-item
+     :request request
+     :item item
+     :comment {:body (:body request)}}))
+
+(defn comment-change-request-proposal
+  [source request]
+  (let [change-request (:change-request source)]
+    (when-not change-request
+      (throw (ex-info "No current change request found."
+                      {:code :change-request-not-found})))
+    {:source source
+     :action :comment-change-request
+     :request request
+     :change-request change-request
+     :comment {:body (:body request)}}))
+
 (defn preview-tracker-link
   [runtime source request]
   (let [action (:action request)
@@ -211,10 +231,15 @@
      :change-request-update (change-request-update runtime planned-source preview-item context)}))
 
 (defn preview
-  ([runtime request] (preview runtime (inspect runtime) request))
+  ([runtime request]
+   (if (= :comment-item (:action request))
+     (comment-item-proposal runtime request)
+     (preview runtime (inspect runtime) request)))
   ([runtime source request]
-   (if (= :create-change-request (:action request))
-     (standalone-change-request-proposal source request)
+   (case (:action request)
+     :create-change-request (standalone-change-request-proposal source request)
+     :comment-change-request (comment-change-request-proposal source request)
+     :comment-item (comment-item-proposal runtime request)
      (preview-tracker-link runtime source request))))
 
 (defn update-change-request!
@@ -234,6 +259,18 @@
   [runtime item intent]
   (assert-entity-scope! runtime item :item)
   ((get-in runtime [:tracker :update-item!]) item intent))
+
+(defn comment-item!
+  [runtime item body]
+  (assert-entity-scope! runtime item :item)
+  ((get-in runtime [:tracker :comment-item!]) item body))
+
+(defn comment-change-request!
+  [runtime source body]
+  ((get-in runtime [:forge :comment-change-request!])
+   (get-in source [:repository :ref :id])
+   (get-in source [:change-request :ref :id])
+   body))
 
 (defn create-change-request!
   [runtime source intent]
@@ -272,9 +309,21 @@
 
 (defn apply!
   [runtime proposal]
-  (if (= :create-change-request (:action proposal))
+  (case (:action proposal)
+    :comment-item
+    (do
+      (comment-item! runtime (:item proposal) (get-in proposal [:comment :body]))
+      {:item (:item proposal) :change-request nil :comment (:comment proposal)})
+
+    :comment-change-request
+    (do
+      (comment-change-request! runtime (:source proposal) (get-in proposal [:comment :body]))
+      {:item nil :change-request (:change-request proposal) :comment (:comment proposal)})
+
+    :create-change-request
     (let [source (:source proposal)]
       {:item nil
        :change-request (create-change-request! runtime source (:change-request-intent proposal))
        :change-request-update nil})
+
     (apply-tracker-link! runtime proposal)))

@@ -86,7 +86,7 @@
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
 (defn wire-context [{:keys [parent project]}] {:parent (wire-entity parent) :project (wire-entity project)})
-(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-change-request "create_change_request"))
+(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-change-request "create_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request"))
 (defn wire-request [request]
   (cond-> {:action (wire-action (:action request))}
     (contains? request :labels) (assoc :labels (vec (:labels request)))
@@ -100,12 +100,21 @@
     (:title intent) (assoc :title (:title intent))))
 (defn proposal->wire [proposal]
   (let [base (cond-> {:proposalId (:proposal-id proposal)
-                      :source (wire-source (:source proposal))
                       :action (wire-action (:action proposal))
                       :request (wire-request (:request proposal))}
+               (:source proposal) (assoc :source (wire-source (:source proposal)))
                (:profile proposal) (assoc :profile (name (:profile proposal))))]
-    (if (= :create-change-request (:action proposal))
+    (case (:action proposal)
+      :create-change-request
       (assoc base :changeRequestIntent (:change-request-intent proposal))
+
+      :comment-item
+      (assoc base :item (wire-entity (:item proposal)) :comment (:comment proposal)
+             :approvalContext (:approval-context proposal))
+
+      :comment-change-request
+      (assoc base :changeRequest (wire-entity (:change-request proposal)) :comment (:comment proposal))
+
       (assoc base
              :item (wire-entity (:item proposal))
              :context (wire-context (:context proposal))
@@ -201,12 +210,23 @@
                                 (invalid-request! "create_change_request requires title."))
                               (when (some #(contains? request %) [:item :issue :parent :project :labels])
                                 (invalid-request! "create_change_request accepts only title and body.")))
+    "comment_item" (do
+                     (when-not (seq (:item request)) (invalid-request! "comment_item requires item."))
+                     (when (str/blank? (:body request)) (invalid-request! "comment_item requires body."))
+                     (when (some #(contains? request %) [:issue :parent :project :title :labels])
+                       (invalid-request! "comment_item accepts only item and body.")))
+    "comment_change_request" (do
+                               (when (str/blank? (:body request)) (invalid-request! "comment_change_request requires body."))
+                               (when (some #(contains? request %) [:item :issue :parent :project :title :labels])
+                                 (invalid-request! "comment_change_request accepts only body.")))
     (invalid-request! (str "Unsupported action: " (:action request))))
   request)
 
 (defn core-request [request]
-  (if (= "create_change_request" (:action request))
-    {:action :create-change-request :title (:title request) :body (or (:body request) "")}
+  (case (:action request)
+    "create_change_request" {:action :create-change-request :title (:title request) :body (or (:body request) "")}
+    "comment_item" {:action :comment-item :item-ref (:item request) :body (:body request)}
+    "comment_change_request" {:action :comment-change-request :body (:body request)}
     (cond-> {:action (case (:action request) "link_existing" :link-existing "create_new" :create-new)
              :labels (vec (or (:labels request) []))}
       (:item request) (assoc :item-ref (:item request)) (:parent request) (assoc :parent-ref (:parent request))
@@ -234,7 +254,7 @@
   (validate-request! request)
   (let [profile (get-in runtime [:config :profile])
         proposal (cond-> (core/preview runtime (core-request request))
-                   (not= "create_change_request" (:action request)) (assoc :approval-context (approval-context runtime))
+                   (contains? #{"link_existing" "create_new" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime))
                    profile (assoc :profile profile)
                    true (assoc :config-id (sha256 (:config runtime))))]
     (assoc proposal :proposal-id (proposal-id proposal))))
@@ -243,20 +263,31 @@
   (let [proposal (preview-proposal runtime request)]
     (when-not (= approval (:proposal-id proposal)) (throw (ex-info "Approval does not match the current proposal. Preview again before applying." {:code :stale-proposal})))
     (let [result (core/apply! runtime proposal)]
-      {:proposalId (:proposal-id proposal) :item (wire-entity (:item result)) :changeRequest (wire-entity (:change-request result)) :changeRequestUpdate (:change-request-update result)})))
+      (cond-> {:proposalId (:proposal-id proposal)
+               :item (wire-entity (:item result))
+               :changeRequest (wire-entity (:change-request result))}
+        (:change-request-update result) (assoc :changeRequestUpdate (:change-request-update result))
+        (:comment result) (assoc :comment (:comment result))))))
 (defn forge-runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
                                        (:profile options))]
     {:config app-config :forge (adapters/build app-config :forge forge/registry)}))
+(defn tracker-runtime [options]
+  (let [app-config (config/load-config (or (:config options) config/default-config-path)
+                                       (:profile options))]
+    {:config app-config :tracker (adapters/build app-config :tracker tracker/registry)}))
 (defn runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
                                        (:profile options))]
     (adapters/runtime app-config forge/registry tracker/registry)))
 (defn request-runtime [options request]
-  ((if (= "create_change_request" (:action request)) forge-runtime runtime) options))
+  (case (:action request)
+    ("create_change_request" "comment_change_request") (forge-runtime options)
+    "comment_item" (tracker-runtime options)
+    (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

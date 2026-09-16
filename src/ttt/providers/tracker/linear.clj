@@ -78,6 +78,11 @@
   (str "mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {"
        "  issueUpdate(id: $id, input: $input) { success issue { " issue-fragment " } } }"))
 
+(def create-comment-mutation
+  "mutation CreateComment($input: CommentCreateInput!) {
+     commentCreate(input: $input) { success comment { id body url } }
+   }")
+
 (defn tracker-config
   [app-config]
   (config/tracker-settings app-config))
@@ -331,6 +336,14 @@
     (or (get-in entity [:ref :id]) (:id entity))
     entity))
 
+(defn comment-item!
+  [app-config item body]
+  (let [response (graphql! app-config create-comment-mutation
+                           {:input {:issueId (provider-id item) :body body}})]
+    (when-not (get-in response [:commentCreate :success])
+      (throw (ex-info "Linear commentCreate returned success=false" {})))
+    nil))
+
 (defn label-ids
   [labels]
   (mapv provider-id labels))
@@ -423,6 +436,7 @@
     :search-labels
     :resolve-labels
     :create-item!
+    :comment-item!
     :update-item!})
 
 (defn neutral-adapter
@@ -438,4 +452,5 @@
    :search-labels #(normalized-labels app-config)
    :resolve-labels #(resolve-normalized-labels app-config %1 %2)
    :create-item! #(create-item-from-intent! app-config %1 %2)
+   :comment-item! #(comment-item! app-config %1 %2)
    :update-item! #(update-item-from-intent! app-config %1 %2)})

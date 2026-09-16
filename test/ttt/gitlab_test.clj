@@ -73,3 +73,11 @@
                :title "[KAN-2] Verify tickettrain GitLab workflow"
                :description "Body"}]
              @request)))))
+
+
+(deftest comments-on-merge-requests-use-notes
+  (let [request (atom nil)]
+    (with-redefs [gitlab/api! (fn [& args] (reset! request args))]
+      (gitlab/comment-change-request! config "group/project" 7 "Looks good"))
+    (is (= [config :post "/projects/group%2Fproject/merge_requests/7/notes" {:body "Looks good"}]
+           @request))))
