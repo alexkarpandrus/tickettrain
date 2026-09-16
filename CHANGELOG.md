@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.7.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.6.0...v0.7.0) (2026-09-16)
+
+
+### Features
+
+* **agent:** support updating change requests ([4d9ca4d](https://github.com/alexkarpandrus/tickettrain/commit/4d9ca4de52789583935c168bd732e0ef1f71dd4e))
+* **comments:** support tracker and forge comments ([2914680](https://github.com/alexkarpandrus/tickettrain/commit/29146804212e5b2f6ff17eabd0348accfc030994))
+* **credentials:** store API keys in credential helpers ([a96f494](https://github.com/alexkarpandrus/tickettrain/commit/a96f494da3e0738f972bcdfae92ebe0682db1229))
+
+
+### Fixes
+
+* **credentials:** scope and retry helper access ([704f88a](https://github.com/alexkarpandrus/tickettrain/commit/704f88af8cf0ba3225a1e7d797ecb9f6e4f760c8))
+* **links:** accept standard unordered list markers ([50eedb3](https://github.com/alexkarpandrus/tickettrain/commit/50eedb3d82d003df2ef4bed1925f5b1c0616171e))
+
+
+### Documentation
+
+* list comment capabilities ([c0e6df4](https://github.com/alexkarpandrus/tickettrain/commit/c0e6df449ac998d46b5ee004cfeb6b02c6c31bcf))
+* refresh agent instructions ([0f77eee](https://github.com/alexkarpandrus/tickettrain/commit/0f77eeed00bc9094a896f2c22ca16c67709f2f62))
+* streamline README onboarding ([0184765](https://github.com/alexkarpandrus/tickettrain/commit/0184765fba1314d45cddf24dd49d5da66b2fa70f))
+
 ## [0.6.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.5.0...v0.6.0) (2026-09-15)
 
 
