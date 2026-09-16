@@ -3,6 +3,7 @@
             [ttt.cli.prompt :as prompt]
             [ttt.cli.setup :as setup]
             [ttt.config :as config]
+            [ttt.credentials :as credentials]
             [ttt.providers.forge :as forge]
             [ttt.providers.tracker :as tracker]))
 
@@ -99,6 +100,8 @@
                   config/load-file-config (fn [& _] {:forge {:provider :github}
                                                      :tracker {:provider :linear}})
                   config/env-overrides (fn [_ _] {:forge {:token "environment-secret" :base-url "https://gitlab.example"}})
+                  credentials/helper-name (fn [& _] nil)
+                  credentials/detected-helper (constantly nil)
                   prompt/choose-index (fn [_ _ _] 1)
                   config/write-local-config! (fn [value replace-sections]
                                                (reset! written value)
@@ -113,6 +116,45 @@
         (is (= #{:forge :tracker} @replaced))
         (is (re-find #"GitLab → GitHub Issues" output))
         (is (re-find #"ttt version" output))))))
+
+(deftest setup-stores-entered-secrets-in-a-credential-helper
+  (let [stored (atom nil)
+        written (atom nil)]
+    (with-redefs [forge/registry
+                  {:gitlab {:display-name "GitLab"
+                            :setup-order 0
+                            :setup-settings [{:key :token
+                                              :label "GitLab token"
+                                              :env "GITLAB_TOKEN"
+                                              :required? true
+                                              :secret? true}]}}
+                  tracker/registry
+                  {:github-issues {:display-name "GitHub Issues"
+                                   :setup-order 0
+                                   :setup-settings []}}
+                  config/load-local-config (constantly {})
+                  config/load-file-config (fn [& _] {:forge {:provider :gitlab}
+                                                     :tracker {:provider :github-issues}})
+                  config/load-dotenv (constantly {})
+                  config/env-overrides (fn [& _] {})
+                  credentials/helper-name (fn [& _] "test")
+                  credentials/get-secret (fn [& _] (throw (ex-info "missing" {})))
+                  credentials/store-secret! (fn [helper id secret]
+                                               (reset! stored [helper id secret]))
+                  prompt/choose-index (constantly 0)
+                  prompt/ask-secret (fn [& _] "entered-secret")
+                  config/write-local-config! (fn [value _]
+                                               (reset! written value)
+                                               "config/ttt.local.edn")]
+      (with-out-str (setup/setup!))
+      (is (= ["test"
+              "https://tickettrain.invalid/default/forge/gitlab/token"
+              "entered-secret"]
+             @stored))
+      (is (= {:credential-helper "test"
+              :forge {:provider :gitlab}
+              :tracker {:provider :github-issues}}
+             @written)))))
 
 (deftest switching-providers-discards-the-previous-provider-settings
   (let [descriptor {:setup-settings
