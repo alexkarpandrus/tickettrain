@@ -110,6 +110,14 @@
   (is (= ["task" "export" "rc:/tmp/taskrc"]
          (taskwarrior/command-args {:tracker {:taskrc "/tmp/taskrc"}} ["export"]))))
 
+
+(deftest comments-on-tasks-use-annotations
+  (let [request (atom nil)
+        item {:ref (domain/identity :taskwarrior :tracker-item "uuid-1")}]
+    (with-redefs [taskwarrior/task-run (fn [& args] (reset! request args))]
+      (taskwarrior/comment-item! {} item "Looks good"))
+    (is (= [{} "uuid-1" "annotate" "Looks good"] @request))))
+
 (deftest neutral-adapter-declares-every-tracker-capability
   (let [adapter (taskwarrior/neutral-adapter {})]
     (is (= :taskwarrior (:provider adapter)))

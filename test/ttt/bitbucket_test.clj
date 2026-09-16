@@ -1,5 +1,6 @@
 (ns ttt.bitbucket-test
   (:require [babashka.http-client :as http]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [ttt.domain :as domain]
             [ttt.providers.forge.bitbucket :as bitbucket]))
@@ -21,8 +22,8 @@
                        "- Issue: [123](https://app.asana.com/0/0/123)\n"
                        "<!-- ttt:end -->")
         encoded (bitbucket/encode-body canonical)]
-    (is (not (clojure.string/includes? encoded "<!--")))
-    (is (clojure.string/includes? encoded "[//]: # (ttt:item asana:tracker-item:123)"))
+    (is (not (str/includes? encoded "<!--")))
+    (is (str/includes? encoded "[//]: # (ttt:item asana:tracker-item:123)"))
     (is (= canonical (bitbucket/decode-body encoded)))))
 
 (deftest normalizes-repo-and-change-request
@@ -79,6 +80,15 @@
                :source {:branch {:name "feature"}}
                :destination {:branch {:name "main"}}}]
               @request)))))
+
+
+(deftest comments-on-pull-requests-use-raw-content
+  (let [request (atom nil)]
+    (with-redefs [bitbucket/api! (fn [& args] (reset! request args))]
+      (bitbucket/comment-change-request! config "team/repo" 7 "Looks good"))
+    (is (= [config :post "/repositories/team/repo/pullrequests/7/comments"
+            {:content {:raw "Looks good"}}]
+           @request))))
 
 (deftest setup-validates-the-current-repository
   (let [calls (atom 0)]

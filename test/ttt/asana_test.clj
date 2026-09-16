@@ -140,6 +140,14 @@
       (is (= ["1"] (mapv :display-id (asana/search-tasks config "retry")))))
     (is (= "me" (get-in (second @calls) [2 :assignee])))))
 
+
+(deftest comments-on-tasks-use-stories
+  (let [request (atom nil)]
+    (with-redefs [asana/api! (fn [& args] (reset! request args))]
+      (asana/comment-item! config {:ref (domain/identity :asana :tracker-item "123")} "Looks good"))
+    (is (= [config :post "/tasks/123/stories" {:data {:text "Looks good"}}]
+           @request))))
+
 (deftest neutral-adapter-declares-every-tracker-capability
   (let [adapter (asana/neutral-adapter config)]
     (is (= :asana (:provider adapter)))

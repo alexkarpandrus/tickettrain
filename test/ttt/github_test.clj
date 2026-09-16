@@ -1,6 +1,7 @@
 (ns ttt.github-test
   (:require [clojure.test :refer [deftest is]]
             [ttt.domain :as domain]
+            [ttt.platform.shell :as shell]
             [ttt.providers.forge.github :as github]))
 
 (deftest prefix-change-request-title-adds-ticket-prefix
@@ -53,10 +54,17 @@
              (get-in source [:change-request :ref]))))))
 
 (deftest merged-pull-request-is-not-current
-  (with-redefs [ttt.platform.shell/run
+  (with-redefs [shell/run
                 (fn [& _]
                   "{\"number\":4,\"title\":\"Merged\",\"body\":\"\",\"url\":\"https://github.com/org/repo/pull/4\",\"headRefName\":\"branch\",\"baseRefName\":\"main\",\"state\":\"MERGED\"}")]
     (is (nil? (github/maybe-current-change-request)))))
+
+(deftest comment-change-request-uses-the-explicit-repository
+  (let [request (atom nil)]
+    (with-redefs [shell/run (fn [& args] (reset! request args))]
+      (github/comment-change-request! "org/repo" 7 "Looks good"))
+    (is (= ["gh" "pr" "comment" "7" "--repo" "org/repo" "--body" "Looks good"]
+           @request))))
 
 (deftest neutral-adapter-declares-every-forge-capability
   (let [adapter (github/neutral-adapter {})]

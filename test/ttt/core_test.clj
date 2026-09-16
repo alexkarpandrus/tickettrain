@@ -19,8 +19,8 @@
 (defn fake-runtime [calls overrides]
   (merge-with merge
               {:config config
-               :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& args] (swap! calls conj [:forge args]))}
-               :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [ref] (when (= ref "APP-100") parent)) :resolve-project (fn [ref] (when (= ref "reliability") project)) :resolve-labels (fn [refs _] (if (= refs ["Bug"]) [bug-label] [])) :create-item! (fn [context intent] (swap! calls conj [:tracker-create context intent]) created-item) :update-item! (fn [resolved intent] (swap! calls conj [:tracker-update resolved intent]) resolved)}} overrides))
+               :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& args] (swap! calls conj [:forge args])) :comment-change-request! (fn [& args] (swap! calls conj [:forge-comment args]))}
+               :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [ref] (when (= ref "APP-100") parent)) :resolve-project (fn [ref] (when (= ref "reliability") project)) :resolve-labels (fn [refs _] (if (= refs ["Bug"]) [bug-label] [])) :create-item! (fn [context intent] (swap! calls conj [:tracker-create context intent]) created-item) :update-item! (fn [resolved intent] (swap! calls conj [:tracker-update resolved intent]) resolved) :comment-item! (fn [& args] (swap! calls conj [:tracker-comment args]))}} overrides))
 
 (deftest preview-is-neutral-and-read-only
   (let [calls (atom []) proposal (core/preview (fake-runtime calls {}) {:action :link-existing :item-ref "APP-123" :labels ["Bug"]})]
@@ -43,6 +43,25 @@
   (let [calls (atom []) runtime (fake-runtime calls {}) proposal (core/preview runtime {:action :link-existing :item-ref "APP-123" :labels ["Bug"]})]
     (core/apply! runtime proposal)
     (is (= [:tracker-update :forge] (mapv first @calls)))))
+
+(deftest comments-are-read-only-until-apply-and-route-to-one-provider
+  (let [calls (atom [])
+        runtime (fake-runtime calls {})
+        item-proposal (core/preview runtime {:action :comment-item :item-ref "APP-123" :body "Tracker note"})]
+    (is (empty? @calls))
+    (is (= {:body "Tracker note"} (:comment item-proposal)))
+    (core/apply! runtime item-proposal)
+    (is (= [[:tracker-comment [item "Tracker note"]]] @calls))
+    (reset! calls [])
+    (let [forge-proposal (core/preview runtime {:action :comment-change-request :body "PR note"})]
+      (is (empty? @calls))
+      (core/apply! runtime forge-proposal)
+      (is (= [[:forge-comment ["org/repo" "7" "PR note"]]] @calls)))))
+
+(deftest change-request-comments-require-a-current-change-request
+  (let [runtime (fake-runtime (atom []) {:forge {:inspect-current (fn [] (assoc source :change-request nil))}})]
+    (is (thrown-with-msg? Exception #"No current change request found"
+                          (core/preview runtime {:action :comment-change-request :body "Note"})))))
 
 (deftest marker-identity-prevents-retargeting
   (let [calls (atom []) body (change-request/upsert-managed-section "User body" config created-item nil)
