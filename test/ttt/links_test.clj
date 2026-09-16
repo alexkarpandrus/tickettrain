@@ -71,6 +71,15 @@
     (is (str/includes? second-link "org/repo#7"))
     (is (str/includes? second-link "group/repo!8"))))
 
+
+(deftest upsert-change-request-accepts-normalized-asterisk-list-marker
+  (let [existing (str "## Pull requests\n\n"
+                      "* [org/first#1 — First](<https://github.com/org/first/pull/1>)")
+        updated (links/upsert-change-request existing pull-request)]
+    (is (= 2 (count (links/managed-entries updated))))
+    (is (str/includes? updated "https://github.com/org/first/pull/1"))
+    (is (str/includes? updated (:url pull-request)))))
+
 (deftest upsert-change-request-migrates-legacy-markers
   (let [legacy (str "User context\n\n"
                     "<!-- ttt:pull-requests:begin -->\n"
