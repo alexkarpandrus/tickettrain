@@ -101,7 +101,7 @@
                                                      :tracker {:provider :linear}})
                   config/env-overrides (fn [_ _] {:forge {:token "environment-secret" :base-url "https://gitlab.example"}})
                   credentials/helper-name (fn [& _] nil)
-                  credentials/detected-helper (constantly nil)
+                  credentials/detected-helpers (constantly [])
                   prompt/choose-index (fn [_ _ _] 1)
                   config/write-local-config! (fn [value replace-sections]
                                                (reset! written value)
@@ -152,6 +152,46 @@
               "entered-secret"]
              @stored))
       (is (= {:credential-helper "test"
+              :forge {:provider :gitlab}
+              :tracker {:provider :github-issues}}
+             @written)))))
+
+(deftest setup-tries-each-auto-detected-credential-helper
+  (let [attempts (atom [])
+        written (atom nil)]
+    (with-redefs [forge/registry
+                  {:gitlab {:display-name "GitLab"
+                            :setup-order 0
+                            :setup-settings [{:key :token
+                                              :label "GitLab token"
+                                              :env "GITLAB_TOKEN"
+                                              :required? true
+                                              :secret? true}]}}
+                  tracker/registry
+                  {:github-issues {:display-name "GitHub Issues"
+                                   :setup-order 0
+                                   :setup-settings []}}
+                  config/load-local-config (constantly {})
+                  config/load-file-config (fn [& _] {:forge {:provider :gitlab}
+                                                     :tracker {:provider :github-issues}})
+                  config/load-dotenv (constantly {})
+                  config/env-overrides (fn [& _] {})
+                  credentials/helper-name (fn [& _] nil)
+                  credentials/detected-helpers (constantly ["pass" "secretservice"])
+                  credentials/get-secret (fn [& _] (throw (ex-info "missing" {})))
+                  credentials/store-secret! (fn [helper _ _]
+                                               (swap! attempts conj helper)
+                                               (when (= "pass" helper)
+                                                 (throw (ex-info "pass unavailable" {}))))
+                  prompt/choose-index (constantly 0)
+                  prompt/ask-secret (fn [& _] "entered-secret")
+                  prompt/confirm? (fn [& _] (throw (ex-info "unexpected plaintext fallback" {})))
+                  config/write-local-config! (fn [value _]
+                                               (reset! written value)
+                                               "config/ttt.local.edn")]
+      (with-out-str (setup/setup!))
+      (is (= ["pass" "secretservice"] @attempts))
+      (is (= {:credential-helper "secretservice"
               :forge {:provider :gitlab}
               :tracker {:provider :github-issues}}
              @written)))))

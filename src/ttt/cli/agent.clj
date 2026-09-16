@@ -287,11 +287,13 @@
         (:comment result) (assoc :comment (:comment result))))))
 (defn forge-runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
-                                       (:profile options))]
+                                       (:profile options)
+                                       [:forge])]
     {:config app-config :forge (adapters/build app-config :forge forge/registry)}))
 (defn tracker-runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
-                                       (:profile options))]
+                                       (:profile options)
+                                       [:tracker])]
     {:config app-config :tracker (adapters/build app-config :tracker tracker/registry)}))
 (defn runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
