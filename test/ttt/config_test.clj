@@ -2,7 +2,8 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
-            [ttt.config :as config]))
+            [ttt.config :as config]
+            [ttt.credentials :as credentials]))
 
 (deftest dotenv-values-override-config
   (let [merged (-> (config/deep-merge
@@ -102,6 +103,42 @@
                   {"BITBUCKET_EMAIL" "alex@example.com"
                    "BITBUCKET_API_TOKEN" "bitbucket-token"
                    "BITBUCKET_BASE_URL" "https://api.bitbucket.example.com"})))))
+
+(deftest credential-helper-overrides-files-but-not-the-environment
+  (let [file-config {:forge {:provider :gitlab :token "file-token"}
+                     :tracker {:provider :github-issues}}
+        calls (atom [])]
+    (with-redefs [credentials/get-secret
+                  (fn [_ id]
+                    (swap! calls conj id)
+                    "helper-token")]
+      (is (= "helper-token"
+             (get-in (config/credential-overrides file-config {} "test" false)
+                     [:forge :token])))
+      (is (= {}
+             (config/credential-overrides file-config
+                                          {:forge {:token "environment-token"}}
+                                          "test"
+                                          false))))
+    (is (= 1 (count @calls)))))
+
+(deftest credential-helper-can-fall-back-to-a-valid-file-secret
+  (with-redefs [credentials/get-secret
+                (fn [& _]
+                  (throw (ex-info "missing" {})))]
+    (is (= {}
+           (config/credential-overrides
+            {:forge {:provider :gitlab :token "file-token"}}
+            {}
+            "test"
+            false)))
+    (is (thrown?
+         Exception
+         (config/credential-overrides
+          {:forge {:provider :gitlab}}
+          {}
+          "test"
+          false)))))
 
 
 (deftest provider-switch-does-not-inherit-other-provider-settings
