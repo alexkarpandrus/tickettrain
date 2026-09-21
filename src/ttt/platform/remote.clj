@@ -10,6 +10,7 @@
    :gitlab "GitLab"
    :jira "Jira"
    :linear "Linear"})
+   :typesafe "TypeSafe AI"
 
 (def detail-keys
   [:message :detail :error_description :errorMessages :errors :error])

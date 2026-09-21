@@ -10,6 +10,7 @@
             [ttt.platform.shell :as shell]
             [ttt.providers.forge :as forge]
             [ttt.text.fuzzy :as fuzzy]
+            [ttt.inference.typesafe :as typesafe]
             [ttt.providers.tracker :as tracker]))
 
 (def schema-version 2)
@@ -20,6 +21,7 @@
                   :kind {:coerce :string}
                   :query {:coerce :string}
                   :limit {:coerce :long}
+                  :semantic {:coerce :boolean}
                   :project {:coerce :string}
                   :scope-item {:coerce :string}
                   :request {:coerce :string}
@@ -189,14 +191,44 @@
     (->> ((:search-labels tracker-adapter))
          (filter #(or (empty? (:scopes %)) (some (fn [s] (domain/entity-in-scope? % s)) label-scopes)))
          (map #(assoc % :title (:display-id %))) (fuzzy/rank-issues query) (take limit) (mapv entity-candidate))))
+(defn exact-candidate?
+  [query candidates]
+  (and (= 1 (count candidates))
+       (= (str/lower-case query)
+          (some-> candidates first :displayId str str/lower-case))))
+
+(defn semantic-search
+  [query candidates]
+  (cond
+    (exact-candidate? query candidates)
+    {:candidates candidates :ranking {:method "exact"}}
+
+    (empty? candidates)
+    {:candidates candidates :ranking {:method "lexical" :fallbackReason "no-candidates"}}
+
+    :else
+    (try
+      (or (typesafe/rerank query candidates)
+          {:candidates candidates :ranking {:method "lexical" :fallbackReason "no-semantic-match"}})
+      (catch Exception ex
+        {:candidates candidates
+         :ranking {:method "lexical"
+                   :fallbackReason (or (some-> ex ex-data :code name) "jev-unavailable")}}))))
+
 (defn search-data [tracker-adapter options]
-  (let [kind (require-option options :kind) query (require-option options :query) limit (bounded-limit (:limit options))]
+  (let [kind (require-option options :kind)
+        query (require-option options :query)
+        limit (bounded-limit (:limit options))
+        semantic? (:semantic options)
+        search-limit (if semantic? typesafe/max-candidates limit)]
     (when (str/blank? query) (throw (ex-info "--query must not be blank." {:code :invalid-request})))
-    {:kind kind :query query :candidates (case kind
-      "item" (search-items tracker-adapter query options limit)
-      "project" (search-projects tracker-adapter query limit)
-      "label" (search-labels tracker-adapter query options limit)
-      (throw (ex-info (str "Unsupported search kind: " kind) {:code :invalid-request})))}))
+    (let [candidates (case kind
+                       "item" (search-items tracker-adapter query options search-limit)
+                       "project" (search-projects tracker-adapter query search-limit)
+                       "label" (search-labels tracker-adapter query options search-limit)
+                       (throw (ex-info (str "Unsupported search kind: " kind) {:code :invalid-request})))
+          result (if semantic? (semantic-search query candidates) {:candidates candidates})]
+      (assoc result :kind kind :query query :candidates (vec (take limit (:candidates result)))))))
 (defn invalid-request! [message] (throw (ex-info message {:code :invalid-request})))
 (defn assert-request-shape! [request]
   (doseq [field [:item :parent :project :title :body] :when (contains? request field)]
@@ -306,7 +338,7 @@
     (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "link-existing" "create-new" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "semantic-search" "link-existing" "create-new" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)
