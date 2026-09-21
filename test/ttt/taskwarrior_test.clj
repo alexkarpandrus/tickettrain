@@ -196,6 +196,17 @@
       (taskwarrior/comment-item! {} item "Looks good"))
     (is (= [{} "uuid-1" "annotate" "Looks good"] @request))))
 
+(deftest list-items-exports-current-tasks-with-native-status
+  (let [calls (atom [])]
+    (with-redefs [taskwarrior/configured-scope (constantly scope)
+                  taskwarrior/export-tasks (fn [_]
+                                             (swap! calls conj :export)
+                                             [(assoc native-task :status "waiting")])]
+      (let [item (first ((:list-items (taskwarrior/neutral-adapter {}))))]
+        (is (= [:export] @calls))
+        (is (= "a360fc44" (:display-id item)))
+        (is (= "waiting" (get-in item [:state :name])))))))
+
 (deftest neutral-adapter-declares-every-tracker-capability
   (let [adapter (taskwarrior/neutral-adapter {})]
     (is (= :taskwarrior (:provider adapter)))
