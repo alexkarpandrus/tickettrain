@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.8.0...v0.9.0) (2026-09-21)
+
+
+### Features
+
+* **agent:** add standalone item actions ([9bcfa76](https://github.com/alexkarpandrus/tickettrain/commit/9bcfa767fa7ffbcc494105024cb43347de0e0a22))
+
+
+### Fixes
+
+* **github-issues:** honor repository and label updates ([7d39505](https://github.com/alexkarpandrus/tickettrain/commit/7d3950592d904eaad484bdfd1d5de379d559ba2c))
+
 ## [0.8.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.7.0...v0.8.0) (2026-09-21)
 
 
