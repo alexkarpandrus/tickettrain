@@ -88,14 +88,18 @@
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
 (defn wire-context [{:keys [parent project]}] {:parent (wire-entity parent) :project (wire-entity project)})
-(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-change-request "create_change_request" :update-change-request "update_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request"))
+(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-item "create_item" :update-item "update_item" :create-change-request "create_change_request" :update-change-request "update_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request"))
 (defn wire-request [request]
   (cond-> {:action (wire-action (:action request))}
     (contains? request :labels) (assoc :labels (vec (:labels request)))
+    (contains? request :add-labels) (assoc :addLabels (vec (:add-labels request)))
+    (contains? request :remove-labels) (assoc :removeLabels (vec (:remove-labels request)))
     (:item-ref request) (assoc :item (:item-ref request))
     (:parent-ref request) (assoc :parent (:parent-ref request))
     (:project-ref request) (assoc :project (:project-ref request))
     (:title request) (assoc :title (:title request))
+    (contains? request :description) (assoc :description (:description request))
+    (contains? request :comment) (assoc :comment (:comment request))
     (contains? request :body) (assoc :body (:body request))))
 (defn wire-intent [intent]
   (cond-> {:description (:description intent) :labels (mapv wire-entity (:labels intent))}
@@ -107,6 +111,22 @@
                (:source proposal) (assoc :source (wire-source (:source proposal)))
                (:profile proposal) (assoc :profile (name (:profile proposal))))]
     (case (:action proposal)
+      :create-item
+      (assoc base
+             :context (wire-context (:context proposal))
+             :labels (mapv wire-entity (:labels proposal))
+             :trackerIntent (wire-intent (:tracker-intent proposal))
+             :approvalContext (:approval-context proposal))
+
+      :update-item
+      (assoc base
+             :item (wire-entity (:item proposal))
+             :labels (mapv wire-entity (:labels proposal))
+             :labelChanges {:add (mapv wire-entity (get-in proposal [:label-changes :add]))
+                            :remove (mapv wire-entity (get-in proposal [:label-changes :remove]))}
+             :comment (:comment proposal)
+             :approvalContext (:approval-context proposal))
+
       :create-change-request
       (assoc base :changeRequestIntent (:change-request-intent proposal))
 
@@ -231,10 +251,12 @@
       (assoc result :kind kind :query query :candidates (vec (take limit (:candidates result)))))))
 (defn invalid-request! [message] (throw (ex-info message {:code :invalid-request})))
 (defn assert-request-shape! [request]
-  (doseq [field [:item :parent :project :title :body] :when (contains? request field)]
+  (doseq [field [:item :parent :project :title :body :description :comment] :when (contains? request field)]
     (when-not (string? (get request field)) (invalid-request! (str (name field) " must be a string."))))
-  (when (and (contains? request :labels) (not (and (sequential? (:labels request)) (every? string? (:labels request)))))
-    (invalid-request! "labels must be a collection of strings.")) request)
+  (doseq [field [:labels :addLabels :removeLabels] :when (contains? request field)]
+    (when-not (and (sequential? (get request field)) (every? string? (get request field)))
+      (invalid-request! (str (name field) " must be a collection of strings."))))
+  request)
 (defn validate-request! [request]
   (assert-request-shape! request)
   (case (:action request)
@@ -244,6 +266,24 @@
                         (invalid-request! "link_existing accepts only item and labels.")))
     "create_new" (when (or (:item request) (:issue request) (:body request))
                    (invalid-request! "create_new accepts parent, project, title, and labels."))
+    "create_item" (do
+                    (when (str/blank? (:title request)) (invalid-request! "create_item requires title."))
+                    (when (and (contains? request :project) (str/blank? (:project request)))
+                      (invalid-request! "create_item project must not be blank."))
+                    (when (some str/blank? (:labels request))
+                      (invalid-request! "create_item labels must not be blank."))
+                    (when (some #(contains? request %) [:item :issue :parent :body :comment :addLabels :removeLabels])
+                      (invalid-request! "create_item accepts only title, description, project, and labels.")))
+    "update_item" (do
+                    (when-not (seq (:item request)) (invalid-request! "update_item requires item."))
+                    (when-not (some #(contains? request %) [:comment :addLabels :removeLabels])
+                      (invalid-request! "update_item requires comment, addLabels, or removeLabels."))
+                    (when (and (contains? request :comment) (str/blank? (:comment request)))
+                      (invalid-request! "update_item comment must not be blank."))
+                    (when (some str/blank? (concat (:addLabels request) (:removeLabels request)))
+                      (invalid-request! "update_item labels must not be blank."))
+                    (when (some #(contains? request %) [:issue :parent :project :title :body :description :labels])
+                      (invalid-request! "update_item accepts only item, comment, addLabels, and removeLabels.")))
     "create_change_request" (do
                               (when (str/blank? (:title request))
                                 (invalid-request! "create_change_request requires title."))
@@ -270,6 +310,16 @@
 
 (defn core-request [request]
   (case (:action request)
+    "create_item" (cond-> {:action :create-item
+                            :title (:title request)
+                            :description (or (:description request) "")
+                            :labels (vec (or (:labels request) []))}
+                    (:project request) (assoc :project-ref (:project request)))
+    "update_item" (cond-> {:action :update-item
+                            :item-ref (:item request)
+                            :add-labels (vec (or (:addLabels request) []))
+                            :remove-labels (vec (or (:removeLabels request) []))}
+                    (contains? request :comment) (assoc :comment (:comment request)))
     "create_change_request" {:action :create-change-request :title (:title request) :body (or (:body request) "")}
     "update_change_request" (cond-> {:action :update-change-request}
                               (contains? request :title) (assoc :title (:title request))
@@ -303,7 +353,7 @@
   (validate-request! request)
   (let [profile (get-in runtime [:config :profile])
         proposal (cond-> (core/preview runtime (core-request request))
-                   (contains? #{"link_existing" "create_new" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime))
+                   (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime))
                    profile (assoc :profile profile)
                    true (assoc :config-id (sha256 (:config runtime))))]
     (assoc proposal :proposal-id (proposal-id proposal))))
@@ -334,11 +384,11 @@
 (defn request-runtime [options request]
   (case (:action request)
     ("create_change_request" "update_change_request" "comment_change_request") (forge-runtime options)
-    "comment_item" (tracker-runtime options)
+    ("create_item" "update_item" "comment_item") (tracker-runtime options)
     (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "semantic-search" "link-existing" "create-new" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "semantic-search" "link-existing" "create-new" "create-items" "update-items" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

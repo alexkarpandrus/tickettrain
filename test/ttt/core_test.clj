@@ -29,6 +29,65 @@
     (is (not (str/includes? (pr-str proposal) "labelIds")))
     (is (not (str/includes? (pr-str proposal) "linearDescription")))))
 
+(deftest standalone-item-creation-is-read-only-until-apply
+  (let [calls (atom [])
+        runtime (fake-runtime calls {:forge {:inspect-current (fn [] (swap! calls conj [:forge-inspect]))}})
+        request {:action :create-item
+                 :title "Ask Jade for a status update"
+                 :description "Follow up this week."
+                 :project-ref "reliability"
+                 :labels ["Bug"]}
+        proposal (core/preview runtime request)]
+    (is (empty? @calls))
+    (is (= project (get-in proposal [:context :project])))
+    (is (= {:title "Ask Jade for a status update"
+            :description "Follow up this week."
+            :labels [bug-label]}
+           (:tracker-intent proposal)))
+    (is (= created-item (:item (core/apply! runtime proposal))))
+    (is (= :tracker-create (ffirst @calls)))))
+
+(deftest standalone-item-update-preserves-unrelated-labels-and-appends-comment
+  (let [calls (atom [])
+        waiting {:ref (domain/identity :linear :label "waiting") :display-id "waiting" :scopes [scope]}
+        blocked {:ref (domain/identity :linear :label "blocked") :display-id "blocked" :scopes [scope]}
+        current (update item :labels conj blocked)
+        runtime (fake-runtime
+                 calls
+                 {:forge {:inspect-current (fn [] (swap! calls conj [:forge-inspect]))}
+                  :tracker {:resolve-item (constantly current)
+                            :resolve-labels (fn [refs _]
+                                              (mapv {"waiting" waiting "blocked" blocked} refs))
+                            :update-item! (fn [resolved intent]
+                                            (swap! calls conj [:tracker-update resolved intent])
+                                            (assoc resolved :labels (:labels intent)))}})
+        request {:action :update-item
+                 :item-ref "APP-123"
+                 :comment "Jade replied."
+                 :add-labels ["waiting"]
+                 :remove-labels ["blocked"]}
+        proposal (core/preview runtime request)]
+    (is (empty? @calls))
+    (is (= [waiting] (get-in proposal [:label-changes :add])))
+    (is (= [blocked] (get-in proposal [:label-changes :remove])))
+    (is (= ["existing" "waiting"] (mapv #(get-in % [:ref :id]) (:labels proposal))))
+    (is (= {:body "Jade replied."} (:comment proposal)))
+    (is (= ["existing" "waiting"]
+           (mapv #(get-in % [:ref :id]) (:labels (:item (core/apply! runtime proposal))))))
+    (is (= [:tracker-update :tracker-comment] (mapv first @calls)))))
+
+(deftest standalone-item-update-reports-unsupported-provider-operation
+  (let [runtime (fake-runtime (atom []) {:tracker {:comment-item! nil}})
+        error (try
+                (core/preview runtime {:action :update-item
+                                       :item-ref "APP-123"
+                                       :comment "Note"
+                                       :add-labels []
+                                       :remove-labels []})
+                (catch Exception ex ex))]
+    (is (= :unsupported-capability (:code (ex-data error))))
+    (is (re-find #"does not support item comments" (.getMessage error)))))
+
 (deftest scope-mismatches-fail-before-label-resolution-or-mutation
   (let [calls (atom []) runtime (fake-runtime calls {:tracker {:resolve-item (fn [_] (assoc item :scopes [other-scope])) :resolve-labels (fn [& _] (swap! calls conj :labels) [])}})]
     (is (thrown-with-msg? Exception #"outside the configured scope" (core/preview runtime {:action :link-existing :item-ref "wrong" :labels []})))

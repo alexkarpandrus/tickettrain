@@ -62,6 +62,8 @@
     (is (= (str/trim (slurp "version.txt")) (:version version)))
     (is (= 2 (:agentApiVersion version)))
     (is (some #{"create-change-request"} (:capabilities version)))
+    (is (some #{"create-items"} (:capabilities version)))
+    (is (some #{"update-items"} (:capabilities version)))
     (is (some #{"update-change-requests"} (:capabilities version)))
     (is (some #{"named-profiles"} (:capabilities version)))
     (is (some #{"comment-items"} (:capabilities version)))
@@ -148,6 +150,59 @@
 (deftest create-new-allows-no-parent-or-project
   (is (= {:action "create_new" :labels []}
          (agent/validate-request! {:action "create_new" :labels []}))))
+
+(deftest standalone-item-validation
+  (is (= {:action "create_item" :title "Status" :description "Follow up" :project "Work" :labels ["waiting"]}
+         (agent/validate-request! {:action "create_item" :title "Status" :description "Follow up" :project "Work" :labels ["waiting"]})))
+  (is (thrown-with-msg? Exception #"requires title"
+                        (agent/validate-request! {:action "create_item"})))
+  (is (thrown-with-msg? Exception #"labels must not be blank"
+                        (agent/validate-request! {:action "create_item" :title "Status" :labels [""]}))))
+
+(deftest standalone-item-preview-and-apply-need-no-forge
+  (let [calls (atom [])
+        runtime* (dissoc (runtime calls) :forge)
+        request {:action "create_item" :title "Status" :description "Follow up" :labels []}
+        proposal (agent/preview-data runtime* request)
+        result (agent/apply-data! runtime* request (:proposalId proposal))]
+    (is (= request (:request proposal)))
+    (is (= "Status" (get-in proposal [:trackerIntent :title])))
+    (is (= "Follow up" (get-in proposal [:trackerIntent :description])))
+    (is (= [:tracker-create] @calls))
+    (is (= "APP-123" (get-in result [:item :displayId])))))
+
+(deftest standalone-item-update-preview-is-exact-and-apply-is-gated
+  (let [calls (atom [])
+        bug {:ref (domain/identity :linear :label "bug") :display-id "Bug" :scopes [scope]}
+        runtime* (-> (runtime calls)
+                     (dissoc :forge)
+                     (assoc-in [:tracker :resolve-labels]
+                               (fn [refs _] (if (= ["Bug"] refs) [bug] [])))
+                     (assoc-in [:tracker :update-item!]
+                               (fn [resolved intent]
+                                 (swap! calls conj :tracker)
+                                 (assoc resolved :labels (:labels intent)))))
+        request {:action "update_item" :item "APP-123" :comment "Jade replied." :addLabels ["Bug"] :removeLabels []}
+        proposal (agent/preview-data runtime* request)]
+    (is (empty? @calls))
+    (is (= request (:request proposal)))
+    (is (= "APP-123" (get-in proposal [:item :displayId])))
+    (is (= "Jade replied." (get-in proposal [:comment :body])))
+    (is (= ["Bug"] (mapv :displayId (get-in proposal [:labelChanges :add]))))
+    (is (empty? (get-in proposal [:labelChanges :remove])))
+    (is (thrown-with-msg? Exception #"Approval does not match"
+                          (agent/apply-data! runtime* request "lp2_wrong")))
+    (is (empty? @calls))
+    (agent/apply-data! runtime* request (:proposalId proposal))
+    (is (= [:tracker :tracker-comment] @calls))))
+
+(deftest standalone-item-update-validation
+  (is (thrown-with-msg? Exception #"requires item"
+                        (agent/validate-request! {:action "update_item" :comment "Note"})))
+  (is (thrown-with-msg? Exception #"requires comment, addLabels, or removeLabels"
+                        (agent/validate-request! {:action "update_item" :item "APP-123"})))
+  (is (thrown-with-msg? Exception #"must be a collection of strings"
+                        (agent/validate-request! {:action "update_item" :item "APP-123" :addLabels "waiting"}))))
 
 
 (deftest standalone-change-request-validation
@@ -247,6 +302,20 @@
       (is (= #{:config :tracker}
              (set (keys (agent/request-runtime {} {:action "comment_item"})))))
       (is (= [:tracker] @built-roles)))))
+
+(deftest standalone-item-actions-load-only-the-tracker
+  (doseq [action ["create_item" "update_item"]]
+    (let [built-roles (atom [])]
+      (with-redefs [config/load-config (fn [_ _ roles]
+                                         (is (= [:tracker] roles))
+                                         {:forge {:provider :github}
+                                          :tracker {:provider :linear}})
+                    adapters/build (fn [_ role _]
+                                     (swap! built-roles conj role)
+                                     {:provider :linear})]
+        (is (= #{:config :tracker}
+               (set (keys (agent/request-runtime {} {:action action})))))
+        (is (= [:tracker] @built-roles))))))
 
 (deftest standalone-change-request-needs-no-tracker
   (let [calls (atom [])

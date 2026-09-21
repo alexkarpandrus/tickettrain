@@ -37,6 +37,30 @@
            (get-in updated [:annotations 1 :description])))
     (is (= "20260907T120100Z" (get-in updated [:annotations 1 :entry])))))
 
+(deftest item-update-import-preserves-native-fields-and-existing-annotations
+  (let [stored (atom (assoc native-task
+                            :status "waiting"
+                            :depends ["dependency-uuid"]
+                            :due "20261001T120000Z"
+                            :wait "20260930T120000Z"
+                            :custom_uda "keep"))
+        item (taskwarrior/normalize-task scope @stored)
+        labels [(taskwarrior/normalize-tag scope "bug")
+                (taskwarrior/normalize-tag scope "waiting")]]
+    (with-redefs [taskwarrior/export-tasks (fn [_ _] [@stored])
+                  taskwarrior/task-run-input (fn [_ input & _]
+                                               (reset! stored (first (json/parse-string input true)))
+                                               "")]
+      (taskwarrior/update-item-from-intent! {} scope item {:description (:description item)
+                                                           :labels labels}))
+    (is (= "waiting" (:status @stored)))
+    (is (= ["dependency-uuid"] (:depends @stored)))
+    (is (= "20261001T120000Z" (:due @stored)))
+    (is (= "20260930T120000Z" (:wait @stored)))
+    (is (= "keep" (:custom_uda @stored)))
+    (is (= "User note" (get-in @stored [:annotations 0 :description])))
+    (is (= ["bug" "waiting"] (:tags @stored)))))
+
 (deftest duplicate-managed-annotations-are-rejected
   (is (thrown-with-msg?
        Exception
@@ -57,23 +81,26 @@
                     (when (= reference (:uuid @imported))
                       [(assoc @imported :id 8)]))]
       (let [project (taskwarrior/normalize-project scope "App")
-            labels [(taskwarrior/normalize-tag scope "bug")]
+            labels (mapv #(taskwarrior/normalize-tag scope %) ["waiting" "blocked" "promised"])
             item (taskwarrior/create-item-from-intent!
                   {} scope {:project project}
                   {:title "Retry" :description "Body" :labels labels})]
         (is (= "Retry" (:description @imported)))
         (is (= "App" (:project @imported)))
-        (is (= ["bug"] (:tags @imported)))
+        (is (= "pending" (:status @imported)))
+        (is (= ["waiting" "blocked" "promised"] (:tags @imported)))
         (is (= "Body" (:description item)))))))
 
-(deftest resolve-labels-requires-existing-tags
-  (with-redefs [taskwarrior/tags
+(deftest resolve-projects-and-labels-allows-new-native-names
+  (with-redefs [taskwarrior/projects
+                (fn [_ _] [(taskwarrior/normalize-project scope "App")])
+                taskwarrior/tags
                 (fn [_ _] [(taskwarrior/normalize-tag scope "bug")])]
-    (is (= ["bug"]
+    (is (= "App" (:display-id (taskwarrior/resolve-project {} scope "app"))))
+    (is (= "New Project" (:display-id (taskwarrior/resolve-project {} scope "New Project"))))
+    (is (= ["bug" "waiting"]
            (mapv :display-id
-                 (taskwarrior/resolve-labels {} scope ["Bug"] scope))))
-    (is (thrown-with-msg? Exception #"tag not found"
-                          (taskwarrior/resolve-labels {} scope ["missing"] scope)))))
+                 (taskwarrior/resolve-labels {} scope ["Bug" "waiting"] scope))))))
 
 
 (deftest project-and-tag-catalogs-use-native-values

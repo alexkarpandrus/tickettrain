@@ -158,7 +158,10 @@
 
 (defn resolve-project
   [app-config scope reference]
-  (resolve-name (projects app-config scope) reference :project))
+  (let [reference (str/trim (or reference ""))]
+    (when-not (str/blank? reference)
+      (or (resolve-name (projects app-config scope) reference :project)
+          (normalize-project scope reference)))))
 
 (defn tags
   [app-config scope]
@@ -171,9 +174,11 @@
   [app-config scope label-refs _configured-scope]
   (let [available (when (seq label-refs) (tags app-config scope))]
     (mapv (fn [reference]
-            (or (resolve-name available reference :label)
-                (throw (ex-info (str "Taskwarrior tag not found: " reference)
-                                {:code :label-not-found :label reference}))))
+            (let [reference (str/trim (or reference ""))]
+              (or (resolve-name available reference :label)
+                  (when-not (str/blank? reference) (normalize-tag scope reference))
+                  (throw (ex-info "Taskwarrior tag must not be blank."
+                                  {:code :label-not-found :label reference})))))
           (distinct label-refs))))
 
 (defn entity-name
