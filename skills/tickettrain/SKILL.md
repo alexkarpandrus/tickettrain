@@ -1,6 +1,6 @@
 ---
 name: tickettrain
-description: Create or comment on a GitHub, GitLab, or Bitbucket change request, or create, link, or comment on a Linear, GitHub Issues, Jira, Asana, or Taskwarrior item. Use when the user wants to open or comment on a pull or merge request, create or comment on a tracker item, or track work for the current branch.
+description: Create, update, or comment on a GitHub, GitLab, or Bitbucket change request or a Linear, GitHub Issues, Jira, Asana, or Taskwarrior item. Use when the user wants to open or update a pull or merge request, manage a tracker item, or track work for the current branch.
 origin: https://github.com/alexkarpandrus/tickettrain
 license: MIT
 compatibility: Requires tickettrain (ttt), Git, Babashka 1.12.217 or newer, and configured provider credentials.
@@ -25,7 +25,7 @@ context:
 
 # tickettrain (`ttt`)
 
-`ttt` creates and comments on GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It can also comment on those tracker items. It is a local CLI with a provider-neutral JSON API.
+`ttt` creates, updates, and comments on GitHub, GitLab, or Bitbucket change requests and Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API.
 
 ## Bootstrap
 
@@ -70,6 +70,18 @@ ttt search --kind label --query "backend"          # find labels
    {"action":"create_new","parent":"APP-100","project":"reliability","title":"Improve retry handling","labels":["Backend"]}
    ```
 
+   To create or update a tracker item without Git or forge configuration, use:
+
+   ```json
+   {"action":"create_item","title":"Ask Jade for a status update on Project X","description":"Follow up this week.","project":"Work","labels":["follow-up","waiting"]}
+   ```
+
+   ```json
+   {"action":"update_item","item":"APP-123","comment":"Jade replied. Waiting for the revised timeline.","addLabels":["waiting"],"removeLabels":["blocked"]}
+   ```
+
+   Taskwarrior creates new project and tag names implicitly. Other trackers can require existing projects and labels.
+
    To create only a change request, use:
 
    ```json
@@ -101,6 +113,7 @@ ttt search --kind label --query "backend"          # find labels
 ## Rules
 
 - Run `ttt status` first. If named profiles are configured, select the intended profile and use the same `--profile NAME` for every later command.
+- `create_item` and `update_item` require only tracker configuration. Do not inspect Git for these actions.
 
 - Never mutate through direct provider API or `task` CLI calls; use `ttt`.
 - Run `ttt --llm` for the complete workflow and response schema.
