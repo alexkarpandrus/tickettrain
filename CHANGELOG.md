@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.7.0...v0.8.0) (2026-09-21)
+
+
+### Features
+
+* **search:** add optional Jev semantic ranking ([0ed2a7a](https://github.com/alexkarpandrus/tickettrain/commit/0ed2a7a949b82b7d820ba12c1f31fdf7635b5456))
+
+
+### Fixes
+
+* **setup:** preserve existing configuration as profile ([15a6707](https://github.com/alexkarpandrus/tickettrain/commit/15a6707cd367280481f4ef07c68871c51d7b971f))
+* **taskwarrior:** honor effective taskrc path ([c55e53e](https://github.com/alexkarpandrus/tickettrain/commit/c55e53ea1a4c836e79bffa28db9bc82f391d9600))
+* **taskwarrior:** initialize missing taskrc ([0332d38](https://github.com/alexkarpandrus/tickettrain/commit/0332d389693962cb511c86050144d89ddecb668a))
+
 ## [0.7.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.6.0...v0.7.0) (2026-09-16)
 
 
