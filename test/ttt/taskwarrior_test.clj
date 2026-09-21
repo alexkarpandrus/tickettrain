@@ -29,6 +29,22 @@
     (is (= ["bug" "backend"] (mapv :display-id (:labels item))))
     (is (domain/entity-in-scope? item scope))))
 
+
+(deftest translates-every-taskwarrior-lifecycle-state
+  (doseq [[task expected] [[{:status "pending"} "open"]
+                           [{:status "pending" :start "20260921T090000Z"} "active"]
+                           [{:status "pending"
+                             :annotations [{:description taskwarrior/waiting-state-marker}]} "waiting"]
+                           [{:status "waiting"} "waiting"]
+                           [{:status "completed"} "completed"]
+                           [{:status "deleted"} "canceled"]
+                           [{:status "recurring"} "open"]]]
+    (is (= expected (taskwarrior/normalize-state task))))
+  (doseq [state ["open" "active" "waiting" "completed" "canceled"]]
+    (is (= state
+           (taskwarrior/normalize-state
+            (taskwarrior/apply-state native-task state))))))
+
 (deftest description-update-preserves-task-data-and-user-annotations
   (let [updated (taskwarrior/upsert-description (assoc native-task :custom_uda "keep") "Updated")]
     (is (= "keep" (:custom_uda updated)))
@@ -46,7 +62,11 @@
                             :custom_uda "keep"))
         item (taskwarrior/normalize-task scope @stored)
         labels [(taskwarrior/normalize-tag scope "bug")
-                (taskwarrior/normalize-tag scope "waiting")]]
+                (taskwarrior/normalize-tag scope "waiting")]
+        _ (swap! stored assoc
+                 :tags ["bug" "backend" "concurrent"]
+                 :annotations [(first (:annotations @stored))
+                               (taskwarrior/description-annotation "Concurrent")])]
     (with-redefs [taskwarrior/export-tasks (fn [_ _] [@stored])
                   taskwarrior/task-run-input (fn [_ input & _]
                                                (reset! stored (first (json/parse-string input true)))
@@ -59,7 +79,8 @@
     (is (= "20260930T120000Z" (:wait @stored)))
     (is (= "keep" (:custom_uda @stored)))
     (is (= "User note" (get-in @stored [:annotations 0 :description])))
-    (is (= ["bug" "waiting"] (:tags @stored)))))
+    (is (= "Concurrent" (taskwarrior/tracker-description @stored)))
+    (is (= ["bug" "concurrent" "waiting"] (:tags @stored)))))
 
 (deftest duplicate-managed-annotations-are-rejected
   (is (thrown-with-msg?
@@ -251,7 +272,10 @@
                   :available-at nil
                   :blocked-by []})
         urgent (taskwarrior/apply-work-item-intent native {:priority "urgent"})
-        waiting (taskwarrior/apply-work-item-intent native-task {:state "waiting"})]
+        waiting (taskwarrior/apply-work-item-intent native-task {:state "waiting"})
+        availability-only (taskwarrior/apply-work-item-intent
+                           native-task
+                           {:available-at "2026-09-30T12:00:00Z"})]
     (is (= "active" (:state item)))
     (is (= "high" (:priority item)))
     (is (= "2026-09-30T17:00:00Z" (:due-at item)))
@@ -266,7 +290,8 @@
     (is (empty? (:depends cleared)))
     (is (= "User note" (get-in cleared [:annotations 0 :description])))
     (is (= "urgent" (taskwarrior/normalize-priority urgent)))
-    (is (= "waiting" (taskwarrior/normalize-state waiting)))))
+    (is (= "waiting" (taskwarrior/normalize-state waiting)))
+    (is (= "open" (taskwarrior/normalize-state availability-only)))))
 
 (deftest ambiguous-taskwarrior-blocker-references-are-rejected
   (with-redefs [taskwarrior/tasks (fn [_ _]
@@ -276,3 +301,13 @@
                                            :display-id "two")])]
     (is (thrown-with-msg? Exception #"ambiguous"
                           (taskwarrior/resolve-item {} scope "Retry")))))
+
+
+(deftest ambiguous-short-uuid-blocker-references-are-rejected
+  (with-redefs [taskwarrior/export-tasks
+                (fn [_ reference]
+                  (when (= "deadbeef" reference)
+                    [(assoc native-task :uuid "deadbeef-1111-4111-8111-111111111111")
+                     (assoc native-task :uuid "deadbeef-2222-4222-8222-222222222222")]))]
+    (is (thrown-with-msg? Exception #"ambiguous"
+                          (taskwarrior/resolve-item {} scope "deadbeef")))))

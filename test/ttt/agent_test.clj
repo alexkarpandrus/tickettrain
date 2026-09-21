@@ -31,13 +31,24 @@
     (is (= "APP-123" (:displayId candidate)))
     (is (= 1.0 (:score candidate)))))
 
+
+(deftest ambiguous-item-references-do-not-break-free-text-search
+  (let [calls (atom [])
+        tracker* (-> (:tracker (runtime calls))
+                     (assoc :resolve-item
+                            (fn [_]
+                              (throw (ex-info "ambiguous" {:code :ambiguous-item})))))
+        result (agent/search-data tracker* {:kind "item" :query "Retry"})]
+    (is (= ["APP-123"] (mapv :displayId (:candidates result))))))
+
 (deftest list-items-filters-normalized-fields-and-search-includes-labels
   (let [project {:ref (domain/identity :linear :project "project-x")
                  :display-id "Project X"
                  :title "Project X"}
         label {:ref (domain/identity :linear :label "waiting")
                :display-id "waiting"}
-        matching (assoc item :state "waiting" :project project :labels [label])
+        matching (assoc item :state "waiting" :available-at "2026-09-21T09:00:00Z"
+                        :project project :labels [label])
         other (assoc item :ref (domain/identity :linear :tracker-item "issue-2")
                      :display-id "APP-456" :state "completed")
         tracker* {:configured-scope (constantly scope)
@@ -53,6 +64,7 @@
     (is (= "APP-123" (:displayId listed)))
     (is (= "Description" (:description listed)))
     (is (= "waiting" (:state listed)))
+    (is (= "2026-09-21T09:00:00Z" (:availableAt listed)))
     (is (= "Project X" (get-in listed [:project :displayId])))
     (is (= "waiting" (get-in listed [:labels 0 :displayId])))
     (is (= "waiting" (get-in searched [:labels 0 :displayId])))))
@@ -498,10 +510,14 @@
     (is (= "active" (get-in proposal [:trackerIntent :state])))
     (is (nil? (get-in proposal [:trackerIntent :dueAt])))
     (is (= "Blocked dependency" (get-in proposal [:trackerIntent :blockedBy 0 :title])))
+    (is (= "2026-09-21T09:00:00Z" (get-in proposal [:trackerIntent :availableAt])))
+    (is (= #{:identity :displayId :title}
+           (set (keys (get-in proposal [:trackerIntent :blockedBy 0])))))
     (let [result (agent/apply-data! runtime* request (:proposalId proposal))]
       (is (= [:tracker :tracker-comment] @calls))
       (is (= "urgent" (get-in result [:item :priority])))
       (is (nil? (get-in result [:item :dueAt])))
+      (is (= "2026-09-21T09:00:00Z" (get-in result [:item :availableAt])))
       (is (= "APP-100" (get-in result [:item :blockedBy 0 :displayId])))
       (is (= #{:description :labels :state :priority :due-at :available-at :blocked-by}
              (set (keys (first @intents))))))))

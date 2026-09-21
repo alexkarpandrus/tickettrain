@@ -16,6 +16,14 @@
 
 (def base "https://acme.atlassian.net")
 
+
+(deftest maps-jira-status-categories-to-neutral-states
+  (doseq [[status expected] [[{:statusCategory {:key "new"}} "open"]
+                             [{:statusCategory {:key "indeterminate"}} "active"]
+                             [{:name "Done" :statusCategory {:key "done"}} "completed"]
+                             [{:name "Canceled" :statusCategory {:key "done"}} "canceled"]]]
+    (is (= expected (jira/normalize-state status)))))
+
 (deftest adf-round-trips-plain-text
   (is (= "line one\nline two" (jira/adf->text (jira/text->adf "line one\nline two")))))
 

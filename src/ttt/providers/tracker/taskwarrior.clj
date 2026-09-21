@@ -180,8 +180,14 @@
 (defn resolve-item
   [app-config scope reference]
   (let [reference (str/trim (or reference ""))
-        native-direct (when (task-reference? reference)
-                        (first (export-tasks app-config reference)))
+        native-matches (when (task-reference? reference)
+                         (export-tasks app-config reference))
+        _ (when (> (count native-matches) 1)
+            (throw (ex-info (str "Taskwarrior item reference is ambiguous: " reference)
+                            {:code :ambiguous-item
+                             :reference reference
+                             :matches (mapv #(short-uuid (str (:uuid %))) native-matches)})))
+        native-direct (first native-matches)
         direct (when native-direct
                  (let [task-index (when (seq (dependency-ids native-direct))
                                     (into {} (map (juxt (comp str :uuid) identity))
@@ -361,6 +367,17 @@
     (some-> (first (export-tasks app-config uuid))
             (#(normalize-result scope % nil intent)))))
 
+
+(defn merge-intended-tags [task item labels]
+  (let [previous (set (map entity-name (:labels item)))
+        desired (mapv entity-name labels)
+        desired-set (set desired)
+        added (remove previous desired)
+        removed (set (remove desired-set previous))]
+    (assoc task :tags (->> (concat (remove removed (or (:tags task) [])) added)
+                           distinct
+                           vec))))
+
 (defn update-item-from-intent!
   [app-config scope item intent]
   (let [{:keys [description labels]} intent
@@ -368,10 +385,13 @@
         task (or (first (export-tasks app-config uuid))
                  (throw (ex-info (str "Taskwarrior task not found: " uuid)
                                  {:code :tracker-item-not-found :item-ref uuid})))
-        updated (-> task
-                    (upsert-description description)
-                    (assoc :tags (mapv entity-name labels))
-                    (apply-work-item-intent intent))]
+        description-changed? (not= description (:description item))
+        labels-changed? (not= (set (map entity-name (:labels item)))
+                              (set (map entity-name labels)))
+        updated (cond-> task
+                  description-changed? (upsert-description description)
+                  labels-changed? (merge-intended-tags item labels)
+                  true (apply-work-item-intent intent))]
     (import-task! app-config updated)
     (some-> (first (export-tasks app-config uuid))
             (#(normalize-result scope % item intent)))))

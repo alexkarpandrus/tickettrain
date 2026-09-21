@@ -5,7 +5,7 @@
             [ttt.platform.shell :as shell]
             [ttt.providers.tracker.state :as state]))
 
-(def issue-fields "number,title,body,url,labels,state,milestone")
+(def issue-fields "number,title,body,url,labels,state,stateReason,milestone")
 
 (def target-states [{:id "open" :name "open"}
                     {:id "closed" :name "closed"}])
@@ -44,7 +44,10 @@
      :title (:title issue)
      :description (:body issue)
      :url (:url issue)
-     :state (case (:state issue) "OPEN" "open" "CLOSED" "completed" nil)
+     :state (case (:state issue)
+              "OPEN" "open"
+              "CLOSED" (if (= "NOT_PLANNED" (:stateReason issue)) "canceled" "completed")
+              nil)
      :scopes [scope]
      :project (when-let [m (:milestone issue)] (normalize-milestone scope m))
      :labels (mapv #(normalize-label scope (:name %)) (or (:labels issue) []))}))
