@@ -289,6 +289,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -306,6 +307,7 @@
     {:provider :taskwarrior
      :capabilities capabilities
      :configured-scope (fn [] @scope*)
+     :list-items #(tasks app-config @scope*)
      :search-parent-items #(tasks app-config @scope*)
      :resolve-parent-item unsupported-parent!
      :resolve-item #(resolve-item app-config @scope* %)

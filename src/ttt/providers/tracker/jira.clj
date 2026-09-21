@@ -532,6 +532,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -548,6 +549,7 @@
   {:provider :jira
    :capabilities capabilities
    :configured-scope #(configured-scope app-config)
+   :list-items #(parent-items app-config)
    :search-parent-items #(parent-items app-config)
    :resolve-parent-item #(resolve-item app-config %)
    :resolve-item #(resolve-item app-config %)

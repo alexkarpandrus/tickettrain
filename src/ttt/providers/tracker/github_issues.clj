@@ -178,6 +178,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -195,6 +196,7 @@
     {:provider :github-issues
      :capabilities capabilities
      :configured-scope (fn [] @scope*)
+     :list-items #(list-issues @scope* 100)
      :search-parent-items #(list-issues @scope* 100)
      :resolve-parent-item unsupported-parent!
      :resolve-item #(resolve-item @scope* %)
