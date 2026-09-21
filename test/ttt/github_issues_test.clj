@@ -52,13 +52,28 @@
                       {:tracker {:target-state "closed"}}
                       scope {} "Title" "Body" [])
                      [:state :name]))))
-    (is (some #(= ["gh" "issue" "close" "7"] %) @calls))))
+    (is (some #(= ["gh" "issue" "close" "7" "--repo" "org/repo"] %) @calls))))
 
-(deftest setup-selects-a-target-state
+(deftest update-reconciles-labels-in-the-configured-repository
+  (let [calls (atom [])
+        existing (github-issues/normalize-label scope "existing")
+        removed (github-issues/normalize-label scope "removed")
+        added (github-issues/normalize-label scope "added")]
+    (with-redefs [shell/run (fn [& args] (swap! calls conj args))
+                  github-issues/issue-by-number (fn [_ number] {:number number})]
+      (github-issues/update-item! scope
+                                  {:number 7 :labels [existing removed]}
+                                  "Body"
+                                  [existing added]))
+    (is (= [["gh" "issue" "edit" "7" "--repo" "org/repo" "--body" "Body"
+             "--add-label" "added" "--remove-label" "removed"]]
+           @calls))))
+
+(deftest setup-persists-the-repository-and-target-state
   (with-redefs [shell/run (fn [& _] "")
                 prompt/choose-index (fn [& _] 1)]
-    (is (= "open"
-           (get-in (github-issues/setup {}) [:tracker :target-state])))))
+    (is (= {:repository "org/repo" :target-state "open"}
+           (:tracker (github-issues/setup {:tracker {:repository "org/repo"}}))))))
 
 (deftest setup-authentication-failure-explains-recovery
   (with-redefs [shell/run (fn [& _] (throw (Exception. "not authenticated")))]
@@ -76,17 +91,17 @@
            @request))))
 
 (deftest parent-resolution-is-rejected-before-preview
-  (let [adapter (with-redefs [github-issues/repo-slug (fn [] "org/repo")]
-                  (github-issues/neutral-adapter {}))]
+  (let [adapter (github-issues/neutral-adapter {:tracker {:repository "org/repo"}})]
     (try
       ((:resolve-parent-item adapter) "1")
       (is false "Expected unsupported-parent")
       (catch Exception ex
         (is (= :unsupported-parent (:code (ex-data ex))))))))
 
-(deftest neutral-adapter-declares-every-tracker-capability
-  (with-redefs [github-issues/repo-slug (fn [] "org/repo")]
-    (let [adapter (github-issues/neutral-adapter {})]
+(deftest neutral-adapter-uses-the-configured-repository
+  (with-redefs [github-issues/gh-json (fn [& _] (throw (Exception. "must not inspect the current directory")))]
+    (let [adapter (github-issues/neutral-adapter {:tracker {:repository "org/repo"}})]
       (is (= :github-issues (:provider adapter)))
+      (is (= scope ((:configured-scope adapter))))
       (is (= github-issues/capabilities (:capabilities adapter)))
       (is (every? #(fn? (get adapter %)) github-issues/capabilities)))))

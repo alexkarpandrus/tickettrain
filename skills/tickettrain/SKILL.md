@@ -47,7 +47,7 @@ context:
 - Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior creates pending tasks, preserves native status during updates, and uses projects instead of native parent tasks.
-- Set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket.
+- Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
 - Never guess a state name. If setup reports an unavailable state, present the available states and ask the user to choose.
 
 ## Quick reference

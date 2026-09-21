@@ -83,6 +83,12 @@
                                        {"TTT_TRACKER_STATE" "In Progress"})
                  [:tracker :target-state]))))
 
+(deftest github-repository-maps-from-the-environment
+  (is (= "org/repo"
+         (get-in (config/env-overrides {:tracker {:provider :github-issues}}
+                                       {"GH_REPO" "org/repo"})
+                 [:tracker :repository]))))
+
 (deftest gitlab-credentials-map-from-the-environment
   (is (= {:token "gitlab-token" :base-url "https://gitlab.example.com"}
          (:forge (config/env-overrides {:forge {:provider :gitlab}}
