@@ -110,6 +110,43 @@
   (is (= ["task" "export" "rc:/tmp/taskrc"]
          (taskwarrior/command-args {:tracker {:taskrc "/tmp/taskrc"}} ["export"]))))
 
+(deftest setup-creates-an-empty-missing-taskrc
+  (let [taskrc (java.io.File/createTempFile "ttt-taskwarrior-" ".taskrc")
+        app-config {:tracker {:taskrc (.getAbsolutePath taskrc)}}]
+    (.delete taskrc)
+    (try
+      (with-redefs [taskwarrior/task-version (constantly "3.5.0")
+                    taskwarrior/task-run
+                    (fn [_ & _]
+                      (if (.exists taskrc)
+                        "/tmp/tasks"
+                        (throw (ex-info "task _get rc.data.location failed (exit 2): Configuration override rc.data.location"
+                                        {:err (str "Configuration override rc.data.location\n"
+                                                   "Cannot proceed without rc file.")}))))]
+        (let [error (try
+                      (taskwarrior/assert-ready! app-config)
+                      (catch Exception ex ex))]
+          (is (= "Taskwarrior has no configuration file. Run `ttt setup` to create an empty one automatically."
+                 (.getMessage error)))
+          (is (not (re-find #"Configuration override" (.getMessage error)))))
+        (with-out-str (taskwarrior/setup app-config))
+        (is (.exists taskrc))
+        (is (zero? (.length taskrc))))
+      (finally
+        (.delete taskrc)))))
+
+(deftest other-readiness-failures-keep-their-diagnostics
+  (let [failure (ex-info "task _get rc.data.location failed (exit 1): database unavailable"
+                         {:err "database unavailable"})
+        error (with-redefs [taskwarrior/task-version (constantly "3.5.0")
+                            taskwarrior/task-run (fn [& _] (throw failure))]
+                (try
+                  (taskwarrior/assert-ready! {})
+                  (catch Exception ex ex)))]
+    (is (= "Taskwarrior tracker requires a working `task` CLI and configuration."
+           (.getMessage error)))
+    (is (identical? failure (ex-cause error)))))
+
 
 (deftest comments-on-tasks-use-annotations
   (let [request (atom nil)
