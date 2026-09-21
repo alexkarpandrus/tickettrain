@@ -29,6 +29,8 @@ All resources that enter shared code use a neutral identity and presentation fie
 
 Tracker items, projects, labels, and scopes follow the same shape. Selection and mutation entities carry `:scopes`; an empty label scope is global. Shared code compares refs and scopes, never native IDs or team fields.
 
+Tracker items also use the neutral work-item fields `:state`, `:priority`, `:due-at`, `:available-at`, and `:blocked-by`. States are `open`, `active`, `waiting`, `completed`, or `canceled`; priorities are `none`, `low`, `medium`, `high`, or `urgent`. Blockers are normalized tracker-item entities. Native status names, date formats, dependency IDs, and priority codes stay inside the concrete adapter.
+
 ## Registry descriptors
 
 Bundled registries live at the composition boundary:
@@ -67,11 +69,12 @@ A descriptor has a required `:build` function and optional `:validate-config!` a
 
 ## Capability maps
 
-A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, creation, update, commenting, and title prefixing. A tracker declares configured scope, item listing, searches and resolvers, `:create-item!`/`:update-item!`, and `:comment-item!`.
+A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, creation, update, commenting, and title prefixing. A tracker declares configured scope, item listing, searches and resolvers, `:create-item!`/`:update-item!`, and `:comment-item!`. Each tracker also declares its supported work-item concepts in `:item-capabilities`: `:item-lifecycle`, `:item-priority`, `:item-due-dates`, `:item-availability`, and `:item-blockers`. Preview rejects a requested concept that the selected tracker does not declare.
 
 ```clojure
 {:provider :example-tracker
  :capabilities #{...}
+ :item-capabilities #{:item-lifecycle :item-priority}
  :configured-scope (fn [] normalized-scope)
  :list-items (fn [] [normalized-item ...])
  :resolve-labels (fn [label-refs scope] [normalized-label ...])
@@ -80,9 +83,11 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
  :comment-item! (fn [item body] nil)}
 ```
 
-Shared code passes normalized label entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution, then validates the resolved labels before mutation.
+Shared code passes normalized label and blocker entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution and validates resolved labels and blockers before mutation. A missing or ambiguous blocker reference fails preview.
 
-Trackers also own provider-specific creation state. State-capable tracker setup must expose valid native states, and `:create-item!` must validate and apply the configured state without adding provider branches to `ttt.core`. Providers without configurable creation states, such as Taskwarrior, must document their native default.
+Create and update intents contain only requested work-item fields. Omitted fields remain unchanged. A JSON `null` clears an optional scalar, and an empty `blockedBy` array clears blockers. Comments remain separate append-only operations.
+
+Taskwarrior implements all five work-item capabilities. Its adapter translates Taskwarrior statuses, priorities, dates, dependencies, tags, projects, and reserved annotations. It preserves unrelated exported fields during partial updates.
 
 ## Registering a bundled provider
 

@@ -260,7 +260,7 @@
                       (or (:notes task) ""))
        :provider-description (when rich-notes? html-notes)
        :url (:permalink_url task)
-       :state {:name (if (:completed task) "completed" "incomplete")}
+       :state (if (:completed task) "completed" "open")
        :scopes [scope]
        :project (when-let [p (first (:projects task))] (normalize-project scope p))
        :parent (when-let [p (:parent task)] (normalize-parent scope p))
@@ -434,6 +434,7 @@
   [app-config]
   {:provider :asana
    :capabilities capabilities
+   :item-capabilities #{}
    :configured-scope #(configured-scope app-config)
    :list-items #(tasks app-config)
    :search-parent-items #(tasks app-config)
