@@ -1,12 +1,12 @@
 # tickettrain
 
-`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Run it inside the target application repository.
+`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Forge actions run inside the target application repository; standalone item actions do not need Git.
 
 ## Preconditions
 
 - `ttt version` succeeds
 - `git` and `bb` are installed; `gh` is required for GitHub and `task` for Taskwarrior
-- Forge authentication is configured
+- Forge authentication is configured for forge actions
 - The current branch is pushed before applying an action that creates a change request
 - Credentials or local Taskwarrior configuration are ready for the selected tracker
 
@@ -18,7 +18,7 @@ Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local
 - Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior creates pending tasks and preserves native status during updates.
-- Set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket.
+- Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
 - Never guess a state name. Present the available states and ask the user to choose.
 
 ## Commands and flags
@@ -77,6 +77,14 @@ Output options:
 ```
 
 ```json
+{"action":"create_item","title":"Ask Jade for a status update on Project X","description":"Follow up this week.","project":"Work","labels":["follow-up","waiting"]}
+```
+
+```json
+{"action":"update_item","item":"APP-123","comment":"Jade replied. Waiting for the revised timeline.","addLabels":["waiting"],"removeLabels":["blocked"]}
+```
+
+```json
 {"action":"create_change_request","title":"Improve agent guidance","body":"## What\n\nDocument the repository workflow."}
 ```
 
@@ -102,12 +110,14 @@ Rules:
 - `version`, `status`, `inspect`, `search`, and `preview` are read-only; `apply` is the only mutating command.
 - `apply` recomputes the proposal, including the selected profile, and rejects stale or mismatched approval.
 - `link_existing` accepts `item`; v1 `issue` input is not supported.
+- `create_item` accepts `title`, optional `description`, `project`, and `labels`; it needs no forge configuration or repository context.
+- `update_item` accepts `item` plus `comment`, `addLabels`, or `removeLabels`; it needs no forge configuration or repository context.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.
 - `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request; it needs no tracker configuration.
 - `comment_item` accepts `item` and `body`; it needs no forge configuration or repository context.
 - `comment_change_request` accepts `body` and targets the current branch's open change request; it needs no tracker configuration.
-- Labels are existing neutral tracker entities in the selected scope.
-- Comment previews include the exact target and comment body. Change-request update previews include the exact target and `changeRequestUpdate`. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; create previews include `changeRequestIntent`.
+- Projects and labels must already exist, except Taskwarrior projects and tags, which are created implicitly.
+- Standalone item previews include the exact target or creation intent, comment, and label changes. Comment previews include the exact target and comment body. Change-request update previews include the exact target and `changeRequestUpdate`. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; change-request create previews include `changeRequestIntent`.
 
 ## Managed metadata
 

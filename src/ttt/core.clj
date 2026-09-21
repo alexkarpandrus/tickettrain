@@ -12,6 +12,14 @@
   [runtime]
   ((get-in runtime [:tracker :configured-scope])))
 
+(defn require-tracker-operation!
+  [runtime capability operation]
+  (when-not (fn? (get-in runtime [:tracker capability]))
+    (throw (ex-info (str "The tracker provider does not support " operation ".")
+                    {:code :unsupported-capability
+                     :provider (get-in runtime [:tracker :provider])
+                     :capability capability}))))
+
 (defn assert-entity-scope!
   [runtime entity entity-kind]
   (let [scope (configured-scope runtime)]
@@ -89,6 +97,9 @@
                  [(conj seen key) (conj labels label)])))
            [#{} []]
            (concat current selected))))
+
+(defn label-key [label]
+  (domain/identity-data (:ref label)))
 
 (defn label-in-scope?
   [label scope]
@@ -189,6 +200,47 @@
      :change-request change-request
      :change-request-update (select-keys request [:title :body])}))
 
+(defn standalone-item-proposal
+  [runtime request]
+  (let [context (resolve-context runtime request)
+        labels (resolve-labels runtime (:labels request))]
+    {:action :create-item
+     :request request
+     :context context
+     :labels labels
+     :tracker-intent {:title (:title request)
+                      :description (:description request)
+                      :labels labels}}))
+
+(defn update-item-proposal
+  [runtime request]
+  (when (or (seq (:add-labels request)) (seq (:remove-labels request)))
+    (require-tracker-operation! runtime :update-item! "item label updates"))
+  (when (contains? request :comment)
+    (require-tracker-operation! runtime :comment-item! "item comments"))
+  (let [item (resolve-item! runtime (:item-ref request))
+        current (item-labels item)
+        requested-add (resolve-labels runtime (:add-labels request))
+        requested-remove (resolve-labels runtime (:remove-labels request))
+        add-keys (set (map label-key requested-add))
+        remove-keys (set (map label-key requested-remove))]
+    (when (some remove-keys add-keys)
+      (throw (ex-info "update_item cannot add and remove the same label."
+                      {:code :invalid-label-changes})))
+    (let [current-keys (set (map label-key current))
+          add (remove #(contains? current-keys (label-key %)) requested-add)
+          removed (filter #(contains? current-keys (label-key %)) requested-remove)
+          labels (->> (distinct-labels current add)
+                      (remove #(contains? remove-keys (label-key %)))
+                      vec)]
+      (cond-> {:action :update-item
+               :request request
+               :item item
+               :labels labels
+               :label-changes {:add (vec add) :remove (vec removed)}
+               :tracker-intent {:description (:description item) :labels labels}}
+        (contains? request :comment) (assoc :comment {:body (:comment request)})))))
+
 (defn comment-item-proposal
   [runtime request]
   (let [item (resolve-item! runtime (:item-ref request))]
@@ -244,11 +296,13 @@
 
 (defn preview
   ([runtime request]
-   (if (= :comment-item (:action request))
-     (comment-item-proposal runtime request)
+   (if (contains? #{:create-item :update-item :comment-item} (:action request))
+     (preview runtime nil request)
      (preview runtime (inspect runtime) request)))
   ([runtime source request]
    (case (:action request)
+     :create-item (standalone-item-proposal runtime request)
+     :update-item (update-item-proposal runtime request)
      :create-change-request (standalone-change-request-proposal source request)
      :update-change-request (update-change-request-proposal source request)
      :comment-change-request (comment-change-request-proposal source request)
@@ -323,6 +377,18 @@
 (defn apply!
   [runtime proposal]
   (case (:action proposal)
+    :create-item
+    {:item (create-item! runtime (:context proposal) (:tracker-intent proposal))
+     :change-request nil}
+
+    :update-item
+    (let [labels-changed? (some seq (vals (:label-changes proposal)))
+          item (if labels-changed?
+                 (update-item! runtime (:item proposal) (:tracker-intent proposal))
+                 (:item proposal))]
+      (when-let [body (get-in proposal [:comment :body])]
+        (comment-item! runtime item body))
+      {:item item :change-request nil :comment (:comment proposal)})
     :comment-item
     (do
       (comment-item! runtime (:item proposal) (get-in proposal [:comment :body]))
