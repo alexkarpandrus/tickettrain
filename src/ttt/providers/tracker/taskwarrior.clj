@@ -52,7 +52,7 @@
   [app-config]
   (if-let [taskrc (get-in app-config [:tracker :taskrc])]
     (java.io.File. taskrc)
-    (java.io.File. (System/getProperty "user.home") ".taskrc")))
+    (java.io.File. (or (System/getenv "HOME") (System/getProperty "user.home")) ".taskrc")))
 
 (defn missing-taskrc?
   [ex]
@@ -273,8 +273,9 @@
     (assert-ready! app-config)
     (catch Exception ex
       (if (= :taskrc-missing (:reason (ex-data ex)))
-        (do
-          (.createNewFile (taskrc-file app-config))
+        (let [taskrc (taskrc-file app-config)]
+          (some-> taskrc .getParentFile .mkdirs)
+          (.createNewFile taskrc)
           (assert-ready! app-config))
         (throw ex))))
   (println (str "Taskwarrior tracker: " (task-version)

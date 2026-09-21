@@ -110,10 +110,22 @@
   (is (= ["task" "export" "rc:/tmp/taskrc"]
          (taskwarrior/command-args {:tracker {:taskrc "/tmp/taskrc"}} ["export"]))))
 
+(deftest default-taskrc-follows-home-environment
+  (let [original-home (System/getProperty "user.home")
+        environment-home (System/getenv "HOME")
+        fake-home (str original-home "-not-environment-home")]
+    (try
+      (System/setProperty "user.home" fake-home)
+      (is (= (java.io.File. (or environment-home fake-home) ".taskrc")
+             (taskwarrior/taskrc-file {})))
+      (finally
+        (System/setProperty "user.home" original-home)))))
+
 (deftest setup-creates-an-empty-missing-taskrc
-  (let [taskrc (java.io.File/createTempFile "ttt-taskwarrior-" ".taskrc")
+  (let [root (java.io.File/createTempFile "ttt-taskwarrior-" ".tmp")
+        taskrc (java.io.File. root "nested/taskrc")
         app-config {:tracker {:taskrc (.getAbsolutePath taskrc)}}]
-    (.delete taskrc)
+    (.delete root)
     (try
       (with-redefs [taskwarrior/task-version (constantly "3.5.0")
                     taskwarrior/task-run
@@ -133,7 +145,9 @@
         (is (.exists taskrc))
         (is (zero? (.length taskrc))))
       (finally
-        (.delete taskrc)))))
+        (.delete taskrc)
+        (.delete (.getParentFile taskrc))
+        (.delete root)))))
 
 (deftest other-readiness-failures-keep-their-diagnostics
   (let [failure (ex-info "task _get rc.data.location failed (exit 1): database unavailable"
