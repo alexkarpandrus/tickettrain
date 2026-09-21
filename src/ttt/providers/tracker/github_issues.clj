@@ -52,13 +52,15 @@
 (defn issue-by-number
   [scope number]
   (try
-    (normalize-item scope (gh-json "issue" "view" (str number) "--json" issue-fields))
+    (normalize-item scope (gh-json "issue" "view" (str number)
+                                   "--repo" (:id scope)
+                                   "--json" issue-fields))
     (catch Exception _ nil)))
 
 (defn list-issues
   ([scope limit] (list-issues scope nil limit))
   ([scope query limit]
-   (let [base ["issue" "list" "--state" "all" "--json" issue-fields "--limit" (str limit)]
+   (let [base ["issue" "list" "--repo" (:id scope) "--state" "all" "--json" issue-fields "--limit" (str limit)]
          args (cond-> base (seq query) (into ["--search" query]))]
      (mapv #(normalize-item scope %) (apply gh-json args)))))
 
@@ -75,7 +77,7 @@
 
 (defn milestones
   [scope]
-  (mapv #(normalize-milestone scope %) (gh-json "api" (str "repos/" (repo-slug) "/milestones"))))
+  (mapv #(normalize-milestone scope %) (gh-json "api" (str "repos/" (:id scope) "/milestones"))))
 
 (defn resolve-project
   [scope ref]
@@ -87,7 +89,8 @@
 (defn labels
   [scope]
   (mapv #(normalize-label scope (:name %))
-        (gh-json "label" "list" "--json" "name,color,description" "--limit" "100")))
+        (gh-json "label" "list" "--repo" (:id scope)
+                 "--json" "name,color,description" "--limit" "100")))
 
 (defn resolve-labels
   [scope label-refs _scope]
@@ -113,21 +116,27 @@
                                      target-states)
         milestone (some-> (:project context) project-name)
         label-args (mapcat (fn [label] ["--label" label]) (label-names labels))
-        args (cond-> ["issue" "create" "--title" title "--body" description]
+        args (cond-> ["issue" "create" "--repo" (:id scope) "--title" title "--body" description]
                milestone (into ["--milestone" milestone])
                (seq label-args) (into label-args))
         url (apply shell/run "gh" args)
         number (some->> (re-find #"/issues/(\d+)$" url) second Long/parseLong)]
     (when (= "closed" (:id target))
-      (shell/run "gh" "issue" "close" (str number)))
+      (shell/run "gh" "issue" "close" (str number) "--repo" (:id scope)))
     (issue-by-number scope number)))
 
 (defn update-item!
   [scope item description labels]
   (let [number (:number item)
-        label-args (mapcat (fn [label] ["--add-label" label]) (label-names labels))
-        args (cond-> ["issue" "edit" (str number) "--body" description]
-               (seq label-args) (into label-args))]
+        current (set (label-names (:labels item)))
+        desired (set (label-names labels))
+        add-args (mapcat (fn [label] ["--add-label" label])
+                         (remove current (label-names labels)))
+        remove-args (mapcat (fn [label] ["--remove-label" label])
+                            (remove desired (label-names (:labels item))))
+        args (cond-> ["issue" "edit" (str number) "--repo" (:id scope) "--body" description]
+               (seq add-args) (into add-args)
+               (seq remove-args) (into remove-args))]
     (apply shell/run "gh" args)
     (issue-by-number scope number)))
 
@@ -160,10 +169,12 @@
   [app-config]
   (assert-ready! app-config)
   (println "GitHub Issues tracker: gh authenticated")
-  (let [target (state/choose-target "GitHub Issues"
+  (let [repository (repo-slug (get-in app-config [:tracker :repository]))
+        target (state/choose-target "GitHub Issues"
                                     (get-in app-config [:tracker :target-state])
                                     target-states)]
-    {:tracker {:target-state (some-> target :name)}}))
+    {:tracker {:repository repository
+               :target-state (some-> target :name)}}))
 
 (def capabilities
   #{:configured-scope
@@ -180,7 +191,7 @@
 
 (defn neutral-adapter
   [app-config]
-  (let [scope* (delay (domain/scope-identity :github-issues (repo-slug)))]
+  (let [scope* (delay (domain/scope-identity :github-issues (repo-slug (get-in app-config [:tracker :repository]))))]
     {:provider :github-issues
      :capabilities capabilities
      :configured-scope (fn [] @scope*)

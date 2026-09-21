@@ -18,7 +18,7 @@ Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local
 - Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior creates pending tasks and preserves native status during updates.
-- Set `GH_REPO=owner/repository` when GitHub Issues is paired with GitLab or Bitbucket.
+- Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
 - Never guess a state name. Present the available states and ask the user to choose.
 
 ## Commands and flags

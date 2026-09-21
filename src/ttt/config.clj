@@ -66,7 +66,8 @@
     {:key :issue-type :env "JIRA_ISSUE_TYPE"}
     {:key :target-state :env "TTT_TRACKER_STATE"}]
    [:tracker :github-issues]
-   [{:key :target-state :env "TTT_TRACKER_STATE"}]
+   [{:key :repository :label "GitHub repository" :env "GH_REPO"}
+    {:key :target-state :env "TTT_TRACKER_STATE"}]
    [:tracker :asana]
    [{:key :token :label "Asana token" :env "ASANA_TOKEN"
      :required? true :secret? true}
