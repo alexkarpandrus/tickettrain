@@ -131,7 +131,7 @@
     (contains? intent :priority) (assoc :priority (:priority intent))
     (contains? intent :due-at) (assoc :dueAt (:due-at intent))
     (contains? intent :available-at) (assoc :availableAt (:available-at intent))
-    (contains? intent :blocked-by) (assoc :blockedBy (mapv wire-entity (:blocked-by intent)))))
+    (contains? intent :blocked-by) (assoc :blockedBy (mapv wire-blocker (:blocked-by intent)))))
 (defn proposal->wire [proposal]
   (let [base (cond-> {:proposalId (:proposal-id proposal)
                       :action (wire-action (:action proposal))
@@ -225,6 +225,15 @@
         (some #(= expected (some-> % str str/trim str/lower-case))
               [(:name entity) (:display-id entity) (:title entity) (get-in entity [:ref :id])]))))
 
+
+(defn resolve-search-item [tracker-adapter query]
+  (try
+    ((:resolve-item tracker-adapter) query)
+    (catch Exception ex
+      (if (= :ambiguous-item (:code (ex-data ex)))
+        nil
+        (throw ex)))))
+
 (defn list-data [tracker-adapter options]
   (let [kind (require-option options :kind)
         scope ((:configured-scope tracker-adapter))
@@ -246,7 +255,7 @@
                  (mapv wire-entity))}))
 (defn search-items [tracker-adapter query options limit]
   (let [scope ((:configured-scope tracker-adapter))
-        exact (some-> ((:resolve-item tracker-adapter) query)
+        exact (some-> (resolve-search-item tracker-adapter query)
                       (as-> item
                           (when (and (domain/entity-in-scope? item scope)
                                      (= (str/lower-case query)

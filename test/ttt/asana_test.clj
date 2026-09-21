@@ -34,6 +34,7 @@
     (is (= "Retry" (:title item)))
     (is (= "Body" (:description item)))
     (is (= "open" (:state item)))
+    (is (= "completed" (:state (asana/normalize-task scope (assoc task :completed true)))))
     (is (= "App" (get-in item [:project :display-id])))
     (is (= "99" (get-in item [:parent :display-id])))
     (is (= ["bug"] (mapv :display-id (:labels item))))

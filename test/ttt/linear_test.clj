@@ -12,6 +12,15 @@
    :change-request {:body-begin-marker "<!-- ttt:begin -->"
                     :body-end-marker "<!-- ttt:end -->"}})
 
+
+(deftest maps-linear-workflow-types-to-neutral-states
+  (doseq [[native expected] [["backlog" "open"]
+                             ["unstarted" "open"]
+                             ["started" "active"]
+                             ["completed" "completed"]
+                             ["canceled" "canceled"]]]
+    (is (= expected (linear/normalize-state {:type native})))))
+
 (deftest assignee-id-resolves-self-through-viewer
   (with-redefs [linear/viewer (fn [_] {:id "viewer-1"})]
     (is (= "viewer-1"
