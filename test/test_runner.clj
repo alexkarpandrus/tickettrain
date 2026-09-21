@@ -24,6 +24,7 @@
             [ttt.shell-test]
             [ttt.tracker-state-test]
             [ttt.taskwarrior-test]
+            [ttt.typesafe-test]
             [ttt.ui-test]
             [ttt.workflow-test]))
 
@@ -36,7 +37,7 @@
    'ttt.linear-test 'ttt.links-test 'ttt.main-test
    'ttt.pr-body-test 'ttt.provider-integration-test
    'ttt.remote-test 'ttt.setup-test 'ttt.shell-test 'ttt.taskwarrior-test
-   'ttt.tracker-state-test 'ttt.ui-test 'ttt.workflow-test])
+   'ttt.tracker-state-test 'ttt.typesafe-test 'ttt.ui-test 'ttt.workflow-test])
 
 (defn -main []
   (let [result (apply test/run-tests test-namespaces)]
