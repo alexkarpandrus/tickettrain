@@ -134,6 +134,29 @@
   (when-let [setup-fn (:setup descriptor)]
     (setup-fn app-config)))
 
+(def profile-name-pattern #"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+(defn ask-profile-name
+  [unavailable]
+  (loop []
+    (let [value (prompt/ask "Name this new profile:")
+          profile (some-> value keyword)]
+      (cond
+        (nil? value)
+        (throw (ex-info "Input closed. No profile was saved." {:code :aborted}))
+
+        (not (re-matches profile-name-pattern value))
+        (do
+          (println (ui/warning "Use letters, numbers, dot, underscore, or hyphen."))
+          (recur))
+
+        (contains? unavailable profile)
+        (do
+          (println (ui/warning (str "Profile " value " already exists.")))
+          (recur))
+
+        :else profile))))
+
 (defn setup!
   ([] (setup! config/default-config-path nil))
   ([config-path profile]
@@ -143,8 +166,19 @@
          loaded (config/load-file-config config-path local-config profile)
          active-profile (:profile loaded)
          local-profile (config/profile-layer local-config active-profile)
-         forge-id (choose-provider :forge forge/registry (config/forge-provider loaded))
-         tracker-id (choose-provider :tracker tracker/registry (config/tracker-provider loaded))
+         current-forge-id (config/forge-provider loaded)
+         current-tracker-id (config/tracker-provider loaded)
+         forge-id (choose-provider :forge forge/registry current-forge-id)
+         tracker-id (choose-provider :tracker tracker/registry current-tracker-id)
+         new-profile? (and (nil? profile)
+                           (or (not= forge-id current-forge-id)
+                               (not= tracker-id current-tracker-id)))
+         migration? (and new-profile? (nil? active-profile))
+         unavailable-profiles (when new-profile?
+                                (cond-> (set (concat
+                                             (keys (:profiles (config/read-edn-map config-path)))
+                                             (keys (:profiles local-config))))
+                                  migration? (conj :default)))
          forge-descriptor (adapters/descriptor forge/registry :forge forge-id)
          tracker-descriptor (adapters/descriptor tracker/registry :tracker tracker-id)
          forge-selection (selected-role-config loaded local-profile :forge forge-id forge-descriptor)
@@ -168,8 +202,8 @@
          prompted-settings (config/deep-merge
                             (collect-required-settings configured :forge forge-descriptor)
                             (collect-required-settings configured :tracker tracker-descriptor))
-         app-config (cond-> (config/deep-merge configured prompted-settings)
-                      helper (assoc :credential-helper helper))
+         provider-config (cond-> (config/deep-merge configured prompted-settings)
+                           helper (assoc :credential-helper helper))
          forge-label (:display-name forge-descriptor)
          tracker-label (:display-name tracker-descriptor)
          _ (println)
@@ -185,12 +219,17 @@
                                                                environment-config)
                                    (remove-environment-secrets :tracker tracker-descriptor
                                                                environment-config))
-         forge-delta (-> (run-provider-setup app-config forge-descriptor)
+         forge-delta (-> (run-provider-setup provider-config forge-descriptor)
                          (remove-environment-secrets :forge forge-descriptor
                                                      environment-config))
-         tracker-delta (-> (run-provider-setup app-config tracker-descriptor)
+         tracker-delta (-> (run-provider-setup provider-config tracker-descriptor)
                            (remove-environment-secrets :tracker tracker-descriptor
                                                        environment-config))
+         target-profile (if new-profile?
+                          (ask-profile-name unavailable-profiles)
+                          active-profile)
+         app-config (cond-> provider-config
+                      target-profile (assoc :profile target-profile))
          store-secrets (fn [candidate]
                          (+ (store-role-secrets! candidate app-config :forge forge-id forge-descriptor
                                                  environment-config)
@@ -239,12 +278,34 @@
                       (remove-secret-settings :forge forge-descriptor)
                       (remove-secret-settings :tracker tracker-descriptor))
                   deltas)
-         path (if active-profile
+         path (cond
+                migration?
+                (config/write-local-config!
+                 {:default-profile :default
+                  :profiles {:default (select-keys local-config [:forge :tracker])
+                             target-profile deltas}}
+                 #{:forge :tracker})
+
+                new-profile?
+                (config/write-local-config! deltas #{:forge :tracker} target-profile)
+
+                active-profile
                 (config/write-local-config! deltas #{:forge :tracker} active-profile)
+
+                :else
                 (config/write-local-config! deltas #{:forge :tracker}))]
-     (println (ui/success (str "Configured " forge-label " → " tracker-label ".")))
+     (println (ui/success
+               (str "Configured " forge-label " → " tracker-label
+                    (when new-profile? (str " as profile `" (name target-profile) "`"))
+                    ".")))
+     (when migration?
+       (println (ui/muted "Existing configuration is now profile `default`.")))
      (println (ui/muted
                (if persist-helper?
                  (str "Saved settings to " path "; credentials use docker-credential-" stored-helper ".")
                  (str "Saved to " path " (owner-only)."))))
-     (println (ui/success "Setup complete. Run `ttt version` to verify.")))))
+     (println (ui/success
+               (if new-profile?
+                 (str "Setup complete. Run `ttt status --profile " (name target-profile)
+                      " --human` to verify.")
+                 "Setup complete. Run `ttt version` to verify."))))))
