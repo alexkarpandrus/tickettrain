@@ -96,26 +96,35 @@
                                    :setup-settings []
                                    :setup (setup-fn :tracker
                                                     {:tracker {:target-state "open"}})}}
-                  config/load-local-config (constantly {})
+                  config/load-local-config (constantly {:forge {:provider :github}
+                                                        :tracker {:provider :linear :team-id "existing"}})
                   config/load-file-config (fn [& _] {:forge {:provider :github}
                                                      :tracker {:provider :linear}})
                   config/env-overrides (fn [_ _] {:forge {:token "environment-secret" :base-url "https://gitlab.example"}})
                   credentials/helper-name (fn [& _] nil)
                   credentials/detected-helpers (constantly [])
                   prompt/choose-index (fn [_ _ _] 1)
+                  prompt/ask (constantly "client")
                   config/write-local-config! (fn [value replace-sections]
                                                (reset! written value)
                                                (reset! replaced replace-sections)
                                                "config/ttt.local.edn")]
       (let [output (with-out-str (setup/setup!))]
         (is (= {:forge :gitlab :tracker :github-issues} @configured))
-        (is (= {:forge {:provider :gitlab :token nil :base-url "https://gitlab.example"}
-                :tracker {:provider :github-issues :target-state "open"}}
+        (is (= {:default-profile :default
+                :profiles
+                {:default {:forge {:provider :github}
+                           :tracker {:provider :linear :team-id "existing"}}
+                 :client {:forge {:provider :gitlab :token nil
+                                  :base-url "https://gitlab.example"}
+                          :tracker {:provider :github-issues :target-state "open"}}}}
                @written))
         (is (= "environment-secret" @environment-secret-used))
         (is (= #{:forge :tracker} @replaced))
         (is (re-find #"GitLab → GitHub Issues" output))
-        (is (re-find #"ttt version" output))))))
+        (is (re-find #"profile `client`" output))
+        (is (re-find #"Existing configuration is now profile `default`" output))
+        (is (re-find #"ttt status --profile client --human" output))))))
 
 (deftest setup-stores-entered-secrets-in-a-credential-helper
   (let [stored (atom nil)
