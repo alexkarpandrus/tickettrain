@@ -54,6 +54,23 @@
         (is (str/includes? output text)))
       (is (not (str/starts-with? output "{"))))))
 
+(deftest list-output-supports-json-and-human
+  (let [envelope {:schemaVersion 2 :ok true :command "list"
+                  :data {:items [{:displayId "APP-1" :title "Retry"
+                                  :state {:name "pending"}
+                                  :labels [{:displayId "waiting"}]}]}}]
+    (with-redefs [agent/run (fn [args]
+                              (is (= ["list" "--kind" "item"] (vec args)))
+                              {:exit 0 :envelope envelope})]
+      (let [json-output (json/parse-string
+                         (with-out-str (main/run-agent! ["list" "--kind" "item"])) true)
+            human-output (with-out-str
+                           (main/run-agent! ["list" "--kind" "item" "--human"]))]
+        (is (= "APP-1" (get-in json-output [:data :items 0 :displayId])))
+        (doseq [text ["Items:" "Display ID: APP-1" "State:" "Name: pending"
+                      "Labels:" "Display ID: waiting"]]
+          (is (str/includes? human-output text)))))))
+
 (deftest human-output-keeps-all-error-details
   (with-redefs [agent/run (fn [_] {:exit 2 :envelope {:schemaVersion 2 :ok false :command "search"
                                                        :error {:code "remote-api-error" :message "Request failed"
