@@ -4,7 +4,8 @@
             [ttt.adapters :as adapters]
             [ttt.cli.agent :as agent]
             [ttt.config :as config]
-            [ttt.domain :as domain]))
+            [ttt.domain :as domain]
+            [ttt.inference.typesafe :as typesafe]))
 
 (def scope (domain/scope-identity :linear "team-1"))
 (def item {:ref (domain/identity :linear :tracker-item "issue-1") :display-id "APP-123" :title "Retry" :description "Description" :url "https://linear/item" :scopes [scope] :labels []})
@@ -29,6 +30,32 @@
                                  [:candidates]))]
     (is (= "APP-123" (:displayId candidate)))
     (is (= 1.0 (:score candidate)))))
+
+(deftest semantic-search-reranks-before-applying-the-output-limit
+  (let [calls (atom [])
+        other (assoc item
+                     :ref (domain/identity :linear :tracker-item "issue-2")
+                     :display-id "APP-456"
+                     :title "Stripe retries")
+        tracker* (assoc (:tracker (runtime calls)) :search-parent-items (fn [] [item other]))]
+    (with-redefs [typesafe/rerank (fn [query candidates]
+                                    (is (= "payment recovery" query))
+                                    (is (= 2 (count candidates)))
+                                    {:candidates (vec (reverse candidates))
+                                     :ranking {:method "jev" :model "jev-1.13.0" :confidence 0.8}})]
+      (let [result (agent/search-data tracker* {:kind "item" :query "payment recovery"
+                                                :semantic true :limit 1})]
+        (is (= "APP-456" (get-in result [:candidates 0 :displayId])))
+        (is (= "jev" (get-in result [:ranking :method])))))))
+
+(deftest semantic-search-falls-back-without-losing-candidates
+  (let [candidates [{:displayId "APP-1"} {:displayId "APP-2"}]]
+    (with-redefs [typesafe/rerank (fn [_ _]
+                                    (throw (ex-info "offline" {:code :provider-unavailable})))]
+      (let [result (agent/semantic-search "retry" candidates)]
+        (is (= candidates (:candidates result)))
+        (is (= {:method "lexical" :fallbackReason "provider-unavailable"}
+               (:ranking result)))))))
 
 (deftest version-advertises-product-and-agent-api-versions
   (let [version (agent/execute-command "version" [])]

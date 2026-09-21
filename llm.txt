@@ -29,7 +29,7 @@ Non-interactive API (schema v2):
   ttt version
   ttt inspect
   ttt status
-  ttt search --kind item|project|label --query TEXT
+  ttt search --kind item|project|label --query TEXT [--semantic]
   ttt preview --request JSON
   ttt preview --request-file PATH
   ttt apply --request JSON --approve PROPOSAL_ID
@@ -51,6 +51,7 @@ Interactive workflow:
 Selection options:
   --profile NAME    Named profile (defaults to :default-profile)
   --config PATH     Config file path
+  --semantic        Rerank search candidates with Jev; sends candidate text to TypeSafe AI
 
 Interactive options:
   -i, --interactive Run the prompt-driven workflow
@@ -127,7 +128,7 @@ Tracker item descriptions use a separate `ttt:pull-requests` managed section. Us
 
 1. Run `ttt status`, choose the intended profile, and use the same `--profile NAME` for every command in the operation.
 2. For `create_change_request` or `update_change_request`, set the exact title/body change, then skip tracker searches.
-3. For tracker actions, derive two or three short queries from the change request and search existing items first.
+3. For tracker actions, derive two or three short queries from the change request and search existing items first. Add `--semantic` only when Jev is configured and sending candidate text to TypeSafe AI is acceptable.
 4. If creating a new item, search projects, parent items, and relevant existing labels.
 5. Ask the user when candidates or hierarchy are ambiguous.
 6. Write the request JSON with the agent's file tool and run `ttt preview --request-file ...`.
