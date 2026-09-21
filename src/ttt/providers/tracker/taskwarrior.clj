@@ -48,6 +48,17 @@
                       {:code :provider-config-invalid :provider :taskwarrior})))
     (domain/scope-identity :taskwarrior location)))
 
+(defn taskrc-file
+  [app-config]
+  (if-let [taskrc (get-in app-config [:tracker :taskrc])]
+    (java.io.File. taskrc)
+    (java.io.File. (System/getProperty "user.home") ".taskrc")))
+
+(defn missing-taskrc?
+  [ex]
+  (str/includes? (or (:err (ex-data ex)) "")
+                 "Cannot proceed without rc file."))
+
 (defn normalize-project
   [scope name]
   {:ref (domain/identity :taskwarrior :project name)
@@ -246,13 +257,26 @@
     (configured-scope app-config)
     nil
     (catch Exception ex
-      (throw (ex-info "Taskwarrior tracker requires a working `task` CLI and configuration."
-                      {:code :provider-config-invalid :provider :taskwarrior}
-                      ex)))))
+      (if (missing-taskrc? ex)
+        (throw (ex-info "Taskwarrior has no configuration file. Run `ttt setup` to create an empty one automatically."
+                        {:code :provider-config-invalid
+                         :provider :taskwarrior
+                         :reason :taskrc-missing}
+                        ex))
+        (throw (ex-info "Taskwarrior tracker requires a working `task` CLI and configuration."
+                        {:code :provider-config-invalid :provider :taskwarrior}
+                        ex))))))
 
 (defn setup
   [app-config]
-  (assert-ready! app-config)
+  (try
+    (assert-ready! app-config)
+    (catch Exception ex
+      (if (= :taskrc-missing (:reason (ex-data ex)))
+        (do
+          (.createNewFile (taskrc-file app-config))
+          (assert-ready! app-config))
+        (throw ex))))
   (println (str "Taskwarrior tracker: " (task-version)
                 ", data " (get-in (configured-scope app-config) [:id])))
   nil)
