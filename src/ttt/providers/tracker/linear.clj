@@ -148,10 +148,11 @@
 
 (defn normalize-state
   [state]
-  (when state
-    (cond-> {:name (:name state)}
-      (:id state) (assoc :id (:id state))
-      (:type state) (assoc :type (:type state)))))
+  (case (:type state)
+    "started" "active"
+    "completed" "completed"
+    "canceled" "canceled"
+    (when state "open")))
 
 (defn normalize-item-summary
   [item]
@@ -444,6 +445,7 @@
   [app-config]
   {:provider :linear
    :capabilities capabilities
+   :item-capabilities #{}
    :configured-scope #(configured-scope app-config)
    :list-items #(normalized-parent-items app-config)
    :search-parent-items #(normalized-parent-items app-config)

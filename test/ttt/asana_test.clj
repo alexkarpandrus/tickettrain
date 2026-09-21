@@ -33,7 +33,7 @@
     (is (= "123" (:display-id item)))
     (is (= "Retry" (:title item)))
     (is (= "Body" (:description item)))
-    (is (= "incomplete" (get-in item [:state :name])))
+    (is (= "open" (:state item)))
     (is (= "App" (get-in item [:project :display-id])))
     (is (= "99" (get-in item [:parent :display-id])))
     (is (= ["bug"] (mapv :display-id (:labels item))))
@@ -152,4 +152,5 @@
   (let [adapter (asana/neutral-adapter config)]
     (is (= :asana (:provider adapter)))
     (is (= asana/capabilities (:capabilities adapter)))
+    (is (empty? (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) asana/capabilities))))

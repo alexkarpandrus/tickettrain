@@ -44,7 +44,7 @@
      :title (:title issue)
      :description (:body issue)
      :url (:url issue)
-     :state (when (:state issue) {:name (:state issue)})
+     :state (case (:state issue) "OPEN" "open" "CLOSED" "completed" nil)
      :scopes [scope]
      :project (when-let [m (:milestone issue)] (normalize-milestone scope m))
      :labels (mapv #(normalize-label scope (:name %)) (or (:labels issue) []))}))
@@ -195,6 +195,7 @@
   (let [scope* (delay (domain/scope-identity :github-issues (repo-slug (get-in app-config [:tracker :repository]))))]
     {:provider :github-issues
      :capabilities capabilities
+     :item-capabilities #{}
      :configured-scope (fn [] @scope*)
      :list-items #(list-issues @scope* 100)
      :search-parent-items #(list-issues @scope* 100)
