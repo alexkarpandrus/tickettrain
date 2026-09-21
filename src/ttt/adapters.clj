@@ -13,7 +13,7 @@
             :comment-change-request!
             :create-change-request!
             :prefix-change-request-title}
-   :tracker #{:configured-scope
+   :tracker #{:list-items
               :search-parent-items
               :resolve-parent-item
               :resolve-item

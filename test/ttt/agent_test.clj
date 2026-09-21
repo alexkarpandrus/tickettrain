@@ -31,6 +31,32 @@
     (is (= "APP-123" (:displayId candidate)))
     (is (= 1.0 (:score candidate)))))
 
+(deftest list-items-filters-normalized-fields-and-search-includes-labels
+  (let [project {:ref (domain/identity :linear :project "project-x")
+                 :display-id "Project X"
+                 :title "Project X"}
+        label {:ref (domain/identity :linear :label "waiting")
+               :display-id "waiting"}
+        matching (assoc item :state {:name "pending"} :project project :labels [label])
+        other (assoc item :ref (domain/identity :linear :tracker-item "issue-2")
+                     :display-id "APP-456" :state {:name "done"})
+        tracker* {:configured-scope (constantly scope)
+                  :list-items (fn [] [other matching])
+                  :resolve-item (constantly nil)
+                  :search-parent-items (fn [] [matching])}
+        listed (first (:items (agent/list-data tracker* {:kind "item"
+                                                         :state "PENDING"
+                                                         :project "project-x"
+                                                         :label "WAITING"})))
+        searched (first (:candidates (agent/search-data tracker* {:kind "item" :query "Retry"})))]
+    (is (= 50 (agent/bounded-list-limit nil)))
+    (is (= "APP-123" (:displayId listed)))
+    (is (= "Description" (:description listed)))
+    (is (= "pending" (get-in listed [:state :name])))
+    (is (= "Project X" (get-in listed [:project :displayId])))
+    (is (= "waiting" (get-in listed [:labels 0 :displayId])))
+    (is (= "waiting" (get-in searched [:labels 0 :displayId])))))
+
 (deftest semantic-search-reranks-before-applying-the-output-limit
   (let [calls (atom [])
         other (assoc item
@@ -67,6 +93,7 @@
     (is (some #{"update-change-requests"} (:capabilities version)))
     (is (some #{"named-profiles"} (:capabilities version)))
     (is (some #{"comment-items"} (:capabilities version)))
+    (is (some #{"list-items"} (:capabilities version)))
     (is (some #{"comment-change-requests"} (:capabilities version)))))
 
 (deftest status-shows-providers-and-sources-without-secret-values
@@ -316,6 +343,19 @@
         (is (= #{:config :tracker}
                (set (keys (agent/request-runtime {} {:action action})))))
         (is (= [:tracker] @built-roles))))))
+
+(deftest list-items-loads-only-tracker-configuration
+  (let [built-roles (atom [])]
+    (with-redefs [config/load-config (fn [_ _ roles]
+                                       (is (= [:tracker] roles))
+                                       {:tracker {:provider :linear}})
+                  adapters/build (fn [_ role _]
+                                   (swap! built-roles conj role)
+                                   {:configured-scope (constantly scope)
+                                    :list-items (constantly [])})]
+      (is (= {:items []}
+             (agent/execute-command "list" ["--kind" "item"])))
+      (is (= [:tracker] @built-roles)))))
 
 (deftest standalone-change-request-needs-no-tracker
   (let [calls (atom [])

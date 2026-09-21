@@ -24,6 +24,8 @@
                   :semantic {:coerce :boolean}
                   :project {:coerce :string}
                   :scope-item {:coerce :string}
+                  :state {:coerce :string}
+                  :label {:coerce :string}
                   :request {:coerce :string}
                   :request-file {:coerce :string}
                   :approve {:coerce :string}})
@@ -84,6 +86,7 @@
       (:state entity) (assoc :state (:state entity))
       (:parent entity) (assoc :parent (wire-entity (:parent entity)))
       (:project entity) (assoc :project (wire-entity (:project entity)))
+      (:labels entity) (assoc :labels (mapv wire-entity (:labels entity)))
       (:score entity) (assoc :score (:score entity)))))
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
@@ -183,6 +186,35 @@
 (defn bounded-limit [value]
   (let [limit (or value 5)]
     (when-not (<= 1 limit 10) (throw (ex-info "--limit must be between 1 and 10." {:code :invalid-request}))) limit))
+
+(defn bounded-list-limit [value]
+  (let [limit (or value 50)]
+    (when-not (<= 1 limit 100)
+      (throw (ex-info "--limit must be between 1 and 100." {:code :invalid-request})))
+    limit))
+
+(defn named-entity? [entity expected]
+  (let [expected (some-> expected str/trim str/lower-case)]
+    (or (nil? expected)
+        (some #(= expected (some-> % str str/trim str/lower-case))
+              [(:name entity) (:display-id entity) (:title entity) (get-in entity [:ref :id])]))))
+
+(defn list-data [tracker-adapter options]
+  (let [kind (require-option options :kind)
+        scope ((:configured-scope tracker-adapter))
+        state (:state options)
+        project (:project options)
+        label (:label options)
+        limit (bounded-list-limit (:limit options))]
+    (when-not (= "item" kind)
+      (throw (ex-info (str "Unsupported list kind: " kind) {:code :invalid-request})))
+    {:items (->> ((:list-items tracker-adapter))
+                 (filter #(domain/entity-in-scope? % scope))
+                 (filter #(or (nil? state) (named-entity? (:state %) state)))
+                 (filter #(named-entity? (:project %) project))
+                 (filter #(or (nil? label) (some (fn [item-label] (named-entity? item-label label)) (:labels %))))
+                 (take limit)
+                 (mapv wire-entity))}))
 (defn search-items [tracker-adapter query options limit]
   (let [scope ((:configured-scope tracker-adapter))
         exact (some-> ((:resolve-item tracker-adapter) query)
@@ -388,12 +420,13 @@
     (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "semantic-search" "link-existing" "create-new" "create-items" "update-items" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "link-existing" "create-new" "create-items" "update-items" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)
         "inspect" (inspect-data (forge-runtime options))
         "search" (search-data (:tracker (runtime options)) options)
+        "list" (list-data (:tracker (tracker-runtime options)) options)
         "preview" (let [request (parse-request options)]
                     (preview-data (request-runtime options request) request))
         "apply" (let [request (parse-request options)]

@@ -418,6 +418,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -434,6 +435,7 @@
   {:provider :asana
    :capabilities capabilities
    :configured-scope #(configured-scope app-config)
+   :list-items #(tasks app-config)
    :search-parent-items #(tasks app-config)
    :resolve-parent-item #(resolve-item app-config %)
    :resolve-item #(resolve-item app-config %)

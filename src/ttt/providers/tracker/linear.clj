@@ -428,6 +428,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -444,6 +445,7 @@
   {:provider :linear
    :capabilities capabilities
    :configured-scope #(configured-scope app-config)
+   :list-items #(normalized-parent-items app-config)
    :search-parent-items #(normalized-parent-items app-config)
    :resolve-parent-item #(normalized-item-by-identifier app-config %)
    :resolve-item #(normalized-item-by-identifier app-config %)
