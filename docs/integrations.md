@@ -76,12 +76,14 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
  :capabilities #{...}
  :item-capabilities #{:item-lifecycle :item-priority}
  :configured-scope (fn [] normalized-scope)
- :list-items (fn [] [normalized-item ...])
+ :list-items (fn [matches? limit] [normalized-item ...])
  :resolve-labels (fn [label-refs scope] [normalized-label ...])
  :create-item! (fn [context intent] normalized-item)
  :update-item! (fn [item intent] normalized-item)
  :comment-item! (fn [item body] nil)}
 ```
+
+`:list-items` receives a predicate over normalized items. It must continue provider pagination until it returns `limit` matching items or the provider is exhausted.
 
 Shared code passes normalized label and blocker entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution and validates resolved labels and blockers before mutation. A missing or ambiguous blocker reference fails preview.
 
