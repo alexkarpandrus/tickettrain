@@ -53,6 +53,18 @@
       (is (= (domain/contained-identity :github :change-request "org/repo" 7)
              (get-in source [:change-request :ref]))))))
 
+(deftest gets-an-explicit-open-pull-request
+  (with-redefs [shell/run
+                (fn [& args]
+                  (is (= ["gh" "pr" "view" "7" "--repo" "org/repo"
+                          "--json" github/change-request-fields]
+                         args))
+                  "{\"number\":7,\"title\":\"Open\",\"body\":\"\",\"url\":\"https://github.com/org/repo/pull/7\",\"headRefName\":\"branch\",\"baseRefName\":\"main\",\"state\":\"OPEN\"}")]
+    (is (= "org/repo#7"
+           (:display-id (github/get-change-request
+                         {:display-id "org/repo"}
+                         "7"))))))
+
 (deftest merged-pull-request-is-not-current
   (with-redefs [shell/run
                 (fn [& _]
@@ -64,6 +76,14 @@
     (with-redefs [shell/run (fn [& args] (reset! request args))]
       (github/comment-change-request! "org/repo" 7 "Looks good"))
     (is (= ["gh" "pr" "comment" "7" "--repo" "org/repo" "--body" "Looks good"]
+           @request))))
+
+(deftest close-change-request-uses-the-explicit-repository-and-comment
+  (let [request (atom nil)]
+    (with-redefs [shell/run (fn [& args] (reset! request args))]
+      (github/close-change-request! "org/repo" 7 "Superseded by #8."))
+    (is (= ["gh" "pr" "close" "7" "--repo" "org/repo"
+            "--comment" "Superseded by #8."]
            @request))))
 
 (deftest neutral-adapter-declares-every-forge-capability

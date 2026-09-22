@@ -310,6 +310,17 @@
      :change-request change-request
      :comment {:body (:body request)}}))
 
+(defn close-change-request-proposal
+  [runtime source request]
+  (let [repository (:repository source)
+        change-request ((get-in runtime [:forge :get-change-request])
+                        repository (:change-request-ref request))]
+    {:source (assoc source :change-request change-request)
+     :action :close-change-request
+     :request request
+     :change-request change-request
+     :comment (when-let [body (:comment request)] {:body body})}))
+
 (defn preview-tracker-link
   [runtime source request]
   (let [action (:action request)
@@ -347,7 +358,11 @@
   ([runtime request]
    (if (contains? #{:create-item :update-item :comment-item} (:action request))
      (preview runtime nil request)
-     (preview runtime (inspect runtime) request)))
+     (preview runtime
+              (if (= :close-change-request (:action request))
+                {:repository ((get-in runtime [:forge :current-repo]))}
+                (inspect runtime))
+              request)))
   ([runtime source request]
    (case (:action request)
      :create-item (standalone-item-proposal runtime request)
@@ -355,6 +370,7 @@
      :create-change-request (standalone-change-request-proposal source request)
      :update-change-request (update-change-request-proposal source request)
      :comment-change-request (comment-change-request-proposal source request)
+     :close-change-request (close-change-request-proposal runtime source request)
      :comment-item (comment-item-proposal runtime request)
      (preview-tracker-link runtime source request))))
 
@@ -387,6 +403,13 @@
    (get-in source [:repository :ref :id])
    (get-in source [:change-request :ref :id])
    body))
+
+(defn close-change-request!
+  [runtime source comment]
+  ((get-in runtime [:forge :close-change-request!])
+   (get-in source [:repository :ref :id])
+   (get-in source [:change-request :ref :id])
+   comment))
 
 (defn create-change-request!
   [runtime source intent]
@@ -448,6 +471,13 @@
     (do
       (comment-change-request! runtime (:source proposal) (get-in proposal [:comment :body]))
       {:item nil :change-request (:change-request proposal) :comment (:comment proposal)})
+
+    :close-change-request
+    (do
+      (close-change-request! runtime (:source proposal) (get-in proposal [:comment :body]))
+      {:item nil
+       :change-request (assoc (:change-request proposal) :state "closed")
+       :comment (:comment proposal)})
 
     :create-change-request
     (let [source (:source proposal)]

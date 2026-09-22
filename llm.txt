@@ -101,6 +101,10 @@ Output options:
 {"action":"comment_change_request","body":"The linked ticket is ready."}
 ```
 
+```json
+{"action":"close_change_request","changeRequest":"73","comment":"Superseded by #74 and #76."}
+```
+
 ```bash
 ttt preview --request-file REQUEST_FILE_PATH
 ttt apply --request-file REQUEST_FILE_PATH --approve lp2_...
@@ -118,8 +122,9 @@ Rules:
 - `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request; it needs no tracker configuration.
 - `comment_item` accepts `item` and `body`; it needs no forge configuration or repository context.
 - `comment_change_request` accepts `body` and targets the current branch's open change request; it needs no tracker configuration.
+- `close_change_request` accepts an explicit `changeRequest` ID and optional `comment`; it closes that open change request in the current repository and needs no tracker configuration.
 - Projects and labels must already exist, except Taskwarrior projects and tags, which are created implicitly.
-- Standalone item previews include the exact target or creation intent, comment, and label changes. Comment previews include the exact target and comment body. Change-request update previews include the exact target and `changeRequestUpdate`. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; change-request create previews include `changeRequestIntent`.
+- Standalone item previews include the exact target or creation intent, comment, and label changes. Comment and close previews include the exact target and comment body. Change-request update previews include the exact target and `changeRequestUpdate`. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; change-request create previews include `changeRequestIntent`.
 
 ## Managed metadata
 
@@ -139,7 +144,7 @@ Tracker item descriptions use a separate `ttt:pull-requests` managed section. Us
 ## LLM usage pattern
 
 1. Run `ttt status`, choose the intended profile, and use the same `--profile NAME` for every command in the operation.
-2. For `create_change_request` or `update_change_request`, set the exact title/body change, then skip tracker searches.
+2. For `create_change_request`, `update_change_request`, or `close_change_request`, set the exact requested change, then skip tracker searches.
 3. For tracker actions, derive two or three short queries from the change request and search existing items first. Add `--semantic` only when Jev is configured and sending candidate text to TypeSafe AI is acceptable.
 4. Use `ttt list --kind item` when the user asks for current tracker items without a search query.
 5. If creating a new item, search projects, parent items, and relevant existing labels.
