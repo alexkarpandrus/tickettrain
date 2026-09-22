@@ -242,6 +242,16 @@
      :title (get-in parent [:fields :summary])
      :url (str base-url "/browse/" (:key parent))}))
 
+(defn normalize-state
+  [status]
+  (let [category (get-in status [:statusCategory :key])]
+    (case category
+      "indeterminate" "active"
+      "done" (if (re-find #"(?i)cancel|reject|declin" (or (:name status) ""))
+               "canceled"
+               "completed")
+      (when status "open"))))
+
 (defn normalize-item
   [base-url issue]
   (when issue
@@ -253,7 +263,7 @@
        :description (description->text (:description fields))
        :provider-description (:description fields)
        :url (str base-url "/browse/" key)
-       :state (when-let [status (:status fields)] {:name (:name status)})
+       :state (normalize-state (:status fields))
        :scopes [(domain/scope-identity :jira base-url)]
        :project (when-let [p (:project fields)] (normalize-project base-url p))
        :parent (when-let [p (:parent fields)] (normalize-parent base-url p))
@@ -532,6 +542,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -547,7 +558,9 @@
   [app-config]
   {:provider :jira
    :capabilities capabilities
+   :item-capabilities #{}
    :configured-scope #(configured-scope app-config)
+   :list-items #(parent-items app-config)
    :search-parent-items #(parent-items app-config)
    :resolve-parent-item #(resolve-item app-config %)
    :resolve-item #(resolve-item app-config %)

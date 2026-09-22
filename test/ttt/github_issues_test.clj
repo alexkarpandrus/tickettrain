@@ -25,10 +25,22 @@
     (is (= "#123" (:display-id item)))
     (is (= "Retry" (:title item)))
     (is (= "Body" (:description item)))
-    (is (= "OPEN" (get-in item [:state :name])))
+    (is (= "open" (:state item)))
     (is (= "v1.0" (get-in item [:project :display-id])))
     (is (= ["bug" "backend"] (mapv :display-id (:labels item))))
     (is (domain/entity-in-scope? item scope))))
+
+
+(deftest closed-issue-reasons-map-to-neutral-terminal-states
+  (is (re-find #"stateReason" github-issues/issue-fields))
+  (is (= "completed"
+         (:state (github-issues/normalize-item scope {:number 1
+                                                      :state "CLOSED"
+                                                      :stateReason "COMPLETED"}))))
+  (is (= "canceled"
+         (:state (github-issues/normalize-item scope {:number 2
+                                                      :state "CLOSED"
+                                                      :stateReason "NOT_PLANNED"})))))
 
 (deftest create-rejects-parent-issues
   (is (thrown-with-msg? Exception #"does not support parent"
@@ -46,12 +58,11 @@
                                 "https://github.com/org/repo/issues/7"
                                 ""))
                   github-issues/issue-by-number (fn [_ number]
-                                                  {:number number :state {:name "CLOSED"}})]
-      (is (= "CLOSED"
-             (get-in (github-issues/create-item!
+                                                  {:number number :state "completed"})]
+      (is (= "completed"
+             (:state (github-issues/create-item!
                       {:tracker {:target-state "closed"}}
-                      scope {} "Title" "Body" [])
-                     [:state :name]))))
+                      scope {} "Title" "Body" [])))))
     (is (some #(= ["gh" "issue" "close" "7" "--repo" "org/repo"] %) @calls))))
 
 (deftest update-reconciles-labels-in-the-configured-repository
@@ -104,4 +115,5 @@
       (is (= :github-issues (:provider adapter)))
       (is (= scope ((:configured-scope adapter))))
       (is (= github-issues/capabilities (:capabilities adapter)))
+      (is (empty? (:item-capabilities adapter)))
       (is (every? #(fn? (get adapter %)) github-issues/capabilities)))))

@@ -14,6 +14,7 @@
             :create-change-request!
             :prefix-change-request-title}
    :tracker #{:configured-scope
+              :list-items
               :search-parent-items
               :resolve-parent-item
               :resolve-item
@@ -24,6 +25,13 @@
               :create-item!
               :update-item!
               :comment-item!}})
+
+(def item-capabilities
+  #{:item-lifecycle
+    :item-priority
+    :item-due-dates
+    :item-availability
+    :item-blockers})
 
 (defn provider
   [app-config role]
@@ -43,14 +51,27 @@
   [role adapter]
   (let [required (get required-capabilities role)
         declared (set (:capabilities adapter))
+        declared-item-capabilities (set (:item-capabilities adapter))
         missing-declarations (set/difference required declared)
         missing-functions (set (remove #(fn? (get adapter %)) required))]
+    (when (and (= :tracker role)
+               (not (set/subset? declared-item-capabilities item-capabilities)))
+      (throw (ex-info "The tracker adapter declares unknown item capabilities."
+                      {:code :invalid-adapter-capabilities
+                       :provider (:provider adapter)
+                       :unknown (set/difference declared-item-capabilities item-capabilities)})))
     (when (or (seq missing-declarations) (seq missing-functions))
       (throw (ex-info (str "The " (name role) " adapter is missing required capabilities.")
                       {:code :missing-adapter-capabilities
                        :role role
                        :provider (:provider adapter)
                        :missing (set/union missing-declarations missing-functions)})))
+    (when (and (= :tracker role) (not (set? (:item-capabilities adapter))))
+      (throw (ex-info "The tracker adapter must declare item capabilities."
+                      {:code :missing-adapter-capabilities
+                       :role role
+                       :provider (:provider adapter)
+                       :missing #{:item-capabilities}})))
     adapter))
 
 (defn assert-descriptor!

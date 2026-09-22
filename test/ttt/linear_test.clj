@@ -12,6 +12,15 @@
    :change-request {:body-begin-marker "<!-- ttt:begin -->"
                     :body-end-marker "<!-- ttt:end -->"}})
 
+
+(deftest maps-linear-workflow-types-to-neutral-states
+  (doseq [[native expected] [["backlog" "open"]
+                             ["unstarted" "open"]
+                             ["started" "active"]
+                             ["completed" "completed"]
+                             ["canceled" "canceled"]]]
+    (is (= expected (linear/normalize-state {:type native})))))
+
 (deftest assignee-id-resolves-self-through-viewer
   (with-redefs [linear/viewer (fn [_] {:id "viewer-1"})]
     (is (= "viewer-1"
@@ -253,6 +262,7 @@
          (linear/configured-scope config)))
   (let [adapter (linear/neutral-adapter config)]
     (is (= linear/capabilities (:capabilities adapter)))
+    (is (empty? (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) linear/capabilities))))
 
 (deftest adapter-maps-neutral-labels-at-the-provider-boundary
@@ -296,8 +306,7 @@
                                :pageInfo {:hasNextPage false :endCursor nil}}}}]
     (with-redefs [linear/graphql! (fn [_ _ _] mock)]
       (let [item (first (linear/normalized-parent-items config))]
-        (is (= "In Progress" (get-in item [:state :name])))
-        (is (= "started" (get-in item [:state :type])))
+        (is (= "active" (:state item)))
         (is (= "https://linear/project/platform" (get-in item [:project :url])))
         (is (= "platform" (get-in item [:project :display-id])))
         (is (= "EPIC-1" (get-in item [:parent :display-id])))))))

@@ -1,5 +1,6 @@
 (ns ttt.core
-  (:require [clojure.string :as str]
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
             [ttt.text.change-request :as change-request]
             [ttt.domain :as domain]
             [ttt.text.links :as links]))
@@ -20,6 +21,31 @@
                      :provider (get-in runtime [:tracker :provider])
                      :capability capability}))))
 
+(def work-item-capability-by-field
+  {:state :item-lifecycle
+   :priority :item-priority
+   :due-at :item-due-dates
+   :available-at :item-availability
+   :blocked-by :item-blockers})
+
+(def work-item-fields (set (keys work-item-capability-by-field)))
+
+(defn requested-work-item-capabilities [request]
+  (->> work-item-capability-by-field
+       (keep (fn [[field capability]] (when (contains? request field) capability)))
+       set))
+
+(defn assert-work-item-capabilities! [runtime request]
+  (let [requested (requested-work-item-capabilities request)
+        supported (set (get-in runtime [:tracker :item-capabilities]))
+        unsupported (set/difference requested supported)]
+    (when (seq unsupported)
+      (throw (ex-info "The tracker provider does not support the requested work-item fields."
+                      {:code :unsupported-capability
+                       :provider (get-in runtime [:tracker :provider])
+                       :capabilities unsupported}))))
+  request)
+
 (defn assert-entity-scope!
   [runtime entity entity-kind]
   (let [scope (configured-scope runtime)]
@@ -39,6 +65,13 @@
       (throw (ex-info (str "Tracker item not found: " item-ref)
                       {:code :tracker-item-not-found :item-ref item-ref})))
     (assert-entity-scope! runtime item :item)))
+
+(defn work-item-intent
+  [runtime request]
+  (assert-work-item-capabilities! runtime request)
+  (cond-> (select-keys request work-item-fields)
+    (contains? request :blocked-by)
+    (assoc :blocked-by (mapv #(resolve-item! runtime %) (:blocked-by request)))))
 
 (defn resolve-parent!
   [runtime parent-ref]
@@ -203,43 +236,49 @@
 (defn standalone-item-proposal
   [runtime request]
   (let [context (resolve-context runtime request)
-        labels (resolve-labels runtime (:labels request))]
+        labels (resolve-labels runtime (:labels request))
+        work-intent (work-item-intent runtime request)]
     {:action :create-item
      :request request
      :context context
      :labels labels
-     :tracker-intent {:title (:title request)
-                      :description (:description request)
-                      :labels labels}}))
+     :tracker-intent (merge {:title (:title request)
+                             :description (:description request)
+                             :labels labels}
+                            work-intent)}))
 
 (defn update-item-proposal
   [runtime request]
-  (when (or (seq (:add-labels request)) (seq (:remove-labels request)))
-    (require-tracker-operation! runtime :update-item! "item label updates"))
-  (when (contains? request :comment)
-    (require-tracker-operation! runtime :comment-item! "item comments"))
-  (let [item (resolve-item! runtime (:item-ref request))
-        current (item-labels item)
-        requested-add (resolve-labels runtime (:add-labels request))
-        requested-remove (resolve-labels runtime (:remove-labels request))
-        add-keys (set (map label-key requested-add))
-        remove-keys (set (map label-key requested-remove))]
-    (when (some remove-keys add-keys)
-      (throw (ex-info "update_item cannot add and remove the same label."
-                      {:code :invalid-label-changes})))
-    (let [current-keys (set (map label-key current))
-          add (remove #(contains? current-keys (label-key %)) requested-add)
-          removed (filter #(contains? current-keys (label-key %)) requested-remove)
-          labels (->> (distinct-labels current add)
-                      (remove #(contains? remove-keys (label-key %)))
-                      vec)]
-      (cond-> {:action :update-item
-               :request request
-               :item item
-               :labels labels
-               :label-changes {:add (vec add) :remove (vec removed)}
-               :tracker-intent {:description (:description item) :labels labels}}
-        (contains? request :comment) (assoc :comment {:body (:comment request)})))))
+  (let [work-intent (work-item-intent runtime request)]
+    (when (or (seq (:add-labels request))
+              (seq (:remove-labels request))
+              (seq work-intent))
+      (require-tracker-operation! runtime :update-item! "item updates"))
+    (when (contains? request :comment)
+      (require-tracker-operation! runtime :comment-item! "item comments"))
+    (let [item (resolve-item! runtime (:item-ref request))
+          current (item-labels item)
+          requested-add (resolve-labels runtime (:add-labels request))
+          requested-remove (resolve-labels runtime (:remove-labels request))
+          add-keys (set (map label-key requested-add))
+          remove-keys (set (map label-key requested-remove))]
+      (when (some remove-keys add-keys)
+        (throw (ex-info "update_item cannot add and remove the same label."
+                        {:code :invalid-label-changes})))
+      (let [current-keys (set (map label-key current))
+            add (remove #(contains? current-keys (label-key %)) requested-add)
+            removed (filter #(contains? current-keys (label-key %)) requested-remove)
+            labels (->> (distinct-labels current add)
+                        (remove #(contains? remove-keys (label-key %)))
+                        vec)]
+        (cond-> {:action :update-item
+                 :request request
+                 :item item
+                 :labels labels
+                 :label-changes {:add (vec add) :remove (vec removed)}
+                 :tracker-intent (merge {:description (:description item) :labels labels}
+                                        work-intent)}
+          (contains? request :comment) (assoc :comment {:body (:comment request)}))))))
 
 (defn comment-item-proposal
   [runtime request]
@@ -383,7 +422,8 @@
 
     :update-item
     (let [labels-changed? (some seq (vals (:label-changes proposal)))
-          item (if labels-changed?
+          work-item-changed? (some #(contains? (:tracker-intent proposal) %) work-item-fields)
+          item (if (or labels-changed? work-item-changed?)
                  (update-item! runtime (:item proposal) (:tracker-intent proposal))
                  (:item proposal))]
       (when-let [body (get-in proposal [:comment :body])]
