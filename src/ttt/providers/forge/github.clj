@@ -95,6 +95,17 @@
               {}
               ex)))))
 
+(defn get-change-request
+  [repo change-request-number]
+  (let [change-request (-> (shell/run "gh" "pr" "view" (str change-request-number)
+                                      "--repo" (:display-id repo)
+                                      "--json" change-request-fields)
+                           (json/parse-string true))]
+    (when-not (= "OPEN" (:state change-request))
+      (throw (ex-info (str "GitHub PR #" change-request-number " is not open.")
+                      {:code :change-request-not-open})))
+    (normalize-change-request repo change-request)))
+
 (defn current-branch
   []
   (try
@@ -139,6 +150,13 @@
   (shell/run "gh" "pr" "comment" (str change-request-number)
              "--repo" repo-slug
              "--body" body)
+  nil)
+
+(defn close-change-request!
+  [repo-slug change-request-number comment]
+  (apply shell/run
+         (cond-> ["gh" "pr" "close" (str change-request-number) "--repo" repo-slug]
+           comment (conj "--comment" comment)))
   nil)
 
 (defn create-change-request!
@@ -201,9 +219,11 @@
     :current-repo
     :inspect-current
     :identify-change-request
+    :get-change-request
     :update-change-request!
     :comment-change-request!
     :create-change-request!
+    :close-change-request!
     :prefix-change-request-title})
 
 (defn neutral-adapter
@@ -216,9 +236,11 @@
    :current-repo current-repo
    :inspect-current inspect-current
    :identify-change-request identify-change-request
+   :get-change-request get-change-request
    :update-change-request! update-change-request!
    :comment-change-request! comment-change-request!
    :create-change-request! create-change-request!
+   :close-change-request! close-change-request!
    :prefix-change-request-title prefix-change-request-title})
 
 (defn gh-authed?
