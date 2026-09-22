@@ -482,9 +482,17 @@
                                 (create-task! app-config context title description labels
                                               (native-work-item-input nil intent)))]
     (if (contains? intent :blocked-by)
-      (do
+      (try
         (sync-blockers! app-config created (:blocked-by intent))
-        (task-by-gid app-config (provider-id created)))
+        (task-by-gid app-config (provider-id created))
+        (catch Exception ex
+          (throw (ex-info
+                  (str "Asana created " (provider-id created)
+                       " but could not apply blockers or refresh it. Inspect the task before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (provider-id created)
+                         :preserve-created-item true)
+                  ex))))
       created)))
 
 (defn update-item-from-intent!

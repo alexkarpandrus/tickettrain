@@ -327,6 +327,19 @@
     (is (= [["item" "add"]] @created))
     (is (= ["remove-relation"] @deleted))))
 
+(deftest reports-created-issue-when-blocker-sync-fails
+  (let [error (with-redefs [linear/create-item! (fn [& _]
+                                                  {:id "issue-1" :identifier "APP-1"})
+                            linear/sync-blockers! (fn [& _]
+                                                    (throw (ex-info "denied" {:status 403})))]
+                (try
+                  (linear/create-item-from-intent!
+                   config {} {:title "Task" :description "" :labels [] :blocked-by []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "APP-1" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
+
 (deftest configured-scope-and-neutral-adapter-capabilities-are-neutral
   (is (= (domain/scope-identity :linear "team-1")
          (linear/configured-scope config)))

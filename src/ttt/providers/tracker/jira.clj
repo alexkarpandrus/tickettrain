@@ -683,9 +683,17 @@
         created (normalize-item (base-url app-config)
                                 (apply-created-target-state! cfg (create-item! app-config fields)))]
     (if (contains? intent :blocked-by)
-      (do
+      (try
         (sync-blockers! app-config created (:blocked-by intent))
-        (item-by-key app-config (provider-id created)))
+        (item-by-key app-config (provider-id created))
+        (catch Exception ex
+          (throw (ex-info
+                  (str "Jira created " (provider-id created)
+                       " but could not apply blockers or refresh it. Inspect the issue before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (provider-id created)
+                         :preserve-created-item true)
+                  ex))))
       created)))
 
 (defn update-item-from-intent!

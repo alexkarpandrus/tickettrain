@@ -517,9 +517,17 @@
                               (label-ids labels)
                               native-input)]
     (if (contains? intent :blocked-by)
-      (do
+      (try
         (sync-blockers! app-config (:id created) created (:blocked-by intent))
-        (some-> (item-by-identifier app-config (:id created)) normalize-item))
+        (some-> (item-by-identifier app-config (:id created)) normalize-item)
+        (catch Exception ex
+          (throw (ex-info
+                  (str "Linear created " (:identifier created)
+                       " but could not apply blockers or refresh it. Inspect the issue before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (:identifier created)
+                         :preserve-created-item true)
+                  ex))))
       (normalize-item created))))
 
 (defn update-item-from-intent!

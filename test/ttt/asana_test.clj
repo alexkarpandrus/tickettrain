@@ -159,6 +159,17 @@
              [:post "/tasks/1/removeDependencies" {:data {:dependencies ["2"]}}]}
            (set @calls)))))
 
+(deftest reports-created-task-when-blocker-sync-fails
+  (let [error (with-redefs [asana/create-task! (fn [& _] {:gid "123" :name "Task"})
+                            asana/sync-blockers! (fn [& _] (throw (ex-info "denied" {:status 403})))]
+                (try
+                  (asana/create-item-from-intent!
+                   config {} {:title "Task" :description "" :labels [] :blocked-by []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "123" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
+
 (deftest create-task-applies-the-configured-target-state
   (let [payload (atom nil)]
     (with-redefs [asana/api! (fn [_ _ _ body]
