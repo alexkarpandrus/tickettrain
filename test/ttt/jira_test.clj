@@ -164,6 +164,25 @@
       (jira/search-issues config "project = APP" 5))
     (is (= "/search/jql" @path-used))))
 
+
+(deftest list-items-follows-page-tokens-until-the-filtered-limit-is-met
+  (let [calls (atom [])]
+    (with-redefs [jira/api! (fn [_ _ path params]
+                              (is (= "/search/jql" path))
+                              (swap! calls conj params)
+                              (if (:nextPageToken params)
+                                {:issues [{:key "APP-2"
+                                           :fields {:summary "Open"
+                                                    :status {:statusCategory {:key "new"}}}}]}
+                                {:issues [{:key "APP-1"
+                                           :fields {:summary "Done"
+                                                    :status {:statusCategory {:key "done"}}}}]
+                                 :nextPageToken "page-2"}))]
+      (is (= ["APP-2"]
+             (mapv :display-id (jira/list-items config #(= "open" (:state %)) 1))))
+      (is (= [nil "page-2"] (mapv :nextPageToken @calls)))
+      (is (= [100 100] (mapv :maxResults @calls))))))
+
 (deftest project-statuses-are-filtered-to-the-configured-issue-type
   (with-redefs [jira/api! (fn [_ _ _ _]
                             [{:id "10001" :name "Task"

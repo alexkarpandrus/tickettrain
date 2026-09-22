@@ -52,7 +52,8 @@
         other (assoc item :ref (domain/identity :linear :tracker-item "issue-2")
                      :display-id "APP-456" :state "completed")
         tracker* {:configured-scope (constantly scope)
-                  :list-items (fn [] [other matching])
+                  :list-items (fn [matches? limit]
+                                (->> [other matching] (filter matches?) (take limit) vec))
                   :resolve-item (constantly nil)
                   :search-parent-items (fn [] [matching])}
         listed (first (:items (agent/list-data tracker* {:kind "item"
@@ -364,7 +365,7 @@
                   adapters/build (fn [_ role _]
                                    (swap! built-roles conj role)
                                    {:configured-scope (constantly scope)
-                                    :list-items (constantly [])})]
+                                    :list-items (fn [_ _] [])})]
       (is (= {:items []}
              (agent/execute-command "list" ["--kind" "item"])))
       (is (= [:tracker] @built-roles)))))

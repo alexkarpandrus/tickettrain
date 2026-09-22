@@ -463,7 +463,8 @@
                           :item-availability
                           :item-blockers}
      :configured-scope (fn [] @scope*)
-     :list-items #(tasks app-config @scope*)
+     :list-items (fn [matches? limit]
+                   (->> (tasks app-config @scope*) (filter matches?) (take limit) vec))
      :search-parent-items #(tasks app-config @scope*)
      :resolve-parent-item unsupported-parent!
      :resolve-item #(resolve-item app-config @scope* %)

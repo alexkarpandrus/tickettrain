@@ -240,19 +240,19 @@
         state (some-> (:state options) str/lower-case)
         project (:project options)
         label (:label options)
-        limit (bounded-list-limit (:limit options))]
+        limit (bounded-list-limit (:limit options))
+        matches? (fn [item]
+                   (and (domain/entity-in-scope? item scope)
+                        (or (nil? state) (= state (:state item)))
+                        (named-entity? (:project item) project)
+                        (or (nil? label)
+                            (some #(named-entity? % label) (:labels item)))))]
     (when-not (= "item" kind)
       (throw (ex-info (str "Unsupported list kind: " kind) {:code :invalid-request})))
     (when (and state (not (contains? item-states state)))
       (throw (ex-info "--state must be open, active, waiting, completed, or canceled."
                       {:code :invalid-request})))
-    {:items (->> ((:list-items tracker-adapter))
-                 (filter #(domain/entity-in-scope? % scope))
-                 (filter #(or (nil? state) (= state (:state %))))
-                 (filter #(named-entity? (:project %) project))
-                 (filter #(or (nil? label) (some (fn [item-label] (named-entity? item-label label)) (:labels %))))
-                 (take limit)
-                 (mapv wire-entity))}))
+    {:items (mapv wire-entity ((:list-items tracker-adapter) matches? limit))}))
 (defn search-items [tracker-adapter query options limit]
   (let [scope ((:configured-scope tracker-adapter))
         exact (some-> (resolve-search-item tracker-adapter query)
