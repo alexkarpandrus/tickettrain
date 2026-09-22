@@ -81,3 +81,14 @@
       (gitlab/comment-change-request! config "group/project" 7 "Looks good"))
     (is (= [config :post "/projects/group%2Fproject/merge_requests/7/notes" {:body "Looks good"}]
            @request))))
+
+
+(deftest closes-merge-requests-with-an-optional-comment
+  (let [requests (atom [])]
+    (with-redefs [gitlab/api! (fn [& args] (swap! requests conj args))]
+      (gitlab/close-change-request! config "group/project" 7 "Superseded."))
+    (is (= [[config :post "/projects/group%2Fproject/merge_requests/7/notes"
+             {:body "Superseded."}]
+            [config :put "/projects/group%2Fproject/merge_requests/7"
+             {:state_event "close"}]]
+           @requests))))
