@@ -325,6 +325,20 @@
              [:delete "/issueLink/link-1" nil]}
            (set @calls)))))
 
+(deftest reports-created-issue-when-blocker-sync-fails
+  (let [error (with-redefs [jira/create-item! (fn [& _]
+                                                {:key "APP-1"
+                                                 :fields {:summary "Task"}})
+                            jira/sync-blockers! (fn [& _]
+                                                  (throw (ex-info "denied" {:status 403})))]
+                (try
+                  (jira/create-item-from-intent!
+                   config {} {:title "Task" :description "" :labels [] :blocked-by []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "APP-1" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
+
 
 (deftest failed-target-state-deletes-the-created-issue
   (let [calls (atom [])
