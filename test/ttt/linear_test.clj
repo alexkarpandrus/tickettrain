@@ -21,6 +21,23 @@
                              ["canceled" "canceled"]]]
     (is (= expected (linear/normalize-state {:type native})))))
 
+
+(deftest maps-neutral-linear-fields-to-native-input
+  (with-redefs [linear/team-states
+                (fn [_ _]
+                  [{:id "started-later" :type "started" :position 2}
+                   {:id "started-first" :type "started" :position 1}
+                   {:id "todo" :type "unstarted" :position 1}])]
+    (is (= {:stateId "started-first"
+            :priority 1
+            :dueDate "2026-09-30"}
+           (linear/native-work-item-input
+            config nil {:state "active"
+                        :priority "urgent"
+                        :due-at "2026-09-30T12:00:00Z"})))
+    (is (thrown-with-msg? Exception #"cannot represent neutral state: waiting"
+                          (linear/native-work-item-input config nil {:state "waiting"})))))
+
 (deftest assignee-id-resolves-self-through-viewer
   (with-redefs [linear/viewer (fn [_] {:id "viewer-1"})]
     (is (= "viewer-1"
@@ -214,10 +231,11 @@
                     (domain/scope-identity :linear "team-1"))
                    [:ref :id])))))
 
-(deftest create-item-from-intent-includes-context-and-normalizes-result
+(deftest create-item-from-intent-includes-neutral-fields-and-context
   (let [variables (atom nil)]
     (with-redefs [linear/assignee-id (fn [_] nil)
                   linear/state-id (fn [_ _] nil)
+                  linear/team-states (fn [_ _] [{:id "active" :type "started" :position 1}])
                   linear/graphql! (fn [_ query input]
                                     (is (= linear/create-issue-mutation query))
                                     (reset! variables input)
@@ -232,19 +250,26 @@
                   {:title "Title"
                    :description "Description"
                    :labels [{:ref (domain/identity :linear :label "bug")}
-                            {:ref (domain/identity :linear :label "backend")}]})]
+                            {:ref (domain/identity :linear :label "backend")}]
+                   :state "active"
+                   :priority "high"
+                   :due-at "2026-09-30T12:00:00Z"})]
         (is (= {:teamId "team-1"
                 :title "Title"
                 :description "Description"
                 :parentId "parent-1"
                 :projectId "project-1"
-                :labelIds ["bug" "backend"]}
+                :labelIds ["bug" "backend"]
+                :stateId "active"
+                :priority 2
+                :dueDate "2026-09-30"}
                (get-in @variables [:input])))
         (is (= "APP-1" (:display-id item)))))))
 
-(deftest update-item-from-intent-sends-additive-labels-and-normalizes-result
+(deftest update-item-from-intent-sends-neutral-fields
   (let [variables (atom nil)]
-    (with-redefs [linear/graphql! (fn [_ query input]
+    (with-redefs [linear/team-states (fn [_ _] [{:id "active" :type "started" :position 1}])
+                  linear/graphql! (fn [_ query input]
                                     (is (= linear/update-issue-mutation query))
                                     (reset! variables input)
                                     {:issueUpdate {:success true
@@ -253,13 +278,21 @@
                                                            :team {:id "team-1"}}}})]
       (let [item (linear/update-item-from-intent!
                   config
-                  {:ref (domain/identity :linear :tracker-item "issue-1")}
+                  {:ref (domain/identity :linear :tracker-item "issue-1")
+                   :state "open"
+                   :scopes [(domain/scope-identity :linear "team-1")]}
                   {:description "Updated"
                    :labels [{:ref (domain/identity :linear :label "existing")}
-                            {:ref (domain/identity :linear :label "added")}]})]
+                            {:ref (domain/identity :linear :label "added")}]
+                   :state "active"
+                   :priority "urgent"
+                   :due-at nil})]
         (is (= {:id "issue-1"
                 :input {:description "Updated"
-                        :labelIds ["existing" "added"]}}
+                        :labelIds ["existing" "added"]
+                        :stateId "active"
+                        :priority 1
+                        :dueDate nil}}
                @variables))
         (is (= (domain/identity :linear :tracker-item "issue-1")
                (:ref item)))))))
@@ -276,12 +309,31 @@
                             "Looks good"))
     (is (= {:input {:issueId "issue-1" :body "Looks good"}} @variables))))
 
+
+(deftest synchronizes-linear-blockers-by-native-relation
+  (let [created (atom [])
+        deleted (atom [])
+        current {:inverseRelations
+                 {:nodes [{:id "keep-relation" :type "blocks" :issue {:id "keep"}}
+                          {:id "remove-relation" :type "blocks" :issue {:id "remove"}}
+                          {:id "related" :type "related" :issue {:id "ignore"}}]}}
+        blockers [{:ref (domain/identity :linear :tracker-item "keep")}
+                  {:ref (domain/identity :linear :tracker-item "add")}]]
+    (with-redefs [linear/create-blocker-relation!
+                  (fn [_ item-id blocker-id] (swap! created conj [item-id blocker-id]))
+                  linear/delete-blocker-relation!
+                  (fn [_ relation-id] (swap! deleted conj relation-id))]
+      (linear/sync-blockers! config "item" current blockers))
+    (is (= [["item" "add"]] @created))
+    (is (= ["remove-relation"] @deleted))))
+
 (deftest configured-scope-and-neutral-adapter-capabilities-are-neutral
   (is (= (domain/scope-identity :linear "team-1")
          (linear/configured-scope config)))
   (let [adapter (linear/neutral-adapter config)]
     (is (= linear/capabilities (:capabilities adapter)))
-    (is (empty? (:item-capabilities adapter)))
+    (is (= #{:item-lifecycle :item-priority :item-due-dates :item-blockers}
+           (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) linear/capabilities))))
 
 (deftest adapter-maps-neutral-labels-at-the-provider-boundary
@@ -308,31 +360,44 @@
     (is (= [config {:parent {:id "parent-1" :team {:id "team-1"}}}
             "Title"
             "Description"
-            ["bug" "backend"]]
+            ["bug" "backend"]
+            {}]
            @created))
     (is (= [config "issue-1"
             {:description "Updated" :labelIds ["bug" "backend"]}]
            @updated))))
 
-(deftest normalized-items-expose-state-parent-and-project
+(deftest normalized-items-expose-neutral-work-item-fields
   (let [mock {:team {:issues {:nodes [{:id "i1"
                                        :identifier "APP-1"
                                        :title "Fix retry"
                                        :team {:id "team-1"}
                                        :state {:id "st-1" :name "In Progress" :type "started"}
+                                       :priority 1
+                                       :dueDate "2026-09-30"
+                                       :inverseRelations {:nodes [{:id "rel-1"
+                                                                  :type "blocks"
+                                                                  :issue {:id "blocker-1"
+                                                                          :identifier "APP-2"
+                                                                          :title "Dependency"}}]}
                                        :project {:id "p1" :name "Platform" :slugId "platform" :url "https://linear/project/platform"}
                                        :parent {:id "epic-1" :identifier "EPIC-1" :title "Epic" :url "https://linear/issue/EPIC-1"}}]
                                :pageInfo {:hasNextPage false :endCursor nil}}}}]
     (with-redefs [linear/graphql! (fn [_ _ _] mock)]
       (let [item (first (linear/normalized-parent-items config))]
         (is (= "active" (:state item)))
+        (is (= "urgent" (:priority item)))
+        (is (= "2026-09-30T00:00:00Z" (:due-at item)))
+        (is (= "APP-2" (get-in item [:blocked-by 0 :display-id])))
         (is (= "https://linear/project/platform" (get-in item [:project :url])))
         (is (= "platform" (get-in item [:project :display-id])))
         (is (= "EPIC-1" (get-in item [:parent :display-id])))))))
 
-(deftest issue-queries-select-workflow-state
+(deftest issue-queries-select-neutral-work-item-fields
   (doseq [query [linear/parent-issues-query
                  linear/issue-by-identifier-query
                  linear/create-issue-mutation
                  linear/update-issue-mutation]]
-    (is (re-find #"state \{ id name type \}" query))))
+    (is (re-find #"state \{ id name type \}" query))
+    (is (re-find #"priority dueDate" query))
+    (is (re-find #"inverseRelations" query))))
