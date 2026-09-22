@@ -621,20 +621,28 @@
   {:name (or (get-in app-config [:tracker :issue-type]) "Task")})
 
 (defn validate-work-item-intent!
-  [app-config action item intent]
-  (let [item (when (= :update-item action) item)]
+  [app-config action target intent]
+  (let [item (when (= :update-item action) target)
+        context (when (= :create-item action) target)]
     (native-work-item-input app-config intent)
-    (when-let [target (and (contains? intent :state) (:state intent))]
+    (when-let [requested-state (and (contains? intent :state) (:state intent))]
       (if item
-        (resolve-transition target
+        (resolve-transition requested-state
                             (:transitions
                              (api! app-config :get
                                    (str "/issue/" (url-encode (provider-id item)) "/transitions")
                                    nil)))
-        (when-let [project (get-in app-config [:tracker :project])]
-          (resolve-status-target target
-                                 (project-statuses app-config project
-                                                   (configured-issue-type app-config))))))
+        (let [parent (some-> (:parent context) provider-id)
+              project (or (some-> (:parent context) :project provider-id)
+                          (some-> (:project context) provider-id)
+                          (get-in app-config [:tracker :project]))]
+          (when project
+            (resolve-status-target
+             requested-state
+             (project-statuses app-config project
+                               (if parent
+                                 (subtask-issue-type app-config project)
+                                 (configured-issue-type app-config))))))))
     (when (and item
                (some #(= (provider-id item) (provider-id %)) (:blocked-by intent)))
       (throw (ex-info "A Jira issue cannot block itself."
