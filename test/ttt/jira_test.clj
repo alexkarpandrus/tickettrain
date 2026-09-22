@@ -158,6 +158,17 @@
     (is (= {:priority nil}
            (jira/native-work-item-input config {:priority "none"})))))
 
+(deftest create-validation-does-not-treat-context-as-an-item
+  (let [calls (atom [])]
+    (with-redefs [jira/api! (fn [_ method path _]
+                              (swap! calls conj [method path])
+                              [{:name "Task"
+                                :statuses [{:name "In Progress"
+                                            :statusCategory {:key "indeterminate"}}]}])]
+      (jira/validate-work-item-intent!
+       config :create-item {:project {:display-id "APP"}} {:state "active"}))
+    (is (= [[:get "/project/APP/statuses"]] @calls))))
+
 (deftest scoped-api-token-uses-cloud-gateway-and-basic-authentication
   (let [call (atom nil)]
     (with-redefs [http/get (fn [url opts]
