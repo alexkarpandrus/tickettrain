@@ -104,6 +104,12 @@ ttt search --kind label --query "backend"          # find labels
    {"action":"comment_change_request","body":"The linked ticket is ready."}
    ```
 
+   To close an explicit change request in the current repository, with an optional comment, use:
+
+   ```json
+   {"action":"close_change_request","changeRequest":"73","comment":"Superseded by #74 and #76."}
+   ```
+
    Push the current branch before previewing `create_change_request`.
 
 2. `ttt preview --profile NAME --request-file req.json` — read-only; retain its proposal ID internally.

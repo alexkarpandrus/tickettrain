@@ -116,6 +116,17 @@
         repo (api! app-config :get (str "/repositories/" slug) nil)]
     (normalize-repo (assoc repo :slug slug))))
 
+(defn get-change-request
+  [app-config repo change-request-number]
+  (let [slug (:display-id repo)
+        change-request (api! app-config :get
+                             (str "/repositories/" slug "/pullrequests/" change-request-number)
+                             nil)]
+    (when-not (= "OPEN" (:state change-request))
+      (throw (ex-info (str "Bitbucket pull request #" change-request-number " is not open.")
+                      {:code :change-request-not-open})))
+    (normalize-change-request repo change-request)))
+
 (defn maybe-current-change-request
   [app-config]
   (let [slug (remote-slug)
@@ -167,6 +178,15 @@
         {:content {:raw body}})
   nil)
 
+(defn close-change-request!
+  [app-config repo-slug pr-id comment]
+  (when comment
+    (comment-change-request! app-config repo-slug pr-id comment))
+  (api! app-config :post
+        (str "/repositories/" repo-slug "/pullrequests/" pr-id "/decline")
+        nil)
+  nil)
+
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
   (let [slug (remote-slug)
@@ -184,9 +204,11 @@
     :current-repo
     :inspect-current
     :identify-change-request
+    :get-change-request
     :update-change-request!
     :comment-change-request!
     :create-change-request!
+    :close-change-request!
     :prefix-change-request-title})
 
 (defn assert-ready!
@@ -211,7 +233,9 @@
    :current-repo #(current-repo app-config)
    :inspect-current #(inspect-current app-config)
    :identify-change-request identify-change-request
+   :get-change-request #(get-change-request app-config %1 %2)
    :update-change-request! #(update-change-request! app-config %1 %2 %3)
    :comment-change-request! #(comment-change-request! app-config %1 %2 %3)
    :create-change-request! #(create-change-request! app-config %)
+   :close-change-request! #(close-change-request! app-config %1 %2 %3)
    :prefix-change-request-title prefix-change-request-title})
