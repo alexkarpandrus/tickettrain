@@ -20,7 +20,7 @@
        " project { id name slugId url } team { id key name }"
        " parent { id identifier title url }"
        " labels { nodes { id name color team { id key name } } }"
-       " inverseRelations { nodes { id type issue { " issue-summary-fragment " } } }"))
+       " inverseRelations(first: 100) { nodes { id type issue { " issue-summary-fragment " } } pageInfo { hasNextPage endCursor } }"))
 
 (def parent-issues-query
   (str "query ParentIssues($teamId: String!, $first: Int!, $after: String) {"
@@ -232,6 +232,24 @@
        :parent (some-> (:parent item) normalize-item-summary)
        :labels (mapv normalize-label (get-in item [:labels :nodes]))})))
 
+(defn issue-relations
+  [app-config item-id]
+  (paginate app-config issue-relations-query
+            {:issueId item-id}
+            [:issue :inverseRelations]))
+
+(defn complete-item-relations
+  [app-config item]
+  (if (get-in item [:inverseRelations :pageInfo :hasNextPage])
+    (assoc-in item [:inverseRelations :nodes]
+              (issue-relations app-config (:id item)))
+    item))
+
+(defn normalize-complete-item
+  [app-config item]
+  (when item
+    (normalize-item (complete-item-relations app-config item))))
+
 (defn exact-match?
   [left right]
   (= (str/lower-case (str/trim (or left "")))
@@ -249,7 +267,7 @@
 
 (defn normalized-parent-items
   [app-config]
-  (mapv normalize-item (parent-items app-config)))
+  (mapv #(normalize-complete-item app-config %) (parent-items app-config)))
 
 
 (defn list-items
@@ -261,7 +279,7 @@
                                 {:teamId team-id :first 100 :after after})
              page (get-in response [:team :issues])
              page-info (:pageInfo page)]
-         {:items (mapv normalize-item (:nodes page))
+         {:items (mapv #(normalize-complete-item app-config %) (:nodes page))
           :next-cursor (when (:hasNextPage page-info) (:endCursor page-info))}))
      matches?
      limit)))
@@ -293,7 +311,7 @@
 
 (defn normalized-item-by-identifier
   [app-config item-id]
-  (some-> (item-by-identifier app-config item-id) normalize-item))
+  (normalize-complete-item app-config (item-by-identifier app-config item-id)))
 
 (defn normalized-label-compatible-with-scope?
   [label scope]
@@ -488,9 +506,7 @@
 
 (defn sync-blockers!
   [app-config item-id blockers]
-  (let [relations (paginate app-config issue-relations-query
-                            {:issueId item-id}
-                            [:issue :inverseRelations])
+  (let [relations (issue-relations app-config item-id)
         existing (into {} (comp (filter #(= "blocks" (:type %)))
                                 (map (juxt #(get-in % [:issue :id]) :id)))
                        relations)
@@ -532,7 +548,7 @@
     (if (contains? intent :blocked-by)
       (try
         (sync-blockers! app-config (:id created) (:blocked-by intent))
-        (or (some-> (item-by-identifier app-config (:id created)) normalize-item)
+        (or (normalized-item-by-identifier app-config (:id created))
             (throw (ex-info "Linear issue refresh returned no item." {})))
         (catch Exception ex
           (throw (ex-info
@@ -542,7 +558,7 @@
                          :created-item (:identifier created)
                          :preserve-created-item true)
                   ex))))
-      (normalize-item created))))
+      (normalize-complete-item app-config created))))
 
 (defn update-item-from-intent!
   [app-config item {:keys [description labels] :as intent}]
@@ -556,8 +572,8 @@
     (if (contains? intent :blocked-by)
       (do
         (sync-blockers! app-config item-id (:blocked-by intent))
-        (some-> (item-by-identifier app-config item-id) normalize-item))
-      (or (some-> updated normalize-item) item))))
+        (normalized-item-by-identifier app-config item-id))
+      (or (normalize-complete-item app-config updated) item))))
 
 (defn valid-config-value?
   [v]

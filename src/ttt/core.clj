@@ -73,9 +73,14 @@
     (contains? request :blocked-by)
     (assoc :blocked-by (mapv #(resolve-item! runtime %) (:blocked-by request)))))
 
-
 (defn validate-work-item-intent!
   [runtime action target intent]
+  (when (and (= :update-item action)
+             (some #(domain/same-identity? (:ref target) (:ref %))
+                   (:blocked-by intent)))
+    (throw (ex-info "A tracker item cannot block itself."
+                    {:code :invalid-blocker
+                     :item (:ref target)})))
   (when-let [validate (get-in runtime [:tracker :validate-work-item-intent!])]
     (validate action target intent))
   intent)

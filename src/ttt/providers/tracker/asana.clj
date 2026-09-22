@@ -393,19 +393,21 @@
 
 (defn native-work-item-input
   [item intent]
-  (cond-> {}
-    (and (contains? intent :state) (not= (:state intent) (:state item)))
-    (assoc :completed (native-completed (:state intent)))
+  (let [due-at (if (contains? intent :due-at) (:due-at intent) (:due-at item))]
+    (cond-> {}
+      (and (contains? intent :state) (not= (:state intent) (:state item)))
+      (assoc :completed (native-completed (:state intent)))
 
-    (contains? intent :due-at)
-    (merge (if-let [due-at (:due-at intent)]
-             {:due_at due-at}
-             {:due_at nil :due_on nil}))
+      (contains? intent :due-at)
+      (merge (if-let [requested-due-at (:due-at intent)]
+               {:due_at requested-due-at}
+               {:due_at nil :due_on nil}))
 
-    (contains? intent :available-at)
-    (merge (if-let [available-at (:available-at intent)]
-             {:start_at available-at}
-             {:start_at nil :start_on nil}))))
+      (and (contains? intent :available-at)
+           (or (:available-at item) (:available-at intent)))
+      (merge (if-let [available-at (:available-at intent)]
+               {:start_at available-at :due_at due-at}
+               {:start_at nil :start_on nil :due_at due-at})))))
 
 (defn validate-work-item-intent!
   [_action item intent]
@@ -430,12 +432,12 @@
   (let [item-id (provider-id item)
         existing (set (map provider-id (:blocked-by item)))
         desired (set (map provider-id blockers))]
-    (when-let [added (seq (remove existing desired))]
-      (api! app-config :post (str "/tasks/" item-id "/addDependencies")
-            {:data {:dependencies (vec added)}}))
     (when-let [removed (seq (remove desired existing))]
       (api! app-config :post (str "/tasks/" item-id "/removeDependencies")
-            {:data {:dependencies (vec removed)}}))))
+            {:data {:dependencies (vec removed)}}))
+    (when-let [added (seq (remove existing desired))]
+      (api! app-config :post (str "/tasks/" item-id "/addDependencies")
+            {:data {:dependencies (vec added)}}))))
 
 (defn create-task!
   ([app-config context title description labels]

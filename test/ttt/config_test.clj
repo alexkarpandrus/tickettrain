@@ -68,14 +68,16 @@
           :site-url "https://acme.atlassian.net"
           :cloud-id "cloud-1"
           :project "APP"
-          :issue-type "Task"}
+          :issue-type "Task"
+          :blocker-link-type "Dependency"}
          (:tracker (config/env-overrides {:tracker {:provider :jira}}
                     {"JIRA_EMAIL" "alex@example.com"
                      "JIRA_API_TOKEN" "jira-token"
                      "JIRA_SITE_URL" "https://acme.atlassian.net"
                      "JIRA_CLOUD_ID" "cloud-1"
                      "JIRA_PROJECT" "APP"
-                     "JIRA_ISSUE_TYPE" "Task"})))))
+                     "JIRA_ISSUE_TYPE" "Task"
+                     "JIRA_BLOCKER_LINK_TYPE" "Dependency"})))))
 
 (deftest generic-target-state-maps-from-the-environment
   (is (= "In Progress"

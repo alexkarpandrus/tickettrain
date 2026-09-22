@@ -294,7 +294,7 @@ Run `ttt status --profile client`, then use the same `--profile client` on `insp
 | GitLab | `GITLAB_TOKEN`, optional `GITLAB_BASE_URL` |
 | Bitbucket | `BITBUCKET_EMAIL`, `BITBUCKET_API_TOKEN`, optional `BITBUCKET_BASE_URL` |
 | Linear | `LINEAR_API_KEY`; setup discovers the team and workspace; optional assignee and state variables |
-| Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE` |
+| Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE`; set `JIRA_BLOCKER_LINK_TYPE` to a custom blocker link type ID or name |
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
 | Taskwarrior | Local `task` CLI; optional `TASKRC` selects a taskrc file |
 

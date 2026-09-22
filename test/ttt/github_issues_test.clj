@@ -57,6 +57,18 @@
                         (github-issues/validate-work-item-intent!
                          :update {:number 7} {:state "active"}))))
 
+(deftest switches-between-closed-reasons-by-reopening-first
+  (let [calls (atom [])]
+    (with-redefs [shell/run (fn [& args] (swap! calls conj args))
+                  github-issues/issue-by-number
+                  (fn [_ number] {:number number :state "canceled"})]
+      (github-issues/apply-neutral-state!
+       scope {:number 7 :state "completed"} "canceled"))
+    (is (= [["gh" "issue" "reopen" "7" "--repo" "org/repo"]
+            ["gh" "issue" "close" "7" "--repo" "org/repo"
+             "--reason" "not planned"]]
+           @calls))))
+
 
 (deftest list-items-widens-gh-pagination-until-the-filtered-limit-is-met
   (let [calls (atom [])
@@ -91,6 +103,32 @@
                       {:tracker {:target-state "closed"}}
                       scope {} "Title" "Body" [])))))
     (is (some #(= ["gh" "issue" "close" "7" "--repo" "org/repo"] %) @calls))))
+
+(deftest reports-created-issue-when-state-application-fails
+  (let [created {:number 7 :display-id "#7" :state "open"}
+        error (with-redefs [github-issues/create-item! (fn [& _] created)
+                            github-issues/apply-neutral-state!
+                            (fn [& _] (throw (ex-info "denied" {:status 403})))]
+                (try
+                  (github-issues/create-item-from-intent!
+                   {} scope {} {:title "Task"
+                                :description ""
+                                :labels []
+                                :state "completed"})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "#7" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
+
+(deftest reports-created-issue-when-refresh-fails
+  (let [error (with-redefs [shell/run (fn [& _] "https://github.com/org/repo/issues/7")
+                            github-issues/issue-by-number (constantly nil)]
+                (try
+                  (github-issues/create-item! {} scope {} "Task" "" [])
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "org/repo#7" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
 
 (deftest update-reconciles-labels-in-the-configured-repository
   (let [calls (atom [])

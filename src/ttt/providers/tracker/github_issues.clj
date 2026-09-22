@@ -148,10 +148,21 @@
                milestone (into ["--milestone" milestone])
                (seq label-args) (into label-args))
         url (apply shell/run "gh" args)
-        number (some->> (re-find #"/issues/(\d+)$" url) second Long/parseLong)]
-    (when (= "closed" (:id target))
-      (shell/run "gh" "issue" "close" (str number) "--repo" (:id scope)))
-    (issue-by-number scope number)))
+        number (some->> (re-find #"/issues/(\d+)$" url) second Long/parseLong)
+        display-id (str (:id scope) "#" number)]
+    (try
+      (when (= "closed" (:id target))
+        (shell/run "gh" "issue" "close" (str number) "--repo" (:id scope)))
+      (or (issue-by-number scope number)
+          (throw (ex-info "GitHub issue refresh returned no item." {})))
+      (catch Exception ex
+        (throw (ex-info
+                (str "GitHub Issues created " display-id
+                     " but could not apply its state or refresh it. Inspect the issue before retrying.")
+                (assoc (or (ex-data ex) {})
+                       :created-item display-id
+                       :preserve-created-item true)
+                ex))))))
 
 (defn update-item!
   [scope item description labels]
@@ -172,6 +183,9 @@
   [scope item neutral-state]
   (validate-work-item-intent! :update item {:state neutral-state})
   (when (not= neutral-state (:state item))
+    (when (and (#{"completed" "canceled"} (:state item))
+               (#{"completed" "canceled"} neutral-state))
+      (shell/run "gh" "issue" "reopen" (str (:number item)) "--repo" (:id scope)))
     (case neutral-state
       "open" (shell/run "gh" "issue" "reopen" (str (:number item)) "--repo" (:id scope))
       "completed" (shell/run "gh" "issue" "close" (str (:number item))
@@ -198,7 +212,17 @@
               app-config)
         created (create-item! cfg scope context title description labels)]
     (if (contains? intent :state)
-      (apply-neutral-state! scope created (:state intent))
+      (try
+        (or (apply-neutral-state! scope created (:state intent))
+            (throw (ex-info "GitHub issue refresh returned no item." {})))
+        (catch Exception ex
+          (throw (ex-info
+                  (str "GitHub Issues created " (:display-id created)
+                       " but could not apply its requested state or refresh it. Inspect the issue before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (:display-id created)
+                         :preserve-created-item true)
+                  ex))))
       created)))
 
 (defn update-item-from-intent!

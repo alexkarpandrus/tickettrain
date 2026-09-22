@@ -404,7 +404,8 @@
                                                                   :type "blocks"
                                                                   :issue {:id "blocker-1"
                                                                           :identifier "APP-2"
-                                                                          :title "Dependency"}}]}
+                                                                          :title "Dependency"}}]
+                                                          :pageInfo {:hasNextPage false :endCursor nil}}
                                        :project {:id "p1" :name "Platform" :slugId "platform" :url "https://linear/project/platform"}
                                        :parent {:id "epic-1" :identifier "EPIC-1" :title "Epic" :url "https://linear/issue/EPIC-1"}}]
                                :pageInfo {:hasNextPage false :endCursor nil}}}}]
@@ -418,6 +419,40 @@
         (is (= "platform" (get-in item [:project :display-id])))
         (is (= "EPIC-1" (get-in item [:parent :display-id])))))))
 
+(deftest normalized-item-hydrates-all-linear-blocker-pages
+  (let [relation-requests (atom [])]
+    (with-redefs [linear/graphql!
+                  (fn [_ query variables]
+                    (cond
+                      (= query linear/issue-by-identifier-query)
+                      {:issue {:id "item" :identifier "APP-1" :title "Task"
+                               :team {:id "team-1"}
+                               :inverseRelations
+                               {:nodes [{:id "partial" :type "blocks"
+                                         :issue {:id "partial" :identifier "APP-0"}}]
+                                :pageInfo {:hasNextPage true :endCursor "ignored"}}}}
+
+                      (= query linear/issue-relations-query)
+                      (do
+                        (swap! relation-requests conj variables)
+                        {:issue
+                         {:inverseRelations
+                          (if (:after variables)
+                            {:nodes [{:id "r2" :type "blocks"
+                                      :issue {:id "b2" :identifier "APP-3" :title "Second"}}]
+                             :pageInfo {:hasNextPage false :endCursor nil}}
+                            {:nodes [{:id "r1" :type "blocks"
+                                      :issue {:id "b1" :identifier "APP-2" :title "First"}}]
+                             :pageInfo {:hasNextPage true :endCursor "next"}})}})
+
+                      :else (throw (ex-info "Unexpected query" {:query query}))))]
+      (is (= ["APP-2" "APP-3"]
+             (mapv :display-id
+                   (:blocked-by (linear/normalized-item-by-identifier config "APP-1"))))))
+    (is (= [{:issueId "item" :first 100 :after nil}
+            {:issueId "item" :first 100 :after "next"}]
+           @relation-requests))))
+
 (deftest issue-queries-select-neutral-work-item-fields
   (doseq [query [linear/parent-issues-query
                  linear/issue-by-identifier-query
@@ -425,6 +460,7 @@
                  linear/update-issue-mutation]]
     (is (re-find #"state \{ id name type \}" query))
     (is (re-find #"priority dueDate" query))
-    (is (re-find #"inverseRelations" query)))
+    (is (re-find #"inverseRelations\(first: 100\)" query))
+    (is (re-find #"pageInfo \{ hasNextPage endCursor \}" query)))
   (is (re-find #"inverseRelations\(first: \$first, after: \$after\)"
                linear/issue-relations-query)))

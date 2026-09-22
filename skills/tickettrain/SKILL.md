@@ -45,6 +45,7 @@ context:
 
 - Use `TTT_TRACKER_STATE="Exact state name" ttt setup` to validate and persist the state for newly created items.
 - Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`.
+- Jira uses the default `Blocks` issue-link type for blockers. Set `JIRA_BLOCKER_LINK_TYPE` to a custom type ID or name when needed.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior creates pending tasks, preserves native status during updates, and uses projects instead of native parent tasks.
 - Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
