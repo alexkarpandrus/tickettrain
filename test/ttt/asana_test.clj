@@ -11,7 +11,7 @@
 (def scope (domain/scope-identity :asana "w"))
 
 (deftest task-fields-include-related-resource-names
-  (doseq [field ["html_notes" "workspace.gid" "projects.name" "tags.name" "parent.name"]]
+  (doseq [field ["html_notes" "due_at" "start_at" "dependencies.name" "workspace.gid" "projects.name" "tags.name" "parent.name"]]
     (is (str/includes? asana/task-fields field))))
 
 (deftest rich-notes-round-trip-generated-markdown
@@ -26,6 +26,9 @@
 (deftest normalizes-task-with-project-parent-and-tags
   (let [task {:gid "123" :name "Retry" :notes "Body" :permalink_url "https://app.asana.com/0/0/123"
               :completed false
+              :due_on "2026-09-30"
+              :start_at "2026-09-29T12:00:00Z"
+              :dependencies [{:gid "98" :name "Deploy" :completed false}]
               :projects [{:gid "p1" :name "App"}]
               :parent {:gid "99" :name "Parent"}
               :tags [{:gid "t1" :name "bug"}]}
@@ -35,6 +38,9 @@
     (is (= "Body" (:description item)))
     (is (= "open" (:state item)))
     (is (= "completed" (:state (asana/normalize-task scope (assoc task :completed true)))))
+    (is (= "2026-09-30T00:00:00Z" (:due-at item)))
+    (is (= "2026-09-29T12:00:00Z" (:available-at item)))
+    (is (= ["98"] (mapv :display-id (:blocked-by item))))
     (is (= "App" (get-in item [:project :display-id])))
     (is (= "99" (get-in item [:parent :display-id])))
     (is (= ["bug"] (mapv :display-id (:labels item))))
@@ -126,6 +132,55 @@
          (asana/tag-ids [(asana/normalize-tag scope {:gid "t1" :name "a"})
                          (asana/normalize-tag scope {:gid "t2" :name "b"})]))))
 
+(deftest translates-neutral-work-item-fields
+  (is (= {:completed true
+          :due_at "2026-09-30T12:00:00Z"
+          :start_at "2026-09-29T12:00:00Z"}
+         (asana/native-work-item-input
+          nil
+          {:state "completed"
+           :due-at "2026-09-30T12:00:00Z"
+           :available-at "2026-09-29T12:00:00Z"})))
+  (is (= {:start_at "2026-09-29T12:00:00Z"
+          :due_at "2026-09-30T12:00:00Z"}
+         (asana/native-work-item-input
+          {:due-at "2026-09-30T12:00:00Z"}
+          {:available-at "2026-09-29T12:00:00Z"})))
+  (is (= {:start_at nil :start_on nil
+          :due_at "2026-09-30T12:00:00Z"}
+         (asana/native-work-item-input
+          {:due-at "2026-09-30T12:00:00Z"
+           :available-at "2026-09-29T12:00:00Z"}
+          {:available-at nil})))
+  (is (thrown-with-msg? Exception #"cannot represent neutral state: active"
+                        (asana/native-work-item-input nil {:state "active"})))
+  (is (thrown-with-msg? Exception #"requires dueAt"
+                        (asana/validate-work-item-intent!
+                         :create nil {:available-at "2026-09-29T12:00:00Z"}))))
+
+(deftest reconciles-asana-dependencies
+  (let [calls (atom [])
+        existing {:ref (domain/identity :asana :tracker-item "1")
+                  :blocked-by [{:ref (domain/identity :asana :tracker-item "2")}]}
+        desired [{:ref (domain/identity :asana :tracker-item "3")}]]
+    (with-redefs [asana/api! (fn [_ method path body]
+                               (swap! calls conj [method path body]))]
+      (asana/sync-blockers! config existing desired))
+    (is (= [[:post "/tasks/1/removeDependencies" {:data {:dependencies ["2"]}}]
+            [:post "/tasks/1/addDependencies" {:data {:dependencies ["3"]}}]]
+           @calls))))
+
+(deftest reports-created-task-when-blocker-sync-fails
+  (let [error (with-redefs [asana/create-task! (fn [& _] {:gid "123" :name "Task"})
+                            asana/sync-blockers! (fn [& _] (throw (ex-info "denied" {:status 403})))]
+                (try
+                  (asana/create-item-from-intent!
+                   config {} {:title "Task" :description "" :labels [] :blocked-by []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "123" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
+
 (deftest create-task-applies-the-configured-target-state
   (let [payload (atom nil)]
     (with-redefs [asana/api! (fn [_ _ _ body]
@@ -168,5 +223,6 @@
   (let [adapter (asana/neutral-adapter config)]
     (is (= :asana (:provider adapter)))
     (is (= asana/capabilities (:capabilities adapter)))
-    (is (empty? (:item-capabilities adapter)))
+    (is (= #{:item-lifecycle :item-due-dates :item-availability :item-blockers}
+           (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) asana/capabilities))))

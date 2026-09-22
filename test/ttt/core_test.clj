@@ -88,6 +88,23 @@
     (is (= :unsupported-capability (:code (ex-data error))))
     (is (re-find #"does not support item comments" (.getMessage error)))))
 
+(deftest self-blockers-fail-before-provider-validation
+  (let [provider-validation-called? (atom false)
+        runtime (fake-runtime
+                 (atom [])
+                 {:tracker {:item-capabilities #{:item-blockers}
+                            :resolve-item (constantly item)
+                            :validate-work-item-intent!
+                            (fn [& _] (reset! provider-validation-called? true))}})
+        error (try
+                (core/preview runtime {:action :update-item
+                                       :item-ref "APP-123"
+                                       :blocked-by ["APP-123"]})
+                nil
+                (catch Exception ex ex))]
+    (is (= :invalid-blocker (:code (ex-data error))))
+    (is (false? @provider-validation-called?))))
+
 (deftest scope-mismatches-fail-before-label-resolution-or-mutation
   (let [calls (atom []) runtime (fake-runtime calls {:tracker {:resolve-item (fn [_] (assoc item :scopes [other-scope])) :resolve-labels (fn [& _] (swap! calls conj :labels) [])}})]
     (is (thrown-with-msg? Exception #"outside the configured scope" (core/preview runtime {:action :link-existing :item-ref "wrong" :labels []})))

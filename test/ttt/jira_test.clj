@@ -69,6 +69,12 @@
                :fields {:summary "Retry"
                         :description "Body"
                         :status {:name "In Progress" :statusCategory {:key "indeterminate"}}
+                        :priority {:id "1" :name "Highest"}
+                        :duedate "2026-09-30"
+                        :issuelinks [{:id "link-1"
+                                      :type {:name "Blocks" :outward "blocks"}
+                                      :outwardIssue {:key "APP-100"
+                                                     :fields {:summary "Deploy"}}}]
                         :project {:id "p1" :key "APP" :name "App"}
                         :parent {:key "APP-1" :fields {:summary "Parent"}}
                         :labels ["backend"]}}
@@ -77,6 +83,9 @@
     (is (= "Retry" (:title item)))
     (is (= "Body" (:description item)))
     (is (= "active" (:state item)))
+    (is (= "urgent" (:priority item)))
+    (is (= "2026-09-30T00:00:00Z" (:due-at item)))
+    (is (= ["APP-100"] (mapv :display-id (:blocked-by item))))
     (is (= "APP" (get-in item [:project :display-id])))
     (is (= "APP-1" (get-in item [:parent :display-id])))
     (is (= ["backend"] (mapv :display-id (:labels item))))
@@ -134,6 +143,46 @@
   (with-redefs [jira/api! (fn [& _] {:values ["performance" "security"]})]
     (is (= ["performance" "security"]
            (mapv :display-id (jira/labels config))))))
+
+(deftest translates-neutral-priority-and-due-date
+  (with-redefs [jira/api! (fn [_ method path _]
+                            (is (= [:get "/priority"] [method path]))
+                            [{:id "1" :name "Highest"}
+                             {:id "2" :name "High"}
+                             {:id "3" :name "Medium"}
+                             {:id "4" :name "Low"}])]
+    (is (= {:priority {:id "2"} :duedate "2026-09-30"}
+           (jira/native-work-item-input
+            config
+            {:priority "high" :due-at "2026-09-30T12:00:00Z"})))
+    (is (= {:priority nil}
+           (jira/native-work-item-input config {:priority "none"})))))
+
+(deftest blocker-link-type-validation-fails-during-preview
+  (with-redefs [jira/api! (fn [_ method path _]
+                            (is (= [:get "/issueLinkType"] [method path]))
+                            {:issueLinkTypes []})]
+    (let [error (try
+                  (jira/validate-work-item-intent!
+                   config :update-item {:display-id "APP-1"} {:blocked-by []})
+                  nil
+                  (catch Exception ex ex))]
+      (is (= :unsupported-work-item-value (:code (ex-data error))))
+      (is (= :blocked-by (:field (ex-data error)))))))
+
+(deftest create-validation-uses-the-request-project-context
+  (let [calls (atom [])]
+    (with-redefs [jira/api! (fn [_ method path _]
+                              (swap! calls conj [method path])
+                              [{:name "Task"
+                                :statuses [{:name "In Progress"
+                                            :statusCategory {:key "indeterminate"}}]}])]
+      (jira/validate-work-item-intent!
+       (update config :tracker dissoc :project)
+       :create-item
+       {:project {:ref (domain/identity :jira :project "KAN")}}
+       {:state "active"}))
+    (is (= [[:get "/project/KAN/statuses"]] @calls))))
 
 (deftest scoped-api-token-uses-cloud-gateway-and-basic-authentication
   (let [call (atom nil)]
@@ -244,6 +293,78 @@
                      [:fields :status :name]))))
     (is (some #(= [:post "/issue/APP-1/transitions" {:transition {:id "21"}}] %)
               @calls))))
+
+(deftest neutral-state-selects-a-matching-jira-transition
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :target-state] "completed")]
+    (with-redefs [jira/api! (fn [_ method path body]
+                              (swap! calls conj [method path body])
+                              (case [method path]
+                                [:get "/issue/APP-1/transitions"]
+                                {:transitions [{:id "21"
+                                                :to {:name "Done"
+                                                     :statusCategory {:key "done"}}
+                                                :fields {}}]}
+                                [:post "/issue/APP-1/transitions"] nil
+                                [:get "/issue/APP-1"]
+                                {:key "APP-1"
+                                 :fields {:status {:name "Done"
+                                                  :statusCategory {:key "done"}}}}))]
+      (is (= "Done"
+             (get-in (jira/apply-target-state!
+                      app-config
+                      {:key "APP-1"
+                       :fields {:status {:name "Todo"
+                                        :statusCategory {:key "new"}}}})
+                     [:fields :status :name]))))
+    (is (some #(= [:post "/issue/APP-1/transitions" {:transition {:id "21"}}] %)
+              @calls))))
+
+(deftest reconciles-jira-blocking-links-with-a-custom-link-type
+  (let [calls (atom [])
+        app-config (assoc-in config [:tracker :blocker-link-type] "Dependency")
+        item {:ref (domain/identity :jira :tracker-item "APP-1")
+              :provider-blocker-links
+              [{:id "link-1"
+                :item {:ref (domain/identity :jira :tracker-item "APP-2")}}]}
+        blockers [{:ref (domain/identity :jira :tracker-item "APP-3")}]]
+    (with-redefs [jira/api! (fn [_ method path body]
+                              (swap! calls conj [method path body])
+                              (when (= [:get "/issueLinkType"] [method path])
+                                {:issueLinkTypes [{:id "10042" :name "Dependency"}]}))]
+      (jira/sync-blockers! app-config item blockers))
+    (is (= [[:get "/issueLinkType" nil]
+            [:post "/issueLink"
+             {:type {:id "10042"}
+              :outwardIssue {:key "APP-3"}
+              :inwardIssue {:key "APP-1"}}]
+            [:delete "/issueLink/link-1" nil]]
+           @calls))))
+
+(deftest normalizes-custom-jira-blocker-links
+  (let [item (jira/normalize-item
+              base "10042"
+              {:key "APP-1"
+               :fields {:summary "Task"
+                        :issuelinks [{:id "link-1"
+                                      :type {:id "10042" :name "Dependency"}
+                                      :outwardIssue {:key "APP-2"
+                                                     :fields {:summary "Blocker"}}}]}})]
+    (is (= ["APP-2"] (mapv :display-id (:blocked-by item))))))
+
+(deftest reports-created-issue-when-blocker-sync-fails
+  (let [error (with-redefs [jira/create-item! (fn [& _]
+                                                {:key "APP-1"
+                                                 :fields {:summary "Task"}})
+                            jira/sync-blockers! (fn [& _]
+                                                  (throw (ex-info "denied" {:status 403})))]
+                (try
+                  (jira/create-item-from-intent!
+                   config {} {:title "Task" :description "" :labels [] :blocked-by []})
+                  nil
+                  (catch Exception ex ex)))]
+    (is (= "APP-1" (:created-item (ex-data error))))
+    (is (:preserve-created-item (ex-data error)))))
 
 
 (deftest failed-target-state-deletes-the-created-issue
@@ -407,5 +528,6 @@
   (let [adapter (jira/neutral-adapter config)]
     (is (= :jira (:provider adapter)))
     (is (= jira/capabilities (:capabilities adapter)))
-    (is (empty? (:item-capabilities adapter)))
+    (is (= #{:item-lifecycle :item-priority :item-due-dates :item-blockers}
+           (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) jira/capabilities))))

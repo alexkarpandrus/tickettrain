@@ -11,8 +11,16 @@
 
 (def endpoint "https://api.linear.app/graphql")
 
+(def issue-summary-fragment
+  "id identifier title url state { id name type }")
+
 (def issue-fragment
-  "id identifier title description url state { id name type } project { id name slugId url } team { id key name } parent { id identifier title url } labels { nodes { id name color team { id key name } } }")
+  (str issue-summary-fragment
+       " description priority dueDate"
+       " project { id name slugId url } team { id key name }"
+       " parent { id identifier title url }"
+       " labels { nodes { id name color team { id key name } } }"
+       " inverseRelations(first: 100) { nodes { id type issue { " issue-summary-fragment " } } pageInfo { hasNextPage endCursor } }"))
 
 (def parent-issues-query
   (str "query ParentIssues($teamId: String!, $first: Int!, $after: String) {"
@@ -56,6 +64,13 @@
   (str "query IssueByIdentifier($issueId: String!) {"
        "  issue(id: $issueId) { " issue-fragment " } }"))
 
+(def issue-relations-query
+  (str "query IssueRelations($issueId: String!, $first: Int!, $after: String) {"
+       "  issue(id: $issueId) {"
+       "    inverseRelations(first: $first, after: $after) {"
+       "      nodes { id type issue { " issue-summary-fragment " } }"
+       "      pageInfo { hasNextPage endCursor } } } }"))
+
 (def viewer-query
   "query Viewer { viewer { id name email organization { urlKey } } }")
 
@@ -67,7 +82,7 @@
      team(id: $teamId) {
        id
        name
-       states { nodes { id name type } }
+       states { nodes { id name type position } }
      }
    }")
 
@@ -78,6 +93,17 @@
 (def update-issue-mutation
   (str "mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {"
        "  issueUpdate(id: $id, input: $input) { success issue { " issue-fragment " } } }"))
+
+
+(def create-issue-relation-mutation
+  "mutation CreateIssueRelation($input: IssueRelationCreateInput!) {
+     issueRelationCreate(input: $input) { success issueRelation { id } }
+   }")
+
+(def delete-issue-relation-mutation
+  "mutation DeleteIssueRelation($id: String!) {
+     issueRelationDelete(id: $id) { success }
+   }")
 
 (def create-comment-mutation
   "mutation CreateComment($input: CommentCreateInput!) {
@@ -108,19 +134,21 @@
     (:data body)))
 
 (defn paginate
-  [app-config query variables page-path limit]
-  (let [page-size (min 100 limit)]
-    (loop [after nil
-           acc []]
-      (let [response (graphql! app-config query (merge variables {:first page-size :after after}))
-            page-info (get-in response (conj page-path :pageInfo))
-            items (get-in response (conj page-path :nodes))
-            next-acc (into acc (or items []))]
-        (cond
-          (not (:hasNextPage page-info)) next-acc
-          (>= (count next-acc) limit) (take limit next-acc)
-          (:endCursor page-info) (recur (:endCursor page-info) next-acc)
-          :else next-acc)))))
+  ([app-config query variables page-path]
+   (paginate app-config query variables page-path nil))
+  ([app-config query variables page-path limit]
+   (let [page-size (if limit (min 100 limit) 100)]
+     (loop [after nil
+            acc []]
+       (let [response (graphql! app-config query (merge variables {:first page-size :after after}))
+             page-info (get-in response (conj page-path :pageInfo))
+             items (get-in response (conj page-path :nodes))
+             next-acc (into acc (or items []))]
+         (cond
+           (not (:hasNextPage page-info)) next-acc
+           (and limit (>= (count next-acc) limit)) (take limit next-acc)
+           (:endCursor page-info) (recur (:endCursor page-info) next-acc)
+           :else next-acc))))))
 
 (defn parent-items
   [app-config]
@@ -147,6 +175,12 @@
                [(domain/scope-identity :linear (:id team))]
                [])}))
 
+(def neutral-priority-by-native
+  {0 "none" 1 "urgent" 2 "high" 3 "medium" 4 "low"})
+
+(def native-priority-by-neutral
+  {"none" 0 "urgent" 1 "high" 2 "medium" 3 "low" 4})
+
 (defn normalize-state
   [state]
   (case (:type state)
@@ -154,6 +188,18 @@
     "completed" "completed"
     "canceled" "canceled"
     (when state "open")))
+
+(defn normalize-priority
+  [priority]
+  (get neutral-priority-by-native (some-> priority int)))
+
+(defn normalize-due-at
+  [due-date]
+  (when due-date (str due-date "T00:00:00Z")))
+
+(defn blocker-relations
+  [item]
+  (filter #(= "blocks" (:type %)) (get-in item [:inverseRelations :nodes])))
 
 (defn normalize-item-summary
   [item]
@@ -174,12 +220,35 @@
        :description (:description item)
        :url (:url item)
        :state (normalize-state (:state item))
+       :provider-state (:state item)
+       :priority (normalize-priority (:priority item))
+       :due-at (normalize-due-at (:dueDate item))
+       :blocked-by (mapv #(normalize-item-summary (:issue %))
+                         (blocker-relations item))
        :scopes (if team
                  [(domain/scope-identity :linear (:id team))]
                  [])
        :project (some-> (:project item) normalize-project)
        :parent (some-> (:parent item) normalize-item-summary)
        :labels (mapv normalize-label (get-in item [:labels :nodes]))})))
+
+(defn issue-relations
+  [app-config item-id]
+  (paginate app-config issue-relations-query
+            {:issueId item-id}
+            [:issue :inverseRelations]))
+
+(defn complete-item-relations
+  [app-config item]
+  (if (get-in item [:inverseRelations :pageInfo :hasNextPage])
+    (assoc-in item [:inverseRelations :nodes]
+              (issue-relations app-config (:id item)))
+    item))
+
+(defn normalize-complete-item
+  [app-config item]
+  (when item
+    (normalize-item (complete-item-relations app-config item))))
 
 (defn exact-match?
   [left right]
@@ -198,7 +267,7 @@
 
 (defn normalized-parent-items
   [app-config]
-  (mapv normalize-item (parent-items app-config)))
+  (mapv #(normalize-complete-item app-config %) (parent-items app-config)))
 
 
 (defn list-items
@@ -210,7 +279,7 @@
                                 {:teamId team-id :first 100 :after after})
              page (get-in response [:team :issues])
              page-info (:pageInfo page)]
-         {:items (mapv normalize-item (:nodes page))
+         {:items (mapv #(normalize-complete-item app-config %) (:nodes page))
           :next-cursor (when (:hasNextPage page-info) (:endCursor page-info))}))
      matches?
      limit)))
@@ -231,15 +300,18 @@
                     (exact-match? (:title %) project-ref)))
        first))
 
-(defn normalized-item-by-identifier
+(defn item-by-identifier
   [app-config item-id]
   (when (re-matches #"(?i)(?:[a-z][a-z0-9]*-\d+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
                     (str/trim item-id))
-    (some-> (get (graphql! app-config
-                           issue-by-identifier-query
-                           {:issueId item-id})
-                 :issue)
-            normalize-item)))
+    (get (graphql! app-config
+                   issue-by-identifier-query
+                   {:issueId item-id})
+         :issue)))
+
+(defn normalized-item-by-identifier
+  [app-config item-id]
+  (normalize-complete-item app-config (item-by-identifier app-config item-id)))
 
 (defn normalized-label-compatible-with-scope?
   [label scope]
@@ -290,6 +362,13 @@
                     {:teamId team-id})
           [:team :states :nodes]))
 
+
+(defn provider-id
+  [entity]
+  (if (map? entity)
+    (or (get-in entity [:ref :id]) (:id entity))
+    entity))
+
 (defn state-id
   [app-config team-id]
   (let [{:keys [state-id state-name target-state]} (tracker-config app-config)]
@@ -305,26 +384,84 @@
 
       :else nil)))
 
+(def neutral-state-types
+  {"open" ["unstarted" "backlog" "triage"]
+   "active" ["started"]
+   "completed" ["completed"]
+   "canceled" ["canceled"]})
+
+(defn neutral-state-id
+  [app-config team-id neutral-state]
+  (let [states (team-states app-config team-id)
+        candidate (some (fn [state-type]
+                          (->> states
+                               (filter #(= state-type (:type %)))
+                               (sort-by :position)
+                               first))
+                        (get neutral-state-types neutral-state))]
+    (or (:id candidate)
+        (throw (ex-info (str "Linear cannot represent neutral state: " neutral-state)
+                        {:code :unsupported-work-item-value
+                         :provider :linear
+                         :field :state
+                         :value neutral-state})))))
+
+(defn native-due-date
+  [due-at]
+  (when due-at
+    (str (.toLocalDate (.atZone (java.time.Instant/parse due-at)
+                                java.time.ZoneOffset/UTC)))))
+
+(defn native-work-item-input
+  [app-config item intent]
+  (let [team-id (or (get-in item [:scopes 0 :id])
+                    (:team-id (tracker-config app-config)))]
+    (cond-> {}
+      (and (contains? intent :state)
+           (not= (:state intent) (:state item)))
+      (assoc :stateId (neutral-state-id app-config team-id (:state intent)))
+
+      (contains? intent :priority)
+      (assoc :priority (get native-priority-by-neutral (or (:priority intent) "none")))
+
+      (contains? intent :due-at)
+      (assoc :dueDate (native-due-date (:due-at intent))))))
+
+(defn validate-work-item-intent!
+  [app-config _action item intent]
+  (native-work-item-input app-config item intent)
+  (when (and item
+             (some #(= (provider-id item) (provider-id %)) (:blocked-by intent)))
+    (throw (ex-info "A Linear issue cannot block itself."
+                    {:code :invalid-blocker
+                     :provider :linear
+                     :item (provider-id item)})))
+  intent)
+
 (defn create-item!
-  [app-config {:keys [parent project]} title description label-ids]
-  (let [team-id (or (get-in parent [:team :id])
-                    (:team-id (tracker-config app-config)))
-        assignee (assignee-id app-config)
-        state (state-id app-config team-id)
-        input (cond-> {:teamId team-id
-                       :title title
-                       :description description}
-                parent (assoc :parentId (:id parent))
-                project (assoc :projectId (:id project))
-                (seq label-ids) (assoc :labelIds (vec label-ids))
-                assignee (assoc :assigneeId assignee)
-                state (assoc :stateId state))
-        response (graphql! app-config create-issue-mutation {:input input})
-        item (get-in response [:issueCreate :issue])
-        success? (get-in response [:issueCreate :success])]
-    (when-not success?
-      (throw (ex-info "Linear issueCreate returned success=false" {})))
-    item))
+  ([app-config context title description label-ids]
+   (create-item! app-config context title description label-ids {}))
+  ([app-config {:keys [parent project]} title description label-ids native-input]
+   (let [team-id (or (get-in parent [:team :id])
+                     (:team-id (tracker-config app-config)))
+         assignee (assignee-id app-config)
+         state (state-id app-config team-id)
+         input (merge
+                (cond-> {:teamId team-id
+                         :title title
+                         :description description}
+                  parent (assoc :parentId (:id parent))
+                  project (assoc :projectId (:id project))
+                  (seq label-ids) (assoc :labelIds (vec label-ids))
+                  assignee (assoc :assigneeId assignee)
+                  state (assoc :stateId state))
+                native-input)
+         response (graphql! app-config create-issue-mutation {:input input})
+         item (get-in response [:issueCreate :issue])
+         success? (get-in response [:issueCreate :success])]
+     (when-not success?
+       (throw (ex-info "Linear issueCreate returned success=false" {})))
+     item)))
 
 (defn update-item!
   [app-config item-id input]
@@ -337,6 +474,23 @@
       (throw (ex-info "Linear issueUpdate returned success=false" {})))
     (get-in response [:issueUpdate :issue])))
 
+
+(defn create-blocker-relation!
+  [app-config item-id blocker-id]
+  (let [response (graphql! app-config create-issue-relation-mutation
+                           {:input {:issueId blocker-id
+                                    :relatedIssueId item-id
+                                    :type "blocks"}})]
+    (when-not (get-in response [:issueRelationCreate :success])
+      (throw (ex-info "Linear issueRelationCreate returned success=false" {})))))
+
+(defn delete-blocker-relation!
+  [app-config relation-id]
+  (let [response (graphql! app-config delete-issue-relation-mutation
+                           {:id relation-id})]
+    (when-not (get-in response [:issueRelationDelete :success])
+      (throw (ex-info "Linear issueRelationDelete returned success=false" {})))))
+
 (defn configured-scope
   [app-config]
   (domain/scope-identity :linear (:team-id (tracker-config app-config))))
@@ -347,11 +501,21 @@
                            (tracker-config app-config)
                            [:api-key :team-id :workspace-url]))
 
-(defn provider-id
-  [entity]
-  (if (map? entity)
-    (or (get-in entity [:ref :id]) (:id entity))
-    entity))
+
+
+
+(defn sync-blockers!
+  [app-config item-id blockers]
+  (let [relations (issue-relations app-config item-id)
+        existing (into {} (comp (filter #(= "blocks" (:type %)))
+                                (map (juxt #(get-in % [:issue :id]) :id)))
+                       relations)
+        desired (set (map provider-id blockers))]
+    (doseq [blocker-id (remove #(contains? existing %) desired)]
+      (create-blocker-relation! app-config item-id blocker-id))
+    (doseq [[blocker-id relation-id] existing
+            :when (not (contains? desired blocker-id))]
+      (delete-blocker-relation! app-config relation-id))))
 
 (defn comment-item!
   [app-config item body]
@@ -373,21 +537,43 @@
     project (assoc :project {:id (provider-id project)})))
 
 (defn create-item-from-intent!
-  [app-config context {:keys [title description labels]}]
-  (some-> (create-item! app-config
-                        (provider-context app-config context)
-                        title
-                        description
-                        (label-ids labels))
-          normalize-item))
+  [app-config context {:keys [title description labels] :as intent}]
+  (let [native-input (native-work-item-input app-config nil intent)
+        created (create-item! app-config
+                              (provider-context app-config context)
+                              title
+                              description
+                              (label-ids labels)
+                              native-input)]
+    (if (contains? intent :blocked-by)
+      (try
+        (sync-blockers! app-config (:id created) (:blocked-by intent))
+        (or (normalized-item-by-identifier app-config (:id created))
+            (throw (ex-info "Linear issue refresh returned no item." {})))
+        (catch Exception ex
+          (throw (ex-info
+                  (str "Linear created " (:identifier created)
+                       " but could not apply blockers or refresh it. Inspect the issue before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (:identifier created)
+                         :preserve-created-item true)
+                  ex))))
+      (normalize-complete-item app-config created))))
 
 (defn update-item-from-intent!
-  [app-config item {:keys [description labels]}]
-  (some-> (update-item! app-config
-                        (provider-id item)
-                        {:description description
-                         :labelIds (label-ids labels)})
-          normalize-item))
+  [app-config item {:keys [description labels] :as intent}]
+  (let [item-id (provider-id item)
+        native-input (native-work-item-input app-config item intent)
+        input (cond-> native-input
+                (not= description (:description item)) (assoc :description description)
+                (not= (label-ids labels) (label-ids (:labels item)))
+                (assoc :labelIds (label-ids labels)))
+        updated (when (seq input) (update-item! app-config item-id input))]
+    (if (contains? intent :blocked-by)
+      (do
+        (sync-blockers! app-config item-id (:blocked-by intent))
+        (normalized-item-by-identifier app-config item-id))
+      (or (normalize-complete-item app-config updated) item))))
 
 (defn valid-config-value?
   [v]
@@ -461,7 +647,7 @@
   [app-config]
   {:provider :linear
    :capabilities capabilities
-   :item-capabilities #{}
+   :item-capabilities #{:item-lifecycle :item-priority :item-due-dates :item-blockers}
    :configured-scope #(configured-scope app-config)
    :list-items #(list-items app-config %1 %2)
    :search-parent-items #(normalized-parent-items app-config)
@@ -471,6 +657,7 @@
    :resolve-project #(normalized-project-by-ref app-config %)
    :search-labels #(normalized-labels app-config)
    :resolve-labels #(resolve-normalized-labels app-config %1 %2)
+   :validate-work-item-intent! #(validate-work-item-intent! app-config %1 %2 %3)
    :create-item! #(create-item-from-intent! app-config %1 %2)
    :comment-item! #(comment-item! app-config %1 %2)
    :update-item! #(update-item-from-intent! app-config %1 %2)})

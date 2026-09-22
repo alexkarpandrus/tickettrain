@@ -117,7 +117,7 @@ Rules:
 - `link_existing` accepts `item`; v1 `issue` input is not supported.
 - `create_item` accepts `title`, optional `description`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context.
 - `update_item` accepts `item` plus comments, label changes, or work-item fields. Omitted fields stay unchanged; `null` clears optional scalars and `blockedBy: []` clears blockers.
-- Work-item concepts require matching adapter capabilities. Taskwarrior currently supports lifecycle, priority, due dates, availability, and blockers.
+- Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.
 - `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request; it needs no tracker configuration.
 - `comment_item` accepts `item` and `body`; it needs no forge configuration or repository context.

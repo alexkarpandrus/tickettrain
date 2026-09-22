@@ -109,7 +109,11 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Create items | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ |
-| Set neutral state, priority, due dates, availability, and blockers | — | — | — | — | ✓⁶ |
+| Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ |
+| Set neutral priority | ✓ | ✓ | — | — | ✓⁶ |
+| Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ |
+| Set availability | — | — | — | ✓ | ✓⁶ |
+| Set blockers | ✓ | ✓ | — | ✓ | ✓⁶ |
 | Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI |
@@ -119,7 +123,7 @@ Every registered adapter implements the shared contract for its role. Provider-n
 3. Jira applies the configured state through an available direct transition for the selected project and issue type.
 4. Taskwarrior does not support native parent tasks. Use Taskwarrior projects for hierarchy.
 5. Taskwarrior creates pending tasks and preserves native status during updates.
-6. All trackers list items with neutral state names. Only Taskwarrior currently accepts `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy` mutations; unsupported fields fail during read-only preview.
+6. Unsupported neutral fields or values fail during read-only preview.
 
 All 15 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
 
@@ -225,7 +229,7 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
 
-`create_item` accepts `title` plus optional `description`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`. `update_item` accepts `item` plus comments, label changes, or those work-item fields. Omitted fields remain unchanged; `null` clears optional scalar fields and `blockedBy: []` clears blockers. Neutral work-item fields require matching tracker capabilities; Taskwarrior currently implements all five concepts, and other trackers reject unsupported fields during preview. Comments append to item history and label changes preserve unrelated labels. Both actions need only tracker configuration and work outside Git repositories. For GitHub Issues, `ttt setup` persists the target repository; set `GH_REPO=owner/repository` before setup when no current Git repository identifies it. Projects and labels must already exist, except Taskwarrior projects and tags, which are created implicitly. `create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request. `close_change_request` accepts an explicit `changeRequest` ID and optional `comment`; it closes that open change request in the current repository. `comment_change_request` accepts `body` and targets the current branch's open change request. `comment_item` accepts `item` and `body` and needs no repository context. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
+`create_item` accepts `title` plus optional `description`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`. `update_item` accepts `item` plus comments, label changes, or those work-item fields. Omitted fields remain unchanged; `null` clears optional scalar fields and `blockedBy: []` clears blockers. Neutral work-item capabilities vary by tracker: Taskwarrior supports all five; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle. Each adapter rejects unsupported fields or values during preview. Comments append to item history and label changes preserve unrelated labels. Both actions need only tracker configuration and work outside Git repositories. For GitHub Issues, `ttt setup` persists the target repository; set `GH_REPO=owner/repository` before setup when no current Git repository identifies it. Projects and labels must already exist, except Taskwarrior projects and tags, which are created implicitly. `create_change_request` accepts `title` and optional `body`; it uses the current branch, which must already be pushed, and needs no tracker configuration. `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request. `close_change_request` accepts an explicit `changeRequest` ID and optional `comment`; it closes that open change request in the current repository. `comment_change_request` accepts `body` and targets the current branch's open change request. `comment_item` accepts `item` and `body` and needs no repository context. `create_new` accepts optional `parent`, `project`, `title`, and existing `labels`. Jira creation requires a parent, a request project, or configured `JIRA_PROJECT`. Provide exactly one of `--request` or `--request-file`; use an owner-only request file when source text is untrusted.
 
 In the JSON API, `version`, `status`, `inspect`, `search`, `list`, and `preview` are read-only. `status` reports the selected profile, providers, configured setting names, and configuration source precedence without exposing values. Standalone item previews include the exact target or creation intent, comment, label changes, and requested work-item fields. Change-request close previews include the exact target and optional comment. Tracker link previews include the tracker scope and non-secret mutation settings; change-request create previews include the exact change-request intent. `apply` is the only mutating command. It recomputes the deterministic `lp2_` proposal ID, including the selected profile, and rejects stale, mismatched, or reconfigured approval.
 
@@ -290,7 +294,7 @@ Run `ttt status --profile client`, then use the same `--profile client` on `insp
 | GitLab | `GITLAB_TOKEN`, optional `GITLAB_BASE_URL` |
 | Bitbucket | `BITBUCKET_EMAIL`, `BITBUCKET_API_TOKEN`, optional `BITBUCKET_BASE_URL` |
 | Linear | `LINEAR_API_KEY`; setup discovers the team and workspace; optional assignee and state variables |
-| Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE` |
+| Jira | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_SITE_URL`, `JIRA_CLOUD_ID`; `JIRA_PROJECT` is required unless each request supplies a parent or project; optional `JIRA_ISSUE_TYPE`; set `JIRA_BLOCKER_LINK_TYPE` to a custom blocker link type ID or name |
 | Asana | `ASANA_TOKEN`, optional `ASANA_WORKSPACE` |
 | Taskwarrior | Local `task` CLI; optional `TASKRC` selects a taskrc file |
 
