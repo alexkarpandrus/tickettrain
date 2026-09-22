@@ -109,7 +109,11 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Create items | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ |
-| Set neutral state, priority, due dates, availability, and blockers | — | — | — | — | ✓⁶ |
+| Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ |
+| Set neutral priority | ✓ | ✓ | — | — | ✓⁶ |
+| Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ |
+| Set availability | — | — | — | ✓ | ✓⁶ |
+| Set blockers | ✓ | ✓ | — | ✓ | ✓⁶ |
 | Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI |
@@ -119,7 +123,7 @@ Every registered adapter implements the shared contract for its role. Provider-n
 3. Jira applies the configured state through an available direct transition for the selected project and issue type.
 4. Taskwarrior does not support native parent tasks. Use Taskwarrior projects for hierarchy.
 5. Taskwarrior creates pending tasks and preserves native status during updates.
-6. All trackers list items with neutral state names. Only Taskwarrior currently accepts `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy` mutations; unsupported fields fail during read-only preview.
+6. Unsupported neutral fields or values fail during read-only preview.
 
 All 15 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
 

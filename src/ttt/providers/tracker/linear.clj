@@ -64,6 +64,13 @@
   (str "query IssueByIdentifier($issueId: String!) {"
        "  issue(id: $issueId) { " issue-fragment " } }"))
 
+(def issue-relations-query
+  (str "query IssueRelations($issueId: String!, $first: Int!, $after: String) {"
+       "  issue(id: $issueId) {"
+       "    inverseRelations(first: $first, after: $after) {"
+       "      nodes { id type issue { " issue-summary-fragment " } }"
+       "      pageInfo { hasNextPage endCursor } } } }"))
+
 (def viewer-query
   "query Viewer { viewer { id name email organization { urlKey } } }")
 
@@ -127,19 +134,21 @@
     (:data body)))
 
 (defn paginate
-  [app-config query variables page-path limit]
-  (let [page-size (min 100 limit)]
-    (loop [after nil
-           acc []]
-      (let [response (graphql! app-config query (merge variables {:first page-size :after after}))
-            page-info (get-in response (conj page-path :pageInfo))
-            items (get-in response (conj page-path :nodes))
-            next-acc (into acc (or items []))]
-        (cond
-          (not (:hasNextPage page-info)) next-acc
-          (>= (count next-acc) limit) (take limit next-acc)
-          (:endCursor page-info) (recur (:endCursor page-info) next-acc)
-          :else next-acc)))))
+  ([app-config query variables page-path]
+   (paginate app-config query variables page-path nil))
+  ([app-config query variables page-path limit]
+   (let [page-size (if limit (min 100 limit) 100)]
+     (loop [after nil
+            acc []]
+       (let [response (graphql! app-config query (merge variables {:first page-size :after after}))
+             page-info (get-in response (conj page-path :pageInfo))
+             items (get-in response (conj page-path :nodes))
+             next-acc (into acc (or items []))]
+         (cond
+           (not (:hasNextPage page-info)) next-acc
+           (and limit (>= (count next-acc) limit)) (take limit next-acc)
+           (:endCursor page-info) (recur (:endCursor page-info) next-acc)
+           :else next-acc))))))
 
 (defn parent-items
   [app-config]
@@ -478,9 +487,13 @@
 
 
 (defn sync-blockers!
-  [app-config item-id current-item blockers]
-  (let [existing (into {} (map (juxt #(get-in % [:issue :id]) :id)
-                                    (blocker-relations current-item)))
+  [app-config item-id blockers]
+  (let [relations (paginate app-config issue-relations-query
+                            {:issueId item-id}
+                            [:issue :inverseRelations])
+        existing (into {} (comp (filter #(= "blocks" (:type %)))
+                                (map (juxt #(get-in % [:issue :id]) :id)))
+                       relations)
         desired (set (map provider-id blockers))]
     (doseq [blocker-id (remove #(contains? existing %) desired)]
       (create-blocker-relation! app-config item-id blocker-id))
@@ -518,7 +531,7 @@
                               native-input)]
     (if (contains? intent :blocked-by)
       (try
-        (sync-blockers! app-config (:id created) created (:blocked-by intent))
+        (sync-blockers! app-config (:id created) (:blocked-by intent))
         (or (some-> (item-by-identifier app-config (:id created)) normalize-item)
             (throw (ex-info "Linear issue refresh returned no item." {})))
         (catch Exception ex
@@ -541,8 +554,8 @@
                 (assoc :labelIds (label-ids labels)))
         updated (when (seq input) (update-item! app-config item-id input))]
     (if (contains? intent :blocked-by)
-      (let [current (or (item-by-identifier app-config item-id) updated)]
-        (sync-blockers! app-config item-id current (:blocked-by intent))
+      (do
+        (sync-blockers! app-config item-id (:blocked-by intent))
         (some-> (item-by-identifier app-config item-id) normalize-item))
       (or (some-> updated normalize-item) item))))
 

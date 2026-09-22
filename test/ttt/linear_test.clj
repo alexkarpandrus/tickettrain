@@ -310,20 +310,32 @@
     (is (= {:input {:issueId "issue-1" :body "Looks good"}} @variables))))
 
 
-(deftest synchronizes-linear-blockers-by-native-relation
-  (let [created (atom [])
+(deftest synchronizes-linear-blockers-from-all-relation-pages
+  (let [requests (atom [])
+        created (atom [])
         deleted (atom [])
-        current {:inverseRelations
-                 {:nodes [{:id "keep-relation" :type "blocks" :issue {:id "keep"}}
-                          {:id "remove-relation" :type "blocks" :issue {:id "remove"}}
-                          {:id "related" :type "related" :issue {:id "ignore"}}]}}
         blockers [{:ref (domain/identity :linear :tracker-item "keep")}
                   {:ref (domain/identity :linear :tracker-item "add")}]]
-    (with-redefs [linear/create-blocker-relation!
+    (with-redefs [linear/graphql!
+                  (fn [_ query variables]
+                    (is (= linear/issue-relations-query query))
+                    (swap! requests conj variables)
+                    {:issue
+                     {:inverseRelations
+                      (if (:after variables)
+                        {:nodes [{:id "remove-relation" :type "blocks" :issue {:id "remove"}}]
+                         :pageInfo {:hasNextPage false :endCursor nil}}
+                        {:nodes [{:id "keep-relation" :type "blocks" :issue {:id "keep"}}
+                                 {:id "related" :type "related" :issue {:id "ignore"}}]
+                         :pageInfo {:hasNextPage true :endCursor "next"}})}})
+                  linear/create-blocker-relation!
                   (fn [_ item-id blocker-id] (swap! created conj [item-id blocker-id]))
                   linear/delete-blocker-relation!
                   (fn [_ relation-id] (swap! deleted conj relation-id))]
-      (linear/sync-blockers! config "item" current blockers))
+      (linear/sync-blockers! config "item" blockers))
+    (is (= [{:issueId "item" :first 100 :after nil}
+            {:issueId "item" :first 100 :after "next"}]
+           @requests))
     (is (= [["item" "add"]] @created))
     (is (= ["remove-relation"] @deleted))))
 
@@ -413,4 +425,6 @@
                  linear/update-issue-mutation]]
     (is (re-find #"state \{ id name type \}" query))
     (is (re-find #"priority dueDate" query))
-    (is (re-find #"inverseRelations" query))))
+    (is (re-find #"inverseRelations" query)))
+  (is (re-find #"inverseRelations\(first: \$first, after: \$after\)"
+               linear/issue-relations-query)))
