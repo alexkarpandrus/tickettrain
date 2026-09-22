@@ -281,43 +281,51 @@
    :state (normalize-state (get-in issue [:fields :status]))
    :scopes [(domain/scope-identity :jira base-url)]})
 
+(defn blocker-link-type?
+  [link-type-ref link]
+  (let [requested (str/lower-case (or link-type-ref "blocks"))
+        type (:type link)]
+    (some #(= requested (str/lower-case (str %)))
+          [(:id type) (:name type) (:outward type)])))
+
 (defn blocker-links
-  [issue-links]
+  [link-type-ref issue-links]
   (filter #(and (:outwardIssue %)
-                (or (= "blocks" (str/lower-case (get-in % [:type :name] "")))
-                    (= "blocks" (str/lower-case (get-in % [:type :outward] "")))))
+                (blocker-link-type? link-type-ref %))
           issue-links))
 
 (defn normalize-item
-  [base-url issue]
-  (when issue
-    (let [fields (:fields issue)
-          key (:key issue)
-          blockers (blocker-links (:issuelinks fields))]
-        {:ref (domain/identity :jira :tracker-item key)
-         :display-id key
-         :title (:summary fields)
-         :description (description->text (:description fields))
-         :provider-description (:description fields)
-         :url (str base-url "/browse/" key)
-         :state (normalize-state (:status fields))
-         :provider-state (:status fields)
-         :priority (normalize-priority (:priority fields))
-         :due-at (normalize-due-at (:duedate fields))
-         :blocked-by (mapv #(normalize-item-summary base-url (:outwardIssue %)) blockers)
-         :provider-blocker-links (mapv (fn [link]
-                                         {:id (:id link)
-                                          :item (normalize-item-summary base-url (:outwardIssue link))})
-                                       blockers)
-         :scopes [(domain/scope-identity :jira base-url)]
-         :project (when-let [p (:project fields)] (normalize-project base-url p))
-         :parent (when-let [p (:parent fields)] (normalize-parent base-url p))
-       :labels (mapv (partial normalize-label base-url) (or (:labels fields) []))})))
+  ([base-url issue]
+   (normalize-item base-url nil issue))
+  ([base-url link-type-ref issue]
+   (when issue
+     (let [fields (:fields issue)
+           key (:key issue)
+           blockers (blocker-links link-type-ref (:issuelinks fields))]
+       {:ref (domain/identity :jira :tracker-item key)
+        :display-id key
+        :title (:summary fields)
+        :description (description->text (:description fields))
+        :provider-description (:description fields)
+        :url (str base-url "/browse/" key)
+        :state (normalize-state (:status fields))
+        :provider-state (:status fields)
+        :priority (normalize-priority (:priority fields))
+        :due-at (normalize-due-at (:duedate fields))
+        :blocked-by (mapv #(normalize-item-summary base-url (:outwardIssue %)) blockers)
+        :provider-blocker-links (mapv (fn [link]
+                                        {:id (:id link)
+                                         :item (normalize-item-summary base-url (:outwardIssue link))})
+                                      blockers)
+        :scopes [(domain/scope-identity :jira base-url)]
+        :project (when-let [p (:project fields)] (normalize-project base-url p))
+        :parent (when-let [p (:parent fields)] (normalize-parent base-url p))
+        :labels (mapv (partial normalize-label base-url) (or (:labels fields) []))}))))
 
 (defn item-by-key
   [app-config key]
   (try
-    (normalize-item (base-url app-config)
+    (normalize-item (base-url app-config) (get-in app-config [:tracker :blocker-link-type])
                     (api! app-config :get (str "/issue/" (url-encode key)) nil))
     (catch Exception ex
       (if (= 404 (:status (ex-data ex))) nil (throw ex)))))
@@ -327,7 +335,10 @@
   (let [response (api! app-config :get "/search/jql"
                        {:jql jql :maxResults limit
                         :fields issue-fields})]
-    (mapv #(normalize-item (base-url app-config) %) (:issues response))))
+    (mapv #(normalize-item (base-url app-config)
+                           (get-in app-config [:tracker :blocker-link-type])
+                           %)
+          (:issues response))))
 
 (defn parent-jql
   [app-config]
@@ -351,7 +362,10 @@
                                    :maxResults 100
                                    :fields issue-fields}
                             next-page-token (assoc :nextPageToken next-page-token)))]
-       {:items (mapv #(normalize-item (base-url app-config) %) (:issues response))
+       {:items (mapv #(normalize-item (base-url app-config)
+                                      (get-in app-config [:tracker :blocker-link-type])
+                                      %)
+                     (:issues response))
         :next-cursor (:nextPageToken response)}))
    matches?
    limit))
@@ -446,10 +460,27 @@
     (contains? intent :due-at)
     (assoc :duedate (native-due-date (:due-at intent)))))
 
+(defn blocker-link-type-ref
+  [app-config]
+  (not-empty (str/trim (str (get-in app-config [:tracker :blocker-link-type])))))
+
+(defn resolve-blocker-link-type
+  [app-config]
+  (let [requested (or (blocker-link-type-ref app-config) "blocks")
+        types (:issueLinkTypes (api! app-config :get "/issueLinkType" nil))]
+    (or (some #(when (blocker-link-type? requested {:type %}) %) types)
+        (throw (ex-info
+                (str "Jira issue link type not found: " requested
+                     ". Set JIRA_BLOCKER_LINK_TYPE to its ID or name.")
+                {:code :unsupported-work-item-value
+                 :provider :jira
+                 :field :blocked-by
+                 :value requested})))))
+
 (defn create-blocker-link!
-  [app-config item-id blocker-id]
+  [app-config link-type-id item-id blocker-id]
   (api! app-config :post "/issueLink"
-        {:type {:name "Blocks"}
+        {:type {:id link-type-id}
          :outwardIssue {:key blocker-id}
          :inwardIssue {:key item-id}}))
 
@@ -458,9 +489,10 @@
   (let [existing (into {} (map (juxt #(provider-id (:item %)) :id)
                                     (:provider-blocker-links item)))
         desired (set (map provider-id blockers))
-        item-id (provider-id item)]
+        item-id (provider-id item)
+        link-type-id (:id (resolve-blocker-link-type app-config))]
     (doseq [blocker-id (remove #(contains? existing %) desired)]
-      (create-blocker-link! app-config item-id blocker-id))
+      (create-blocker-link! app-config link-type-id item-id blocker-id))
     (doseq [[blocker-id link-id] existing
             :when (not (contains? desired blocker-id))]
       (api! app-config :delete (str "/issueLink/" (url-encode link-id)) nil))))
@@ -625,6 +657,8 @@
   (let [item (when (= :update-item action) target)
         context (when (= :create-item action) target)]
     (native-work-item-input app-config intent)
+    (when (contains? intent :blocked-by)
+      (resolve-blocker-link-type app-config))
     (when-let [requested-state (and (contains? intent :state) (:state intent))]
       (if item
         (resolve-transition requested-state
@@ -681,6 +715,7 @@
                                                     :issuetype issue-type))
                 (native-work-item-input app-config intent))
         created (normalize-item (base-url app-config)
+                                (blocker-link-type-ref app-config)
                                 (apply-created-target-state! cfg (create-item! app-config fields)))]
     (if (contains? intent :blocked-by)
       (try
@@ -713,7 +748,11 @@
                         (or updated
                             (api! app-config :get (str "/issue/" (url-encode item-id)) nil)))
                        updated)
-        result (or (when transitioned (normalize-item (base-url app-config) transitioned)) item)]
+        result (or (when transitioned
+                     (normalize-item (base-url app-config)
+                                     (blocker-link-type-ref app-config)
+                                     transitioned))
+                   item)]
     (when (contains? intent :blocked-by)
       (sync-blockers! app-config result (:blocked-by intent)))
     (if (contains? intent :blocked-by)

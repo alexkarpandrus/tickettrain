@@ -141,6 +141,17 @@
           {:state "completed"
            :due-at "2026-09-30T12:00:00Z"
            :available-at "2026-09-29T12:00:00Z"})))
+  (is (= {:start_at "2026-09-29T12:00:00Z"
+          :due_at "2026-09-30T12:00:00Z"}
+         (asana/native-work-item-input
+          {:due-at "2026-09-30T12:00:00Z"}
+          {:available-at "2026-09-29T12:00:00Z"})))
+  (is (= {:start_at nil :start_on nil
+          :due_at "2026-09-30T12:00:00Z"}
+         (asana/native-work-item-input
+          {:due-at "2026-09-30T12:00:00Z"
+           :available-at "2026-09-29T12:00:00Z"}
+          {:available-at nil})))
   (is (thrown-with-msg? Exception #"cannot represent neutral state: active"
                         (asana/native-work-item-input nil {:state "active"})))
   (is (thrown-with-msg? Exception #"requires dueAt"
@@ -155,9 +166,9 @@
     (with-redefs [asana/api! (fn [_ method path body]
                                (swap! calls conj [method path body]))]
       (asana/sync-blockers! config existing desired))
-    (is (= #{[:post "/tasks/1/addDependencies" {:data {:dependencies ["3"]}}]
-             [:post "/tasks/1/removeDependencies" {:data {:dependencies ["2"]}}]}
-           (set @calls)))))
+    (is (= [[:post "/tasks/1/removeDependencies" {:data {:dependencies ["2"]}}]
+            [:post "/tasks/1/addDependencies" {:data {:dependencies ["3"]}}]]
+           @calls))))
 
 (deftest reports-created-task-when-blocker-sync-fails
   (let [error (with-redefs [asana/create-task! (fn [& _] {:gid "123" :name "Task"})

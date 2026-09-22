@@ -158,6 +158,18 @@
     (is (= {:priority nil}
            (jira/native-work-item-input config {:priority "none"})))))
 
+(deftest blocker-link-type-validation-fails-during-preview
+  (with-redefs [jira/api! (fn [_ method path _]
+                            (is (= [:get "/issueLinkType"] [method path]))
+                            {:issueLinkTypes []})]
+    (let [error (try
+                  (jira/validate-work-item-intent!
+                   config :update-item {:display-id "APP-1"} {:blocked-by []})
+                  nil
+                  (catch Exception ex ex))]
+      (is (= :unsupported-work-item-value (:code (ex-data error))))
+      (is (= :blocked-by (:field (ex-data error)))))))
+
 (deftest create-validation-uses-the-request-project-context
   (let [calls (atom [])]
     (with-redefs [jira/api! (fn [_ method path _]
@@ -308,22 +320,37 @@
     (is (some #(= [:post "/issue/APP-1/transitions" {:transition {:id "21"}}] %)
               @calls))))
 
-(deftest reconciles-jira-blocking-links
+(deftest reconciles-jira-blocking-links-with-a-custom-link-type
   (let [calls (atom [])
+        app-config (assoc-in config [:tracker :blocker-link-type] "Dependency")
         item {:ref (domain/identity :jira :tracker-item "APP-1")
               :provider-blocker-links
               [{:id "link-1"
                 :item {:ref (domain/identity :jira :tracker-item "APP-2")}}]}
         blockers [{:ref (domain/identity :jira :tracker-item "APP-3")}]]
     (with-redefs [jira/api! (fn [_ method path body]
-                              (swap! calls conj [method path body]))]
-      (jira/sync-blockers! config item blockers))
-    (is (= #{[:post "/issueLink"
-              {:type {:name "Blocks"}
-               :outwardIssue {:key "APP-3"}
-               :inwardIssue {:key "APP-1"}}]
-             [:delete "/issueLink/link-1" nil]}
-           (set @calls)))))
+                              (swap! calls conj [method path body])
+                              (when (= [:get "/issueLinkType"] [method path])
+                                {:issueLinkTypes [{:id "10042" :name "Dependency"}]}))]
+      (jira/sync-blockers! app-config item blockers))
+    (is (= [[:get "/issueLinkType" nil]
+            [:post "/issueLink"
+             {:type {:id "10042"}
+              :outwardIssue {:key "APP-3"}
+              :inwardIssue {:key "APP-1"}}]
+            [:delete "/issueLink/link-1" nil]]
+           @calls))))
+
+(deftest normalizes-custom-jira-blocker-links
+  (let [item (jira/normalize-item
+              base "10042"
+              {:key "APP-1"
+               :fields {:summary "Task"
+                        :issuelinks [{:id "link-1"
+                                      :type {:id "10042" :name "Dependency"}
+                                      :outwardIssue {:key "APP-2"
+                                                     :fields {:summary "Blocker"}}}]}})]
+    (is (= ["APP-2"] (mapv :display-id (:blocked-by item))))))
 
 (deftest reports-created-issue-when-blocker-sync-fails
   (let [error (with-redefs [jira/create-item! (fn [& _]
