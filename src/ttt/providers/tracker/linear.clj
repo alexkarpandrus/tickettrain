@@ -6,6 +6,7 @@
             [ttt.config :as config]
             [ttt.domain :as domain]
             [ttt.platform.remote :as remote]
+            [ttt.providers.tracker.pagination :as pagination]
             [ttt.providers.tracker.state :as state]))
 
 (def endpoint "https://api.linear.app/graphql")
@@ -198,6 +199,21 @@
 (defn normalized-parent-items
   [app-config]
   (mapv normalize-item (parent-items app-config)))
+
+
+(defn list-items
+  [app-config matches? limit]
+  (let [team-id (:team-id (tracker-config app-config))]
+    (pagination/collect-matches
+     (fn [after]
+       (let [response (graphql! app-config parent-issues-query
+                                {:teamId team-id :first 100 :after after})
+             page (get-in response [:team :issues])
+             page-info (:pageInfo page)]
+         {:items (mapv normalize-item (:nodes page))
+          :next-cursor (when (:hasNextPage page-info) (:endCursor page-info))}))
+     matches?
+     limit)))
 
 (defn normalized-projects
   [app-config]
@@ -447,7 +463,7 @@
    :capabilities capabilities
    :item-capabilities #{}
    :configured-scope #(configured-scope app-config)
-   :list-items #(normalized-parent-items app-config)
+   :list-items #(list-items app-config %1 %2)
    :search-parent-items #(normalized-parent-items app-config)
    :resolve-parent-item #(normalized-item-by-identifier app-config %)
    :resolve-item #(normalized-item-by-identifier app-config %)

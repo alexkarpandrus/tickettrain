@@ -42,6 +42,18 @@
                                                       :state "CLOSED"
                                                       :stateReason "NOT_PLANNED"})))))
 
+
+(deftest list-items-widens-gh-pagination-until-the-filtered-limit-is-met
+  (let [calls (atom [])
+        completed (vec (repeat 100 {:state "completed"}))
+        open {:display-id "#101" :state "open"}]
+    (with-redefs [github-issues/list-issues (fn [_ limit]
+                                             (swap! calls conj limit)
+                                             (if (= 100 limit) completed (conj completed open)))]
+      (is (= ["#101"]
+             (mapv :display-id (github-issues/list-items scope #(= "open" (:state %)) 1))))
+      (is (= [100 200] @calls)))))
+
 (deftest create-rejects-parent-issues
   (is (thrown-with-msg? Exception #"does not support parent"
                         (github-issues/create-item-from-intent!
