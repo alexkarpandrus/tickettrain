@@ -67,6 +67,18 @@
          args (cond-> base (seq query) (into ["--search" query]))]
      (mapv #(normalize-item scope %) (apply gh-json args)))))
 
+
+(defn list-items
+  [scope matches? limit]
+  ;; ponytail: gh owns cursor pagination; widen its limit until enough items match or it is exhausted.
+  (loop [fetch-limit (max 100 limit)]
+    (let [items (list-issues scope fetch-limit)
+          matched (vec (take limit (filter matches? items)))]
+      (if (or (= limit (count matched))
+              (< (count items) fetch-limit))
+        matched
+        (recur (* 2 fetch-limit))))))
+
 (defn parse-number
   [ref]
   (some->> (re-find #"^#?(\d+)$" (str/trim (or ref ""))) second Long/parseLong))
@@ -200,7 +212,7 @@
      :capabilities capabilities
      :item-capabilities #{}
      :configured-scope (fn [] @scope*)
-     :list-items #(list-issues @scope* 100)
+     :list-items #(list-items @scope* %1 %2)
      :search-parent-items #(list-issues @scope* 100)
      :resolve-parent-item unsupported-parent!
      :resolve-item #(resolve-item @scope* %)

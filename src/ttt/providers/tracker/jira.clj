@@ -5,6 +5,7 @@
             [ttt.config :as config]
             [ttt.domain :as domain]
             [ttt.platform.remote :as remote]
+            [ttt.providers.tracker.pagination :as pagination]
             [ttt.providers.tracker.state :as state]
             [ttt.text.links :as links]))
 
@@ -284,14 +285,32 @@
                         :fields "summary,description,status,parent,project,labels"})]
     (mapv #(normalize-item (base-url app-config) %) (:issues response))))
 
+(defn parent-jql
+  [app-config]
+  (let [project (get-in app-config [:tracker :project])]
+    (if (str/blank? project)
+      "ORDER BY updated DESC"
+      (str "project = " project " ORDER BY updated DESC"))))
+
 (defn parent-items
   [app-config]
-  (let [project (get-in app-config [:tracker :project])
-        jql (if (str/blank? project)
-              "ORDER BY updated DESC"
-              (str "project = " project " ORDER BY updated DESC"))
-        limit (get-in app-config [:search :parent-fetch-limit] 100)]
-    (search-issues app-config jql limit)))
+  (search-issues app-config
+                 (parent-jql app-config)
+                 (get-in app-config [:search :parent-fetch-limit] 100)))
+
+(defn list-items
+  [app-config matches? limit]
+  (pagination/collect-matches
+   (fn [next-page-token]
+     (let [response (api! app-config :get "/search/jql"
+                          (cond-> {:jql (parent-jql app-config)
+                                   :maxResults 100
+                                   :fields "summary,description,status,parent,project,labels"}
+                            next-page-token (assoc :nextPageToken next-page-token)))]
+       {:items (mapv #(normalize-item (base-url app-config) %) (:issues response))
+        :next-cursor (:nextPageToken response)}))
+   matches?
+   limit))
 
 (defn resolve-item
   [app-config item-ref]
@@ -560,7 +579,7 @@
    :capabilities capabilities
    :item-capabilities #{}
    :configured-scope #(configured-scope app-config)
-   :list-items #(parent-items app-config)
+   :list-items #(list-items app-config %1 %2)
    :search-parent-items #(parent-items app-config)
    :resolve-parent-item #(resolve-item app-config %)
    :resolve-item #(resolve-item app-config %)

@@ -41,6 +41,21 @@
     (is (domain/entity-in-scope? item scope))))
 
 
+(deftest list-items-follows-offsets-until-the-filtered-limit-is-met
+  (let [calls (atom [])]
+    (with-redefs [asana/api! (fn [_ _ path params]
+                               (is (= "/tasks" path))
+                               (swap! calls conj params)
+                               (if (:offset params)
+                                 {:data [{:gid "2" :name "Open" :completed false}]}
+                                 {:data [{:gid "1" :name "Done" :completed true}]
+                                  :next_page {:offset "page-2"}}))]
+      (is (= ["2"]
+             (mapv :display-id (asana/list-items config #(= "open" (:state %)) 1))))
+      (is (= [nil "page-2"] (mapv :offset @calls)))
+      (is (= [100 100] (mapv :limit @calls))))))
+
+
 (deftest task-scope-comes-from-the-api-response
   (with-redefs [asana/api! (fn [& _]
                              {:data {:gid "123"
