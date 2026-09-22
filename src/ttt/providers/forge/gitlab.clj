@@ -99,6 +99,18 @@
         project (api! app-config :get (str "/projects/" (url-encode slug)) nil)]
     (normalize-repo (assoc project :slug slug))))
 
+(defn get-change-request
+  [app-config repo change-request-number]
+  (let [slug (:display-id repo)
+        change-request (api! app-config :get
+                             (str "/projects/" (url-encode slug)
+                                  "/merge_requests/" change-request-number)
+                             nil)]
+    (when-not (= "opened" (:state change-request))
+      (throw (ex-info (str "GitLab merge request !" change-request-number " is not open.")
+                      {:code :change-request-not-open})))
+    (normalize-change-request repo change-request)))
+
 (defn maybe-current-change-request
   [app-config]
   (let [slug (remote-slug)
@@ -152,6 +164,15 @@
         {:body body})
   nil)
 
+(defn close-change-request!
+  [app-config repo-slug iid comment]
+  (when comment
+    (comment-change-request! app-config repo-slug iid comment))
+  (api! app-config :put
+        (str "/projects/" (url-encode repo-slug) "/merge_requests/" iid)
+        {:state_event "close"})
+  nil)
+
 (defn create-change-request!
   [app-config {:keys [title body base head]}]
   (let [slug (remote-slug)]
@@ -169,9 +190,11 @@
     :current-repo
     :inspect-current
     :identify-change-request
+    :get-change-request
     :update-change-request!
     :comment-change-request!
     :create-change-request!
+    :close-change-request!
     :prefix-change-request-title})
 
 (defn assert-ready!
@@ -197,7 +220,9 @@
    :current-repo #(current-repo app-config)
    :inspect-current #(inspect-current app-config)
    :identify-change-request identify-change-request
+   :get-change-request #(get-change-request app-config %1 %2)
    :update-change-request! #(update-change-request! app-config %1 %2 %3)
    :comment-change-request! #(comment-change-request! app-config %1 %2 %3)
    :create-change-request! #(create-change-request! app-config %)
+   :close-change-request! #(close-change-request! app-config %1 %2 %3)
    :prefix-change-request-title prefix-change-request-title})
