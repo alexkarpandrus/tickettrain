@@ -358,8 +358,9 @@
         task (-> (cond-> {:uuid uuid
                           :description title
                           :status "pending"
-                          :entry (timestamp)
-                          :annotations [(description-annotation description)]}
+                          :entry (timestamp)}
+                   (not (str/blank? description))
+                   (assoc :annotations [(description-annotation description)])
                    (:project context) (assoc :project (entity-name (:project context)))
                    (seq labels) (assoc :tags (mapv entity-name labels)))
                  (apply-work-item-intent intent))]
