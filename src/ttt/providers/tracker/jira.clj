@@ -13,6 +13,10 @@
 
 (def key-pattern #"^[A-Z][A-Z0-9_]*-[0-9]+$")
 
+(def issue-fields "summary,description,status,priority,duedate,issuelinks,parent,project,labels")
+
+(def neutral-states #{"open" "active" "waiting" "completed" "canceled"})
+
 (defn base-url
   [app-config]
   (str/replace (or (get-in app-config [:tracker :site-url]) "") #"/+$" ""))
@@ -245,35 +249,83 @@
 
 (defn normalize-state
   [status]
-  (let [category (get-in status [:statusCategory :key])]
-    (case category
-      "indeterminate" "active"
-      "done" (if (re-find #"(?i)cancel|reject|declin" (or (:name status) ""))
-               "canceled"
-               "completed")
-      (when status "open"))))
+  (let [category (get-in status [:statusCategory :key])
+        name (str/lower-case (or (:name status) ""))]
+    (cond
+      (re-find #"blocked|waiting|on hold" name) "waiting"
+      (= "indeterminate" category) "active"
+      (= "done" category) (if (re-find #"cancel|reject|declin" name)
+                            "canceled"
+                            "completed")
+      status "open")))
+
+(defn normalize-priority
+  [priority]
+  (let [name (str/lower-case (or (:name priority) ""))]
+    (cond
+      (re-find #"highest|blocker|critical|urgent" name) "urgent"
+      (re-find #"high|major" name) "high"
+      (re-find #"medium|normal" name) "medium"
+      (re-find #"low|minor|trivial" name) "low")))
+
+(defn normalize-due-at
+  [due-date]
+  (when due-date (str due-date "T00:00:00Z")))
+
+(defn normalize-item-summary
+  [base-url issue]
+  {:ref (domain/identity :jira :tracker-item (:key issue))
+   :display-id (:key issue)
+   :title (get-in issue [:fields :summary])
+   :url (str base-url "/browse/" (:key issue))
+   :state (normalize-state (get-in issue [:fields :status]))
+   :scopes [(domain/scope-identity :jira base-url)]})
+
+(defn blocker-link-type?
+  [link-type-ref link]
+  (let [requested (str/lower-case (or link-type-ref "blocks"))
+        type (:type link)]
+    (some #(= requested (str/lower-case (str %)))
+          [(:id type) (:name type) (:outward type)])))
+
+(defn blocker-links
+  [link-type-ref issue-links]
+  (filter #(and (:outwardIssue %)
+                (blocker-link-type? link-type-ref %))
+          issue-links))
 
 (defn normalize-item
-  [base-url issue]
-  (when issue
-    (let [fields (:fields issue)
-          key (:key issue)]
-      {:ref (domain/identity :jira :tracker-item key)
-       :display-id key
-       :title (:summary fields)
-       :description (description->text (:description fields))
-       :provider-description (:description fields)
-       :url (str base-url "/browse/" key)
-       :state (normalize-state (:status fields))
-       :scopes [(domain/scope-identity :jira base-url)]
-       :project (when-let [p (:project fields)] (normalize-project base-url p))
-       :parent (when-let [p (:parent fields)] (normalize-parent base-url p))
-       :labels (mapv (partial normalize-label base-url) (or (:labels fields) []))})))
+  ([base-url issue]
+   (normalize-item base-url nil issue))
+  ([base-url link-type-ref issue]
+   (when issue
+     (let [fields (:fields issue)
+           key (:key issue)
+           blockers (blocker-links link-type-ref (:issuelinks fields))]
+       {:ref (domain/identity :jira :tracker-item key)
+        :display-id key
+        :title (:summary fields)
+        :description (description->text (:description fields))
+        :provider-description (:description fields)
+        :url (str base-url "/browse/" key)
+        :state (normalize-state (:status fields))
+        :provider-state (:status fields)
+        :priority (normalize-priority (:priority fields))
+        :due-at (normalize-due-at (:duedate fields))
+        :blocked-by (mapv #(normalize-item-summary base-url (:outwardIssue %)) blockers)
+        :provider-blocker-links (mapv (fn [link]
+                                        {:id (:id link)
+                                         :item (normalize-item-summary base-url (:outwardIssue link))})
+                                      blockers)
+        :scopes [(domain/scope-identity :jira base-url)]
+        :project (when-let [p (:project fields)] (normalize-project base-url p))
+        :parent (when-let [p (:parent fields)] (normalize-parent base-url p))
+        :labels (mapv (partial normalize-label base-url) (or (:labels fields) []))}))))
 
 (defn item-by-key
   [app-config key]
   (try
-    (normalize-item (base-url app-config)
+    (normalize-item (base-url app-config) (get-in app-config [:tracker :blocker-link-type])
                     (api! app-config :get (str "/issue/" (url-encode key)) nil))
     (catch Exception ex
       (if (= 404 (:status (ex-data ex))) nil (throw ex)))))
@@ -282,8 +334,11 @@
   [app-config jql limit]
   (let [response (api! app-config :get "/search/jql"
                        {:jql jql :maxResults limit
-                        :fields "summary,description,status,parent,project,labels"})]
-    (mapv #(normalize-item (base-url app-config) %) (:issues response))))
+                        :fields issue-fields})]
+    (mapv #(normalize-item (base-url app-config)
+                           (get-in app-config [:tracker :blocker-link-type])
+                           %)
+          (:issues response))))
 
 (defn parent-jql
   [app-config]
@@ -305,9 +360,12 @@
      (let [response (api! app-config :get "/search/jql"
                           (cond-> {:jql (parent-jql app-config)
                                    :maxResults 100
-                                   :fields "summary,description,status,parent,project,labels"}
+                                   :fields issue-fields}
                             next-page-token (assoc :nextPageToken next-page-token)))]
-       {:items (mapv #(normalize-item (base-url app-config) %) (:issues response))
+       {:items (mapv #(normalize-item (base-url app-config)
+                                      (get-in app-config [:tracker :blocker-link-type])
+                                      %)
+                     (:issues response))
         :next-cursor (:nextPageToken response)}))
    matches?
    limit))
@@ -371,6 +429,74 @@
   [labels]
   (mapv #(or (get-in % [:ref :id]) (:display-id %)) labels))
 
+(defn priorities
+  [app-config]
+  (api! app-config :get "/priority" nil))
+
+(defn native-priority
+  [app-config neutral-priority]
+  (when (and neutral-priority (not= "none" neutral-priority))
+    (or (some #(when (= neutral-priority (normalize-priority %))
+                 {:id (:id %)})
+              (priorities app-config))
+        (throw (ex-info (str "Jira cannot represent neutral priority: " neutral-priority)
+                        {:code :unsupported-work-item-value
+                         :provider :jira
+                         :field :priority
+                         :value neutral-priority})))))
+
+(defn native-due-date
+  [due-at]
+  (when due-at
+    (str (.toLocalDate (.atZone (java.time.Instant/parse due-at)
+                                java.time.ZoneOffset/UTC)))))
+
+(defn native-work-item-input
+  [app-config intent]
+  (cond-> {}
+    (contains? intent :priority)
+    (assoc :priority (native-priority app-config (:priority intent)))
+
+    (contains? intent :due-at)
+    (assoc :duedate (native-due-date (:due-at intent)))))
+
+(defn blocker-link-type-ref
+  [app-config]
+  (not-empty (str/trim (str (get-in app-config [:tracker :blocker-link-type])))))
+
+(defn resolve-blocker-link-type
+  [app-config]
+  (let [requested (or (blocker-link-type-ref app-config) "blocks")
+        types (:issueLinkTypes (api! app-config :get "/issueLinkType" nil))]
+    (or (some #(when (blocker-link-type? requested {:type %}) %) types)
+        (throw (ex-info
+                (str "Jira issue link type not found: " requested
+                     ". Set JIRA_BLOCKER_LINK_TYPE to its ID or name.")
+                {:code :unsupported-work-item-value
+                 :provider :jira
+                 :field :blocked-by
+                 :value requested})))))
+
+(defn create-blocker-link!
+  [app-config link-type-id item-id blocker-id]
+  (api! app-config :post "/issueLink"
+        {:type {:id link-type-id}
+         :outwardIssue {:key blocker-id}
+         :inwardIssue {:key item-id}}))
+
+(defn sync-blockers!
+  [app-config item blockers]
+  (let [existing (into {} (map (juxt #(provider-id (:item %)) :id)
+                                    (:provider-blocker-links item)))
+        desired (set (map provider-id blockers))
+        item-id (provider-id item)
+        link-type-id (:id (resolve-blocker-link-type app-config))]
+    (doseq [blocker-id (remove #(contains? existing %) desired)]
+      (create-blocker-link! app-config link-type-id item-id blocker-id))
+    (doseq [[blocker-id link-id] existing
+            :when (not (contains? desired blocker-id))]
+      (api! app-config :delete (str "/issueLink/" (url-encode link-id)) nil))))
+
 (defn create-item!
   [app-config fields]
   (let [created (api! app-config :post "/issue" {:fields fields})]
@@ -398,20 +524,52 @@
         {:body (text->adf body)})
   nil)
 
+(defn unsupported-neutral-state!
+  [target available]
+  (throw (ex-info (str "Jira cannot represent neutral state: " target)
+                  {:code :unsupported-work-item-value
+                   :provider :jira
+                   :field :state
+                   :value target
+                   :available-states (vec (distinct (keep normalize-state available)))})))
+
+(defn resolve-status-target
+  [target statuses]
+  (if (contains? neutral-states target)
+    (or (first (filter #(= target (normalize-state %)) statuses))
+        (unsupported-neutral-state! target statuses))
+    (state/resolve-target "Jira" target statuses)))
+
+(defn resolve-transition
+  [target transitions]
+  (if (contains? neutral-states target)
+    (or (some #(when (= target (normalize-state (:to %)))
+                 (assoc % :name (get-in % [:to :name])))
+              transitions)
+        (unsupported-neutral-state! target (map :to transitions)))
+    (state/resolve-target "Jira transition" target
+                          (mapv #(assoc % :name (get-in % [:to :name])) transitions))))
+
+(defn target-reached?
+  [target status]
+  (if (contains? neutral-states target)
+    (= target (normalize-state status))
+    (= (str/lower-case (str target))
+       (str/lower-case (str (:name status))))))
+
 (defn apply-target-state!
   [app-config issue]
   (let [target (get-in app-config [:tracker :target-state])
-        current (get-in issue [:fields :status :name])]
+        current (get-in issue [:fields :status])]
     (if (or (str/blank? (str target))
-            (= (str/lower-case (str target)) (str/lower-case (str current))))
+            (target-reached? target current))
       issue
       (let [issue-key (:key issue)
             transitions (:transitions
                          (api! app-config :get
                                (str "/issue/" (url-encode issue-key) "/transitions")
                                {:expand "transitions.fields"}))
-            choices (mapv #(assoc % :name (get-in % [:to :name])) transitions)
-            transition (state/resolve-target "Jira transition" target choices)
+            transition (resolve-transition target transitions)
             required-fields (->> (:fields transition)
                                  (keep (fn [[field details]]
                                          (when (:required details) (name field))))
@@ -444,8 +602,7 @@
                          :preserve-created-item true}
                         transition-error))
 
-                (= (str/lower-case (str target))
-                   (str/lower-case (str (get-in confirmation [:issue :fields :status :name]))))
+                (target-reached? target (get-in confirmation [:issue :fields :status]))
                 (:issue confirmation)
 
                 :else (throw transition-error)))
@@ -495,41 +652,112 @@
   [app-config]
   {:name (or (get-in app-config [:tracker :issue-type]) "Task")})
 
+(defn validate-work-item-intent!
+  [app-config action target intent]
+  (let [item (when (= :update-item action) target)
+        context (when (= :create-item action) target)]
+    (native-work-item-input app-config intent)
+    (when (contains? intent :blocked-by)
+      (resolve-blocker-link-type app-config))
+    (when-let [requested-state (and (contains? intent :state) (:state intent))]
+      (if item
+        (resolve-transition requested-state
+                            (:transitions
+                             (api! app-config :get
+                                   (str "/issue/" (url-encode (provider-id item)) "/transitions")
+                                   nil)))
+        (let [parent (some-> (:parent context) provider-id)
+              project (or (some-> (:parent context) :project provider-id)
+                          (some-> (:project context) provider-id)
+                          (get-in app-config [:tracker :project]))]
+          (when project
+            (resolve-status-target
+             requested-state
+             (project-statuses app-config project
+                               (if parent
+                                 (subtask-issue-type app-config project)
+                                 (configured-issue-type app-config))))))))
+    (when (and item
+               (some #(= (provider-id item) (provider-id %)) (:blocked-by intent)))
+      (throw (ex-info "A Jira issue cannot block itself."
+                      {:code :invalid-blocker
+                       :provider :jira
+                       :item (provider-id item)})))
+    intent))
+
 (defn create-item-from-intent!
-  [app-config context {:keys [title description labels]}]
+  [app-config context {:keys [title description labels] :as intent}]
   (let [parent (some-> (:parent context) provider-id)
         project (or (some-> (:parent context) :project provider-id)
                     (some-> (:project context) provider-id)
                     (get-in app-config [:tracker :project]))
-        configured-target (get-in app-config [:tracker :target-state])
+        requested-target (if (contains? intent :state)
+                           (:state intent)
+                           (get-in app-config [:tracker :target-state]))
         _ (when (str/blank? (str project))
             (throw (ex-info "Jira item creation requires a project. Set JIRA_PROJECT or supply a parent or project."
                             {:code :project-required})))
         issue-type (if parent
                      (subtask-issue-type app-config project)
                      (configured-issue-type app-config))
-        target (when-not (str/blank? (str configured-target))
-                 (state/resolve-target "Jira"
-                                       configured-target
-                                       (project-statuses app-config project issue-type)))
+        target (when-not (str/blank? (str requested-target))
+                 (resolve-status-target requested-target
+                                        (project-statuses app-config project issue-type)))
         cfg (cond-> app-config target (assoc-in [:tracker :target-state] (:name target)))
-        fields (cond-> {:summary title
-                        :description (text->adf description)
-                        :labels (vec (label-names labels))}
-                 parent (assoc :parent {:key parent}
-                               :project {:key project}
-                               :issuetype issue-type)
-                 (and (not parent) project) (assoc :project {:key project}
-                                                   :issuetype issue-type))]
-    (normalize-item (base-url app-config)
-                    (apply-created-target-state! cfg (create-item! app-config fields)))))
+        fields (merge
+                (cond-> {:summary title
+                         :description (text->adf description)
+                         :labels (vec (label-names labels))}
+                  parent (assoc :parent {:key parent}
+                                :project {:key project}
+                                :issuetype issue-type)
+                  (and (not parent) project) (assoc :project {:key project}
+                                                    :issuetype issue-type))
+                (native-work-item-input app-config intent))
+        created (normalize-item (base-url app-config)
+                                (blocker-link-type-ref app-config)
+                                (apply-created-target-state! cfg (create-item! app-config fields)))]
+    (if (contains? intent :blocked-by)
+      (try
+        (sync-blockers! app-config created (:blocked-by intent))
+        (or (item-by-key app-config (provider-id created))
+            (throw (ex-info "Jira issue refresh returned no item." {})))
+        (catch Exception ex
+          (throw (ex-info
+                  (str "Jira created " (provider-id created)
+                       " but could not apply blockers or refresh it. Inspect the issue before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (provider-id created)
+                         :preserve-created-item true)
+                  ex))))
+      created)))
 
 (defn update-item-from-intent!
-  [app-config item {:keys [description labels]}]
-  (normalize-item (base-url app-config)
-                  (update-item! app-config (provider-id item)
-                                {:description (update-description-adf item description)
-                                 :labels (vec (label-names labels))})))
+  [app-config item {:keys [description labels] :as intent}]
+  (let [item-id (provider-id item)
+        input (cond-> (native-work-item-input app-config intent)
+                (not= description (:description item))
+                (assoc :description (update-description-adf item description))
+                (not= (set (label-names labels)) (set (label-names (:labels item))))
+                (assoc :labels (vec (label-names labels))))
+        updated (when (seq input) (update-item! app-config item-id input))
+        transitioned (if (and (contains? intent :state)
+                              (not= (:state intent) (:state item)))
+                       (apply-target-state!
+                        (assoc-in app-config [:tracker :target-state] (:state intent))
+                        (or updated
+                            (api! app-config :get (str "/issue/" (url-encode item-id)) nil)))
+                       updated)
+        result (or (when transitioned
+                     (normalize-item (base-url app-config)
+                                     (blocker-link-type-ref app-config)
+                                     transitioned))
+                   item)]
+    (when (contains? intent :blocked-by)
+      (sync-blockers! app-config result (:blocked-by intent)))
+    (if (contains? intent :blocked-by)
+      (item-by-key app-config item-id)
+      result)))
 
 (defn configured-scope
   [app-config]
@@ -577,7 +805,7 @@
   [app-config]
   {:provider :jira
    :capabilities capabilities
-   :item-capabilities #{}
+   :item-capabilities #{:item-lifecycle :item-priority :item-due-dates :item-blockers}
    :configured-scope #(configured-scope app-config)
    :list-items #(list-items app-config %1 %2)
    :search-parent-items #(parent-items app-config)
@@ -587,6 +815,7 @@
    :resolve-project #(resolve-project app-config %)
    :search-labels #(labels app-config)
    :resolve-labels #(resolve-labels app-config %1 %2)
+   :validate-work-item-intent! #(validate-work-item-intent! app-config %1 %2 %3)
    :create-item! #(create-item-from-intent! app-config %1 %2)
    :comment-item! #(comment-item! app-config %1 %2)
    :update-item! #(update-item-from-intent! app-config %1 %2)})

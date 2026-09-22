@@ -11,7 +11,7 @@
 
 (def api-path "/api/1.0")
 
-(def task-fields "name,notes,html_notes,permalink_url,completed,workspace.gid,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name")
+(def task-fields "name,notes,html_notes,permalink_url,completed,due_at,due_on,start_at,start_on,workspace.gid,projects,projects.name,projects.permalink_url,tags,tags.name,parent,parent.name,dependencies,dependencies.name,dependencies.permalink_url,dependencies.completed")
 
 (def rich-notes-pattern
   #"(?i)<(?:h[12]|ul|ol|p|strong|em|s|u|code|blockquote|pre)\b")
@@ -245,6 +245,19 @@
      :title (:name parent)
      :scopes [scope]}))
 
+(defn normalize-date-time
+  [date-time date]
+  (or date-time (when date (str date "T00:00:00Z"))))
+
+(defn normalize-task-summary
+  [scope task]
+  {:ref (domain/identity :asana :tracker-item (:gid task))
+   :display-id (:gid task)
+   :title (:name task)
+   :url (:permalink_url task)
+   :state (if (:completed task) "completed" "open")
+   :scopes [scope]})
+
 (defn normalize-task
   [scope task]
   (when task
@@ -262,6 +275,9 @@
        :provider-description (when rich-notes? html-notes)
        :url (:permalink_url task)
        :state (if (:completed task) "completed" "open")
+       :due-at (normalize-date-time (:due_at task) (:due_on task))
+       :available-at (normalize-date-time (:start_at task) (:start_on task))
+       :blocked-by (mapv #(normalize-task-summary scope %) (or (:dependencies task) []))
        :scopes [scope]
        :project (when-let [p (first (:projects task))] (normalize-project scope p))
        :parent (when-let [p (:parent task)] (normalize-parent scope p))
@@ -363,20 +379,84 @@
   [labels]
   (mapv #(get-in % [:ref :id]) labels))
 
+(def neutral-completed {"open" false "completed" true})
+
+(defn native-completed
+  [neutral-state]
+  (if-let [entry (find neutral-completed neutral-state)]
+    (val entry)
+    (throw (ex-info (str "Asana cannot represent neutral state: " neutral-state)
+                    {:code :unsupported-work-item-value
+                     :provider :asana
+                     :field :state
+                     :value neutral-state}))))
+
+(defn native-work-item-input
+  [item intent]
+  (let [due-at (if (contains? intent :due-at) (:due-at intent) (:due-at item))]
+    (cond-> {}
+      (and (contains? intent :state) (not= (:state intent) (:state item)))
+      (assoc :completed (native-completed (:state intent)))
+
+      (contains? intent :due-at)
+      (merge (if-let [requested-due-at (:due-at intent)]
+               {:due_at requested-due-at}
+               {:due_at nil :due_on nil}))
+
+      (and (contains? intent :available-at)
+           (or (:available-at item) (:available-at intent)))
+      (merge (if-let [available-at (:available-at intent)]
+               {:start_at available-at :due_at due-at}
+               {:start_at nil :start_on nil :due_at due-at})))))
+
+(defn validate-work-item-intent!
+  [_action item intent]
+  (native-work-item-input item intent)
+  (let [due-at (if (contains? intent :due-at) (:due-at intent) (:due-at item))
+        available-at (if (contains? intent :available-at) (:available-at intent) (:available-at item))]
+    (when (and available-at (nil? due-at))
+      (throw (ex-info "Asana requires dueAt when availableAt is set."
+                      {:code :invalid-work-item-fields
+                       :provider :asana
+                       :fields [:available-at :due-at]}))))
+  (when (and item
+             (some #(= (provider-id item) (provider-id %)) (:blocked-by intent)))
+    (throw (ex-info "An Asana task cannot block itself."
+                    {:code :invalid-blocker
+                     :provider :asana
+                     :item (provider-id item)})))
+  intent)
+
+(defn sync-blockers!
+  [app-config item blockers]
+  (let [item-id (provider-id item)
+        existing (set (map provider-id (:blocked-by item)))
+        desired (set (map provider-id blockers))]
+    (when-let [removed (seq (remove desired existing))]
+      (api! app-config :post (str "/tasks/" item-id "/removeDependencies")
+            {:data {:dependencies (vec removed)}}))
+    (when-let [added (seq (remove existing desired))]
+      (api! app-config :post (str "/tasks/" item-id "/addDependencies")
+            {:data {:dependencies (vec added)}}))))
+
 (defn create-task!
-  [app-config context title description labels]
-  (let [target (state/resolve-target "Asana"
-                                     (get-in app-config [:tracker :target-state])
-                                     target-states)
-        project (some-> (:project context) provider-id)
-        parent (some-> (:parent context) provider-id)
-        payload {:data (cond-> {:name title :html_notes (markdown->html description)}
-                         target (assoc :completed (:completed target))
-                         project (assoc :projects [project])
-                         parent (assoc :parent parent)
-                         (and (not project) (not parent)) (assoc :workspace (workspace-gid app-config))
-                         (seq labels) (assoc :tags (vec (tag-ids labels))))}]
-    (get (api! app-config :post "/tasks" payload) :data)))
+  ([app-config context title description labels]
+   (create-task! app-config context title description labels {}))
+  ([app-config context title description labels native-input]
+   (let [target (state/resolve-target "Asana"
+                                      (get-in app-config [:tracker :target-state])
+                                      target-states)
+         project (some-> (:project context) provider-id)
+         parent (some-> (:parent context) provider-id)
+         input (merge
+                (cond-> {:name title :html_notes (markdown->html description)}
+                  target (assoc :completed (:completed target))
+                  project (assoc :projects [project])
+                  parent (assoc :parent parent)
+                  (and (not project) (not parent)) (assoc :workspace (workspace-gid app-config))
+                  (seq labels) (assoc :tags (vec (tag-ids labels))))
+                native-input)]
+     (get (api! app-config :post "/tasks" {:data input}) :data))))
 
 (defn update-task!
   [app-config item-id input]
@@ -399,21 +479,47 @@
       (api! app-config :post (str "/tasks/" item-id "/addTag") {:data {:tag tag-id}}))))
 
 (defn create-item-from-intent!
-  [app-config context {:keys [title description labels]}]
-  (normalize-task (site-scope app-config)
-                  (create-task! app-config context title description labels)))
+  [app-config context {:keys [title description labels] :as intent}]
+  (let [created (normalize-task (site-scope app-config)
+                                (create-task! app-config context title description labels
+                                              (native-work-item-input nil intent)))]
+    (if (contains? intent :blocked-by)
+      (try
+        (sync-blockers! app-config created (:blocked-by intent))
+        (or (task-by-gid app-config (provider-id created))
+            (throw (ex-info "Asana task refresh returned no item." {})))
+        (catch Exception ex
+          (throw (ex-info
+                  (str "Asana created " (provider-id created)
+                       " but could not apply blockers or refresh it. Inspect the task before retrying.")
+                  (assoc (or (ex-data ex) {})
+                         :created-item (provider-id created)
+                         :preserve-created-item true)
+                  ex))))
+      created)))
 
 (defn update-item-from-intent!
-  [app-config item {:keys [description labels]}]
+  [app-config item {:keys [description labels] :as intent}]
   (let [item-id (provider-id item)
         labels (vec (or labels []))
-        html-description (update-description-html item description)]
-    (update-task! app-config item-id {:html_notes html-description})
-    (update-tags! app-config item-id (:labels item) labels)
-    (assoc item
-           :description description
-           :provider-description html-description
-           :labels labels)))
+        native-input (native-work-item-input item intent)
+        input (cond-> native-input
+                (not= description (:description item))
+                (assoc :html_notes (update-description-html item description)))]
+    (when (seq input)
+      (update-task! app-config item-id input))
+    (when (not= (set (tag-ids labels)) (set (tag-ids (:labels item))))
+      (update-tags! app-config item-id (:labels item) labels))
+    (when (contains? intent :blocked-by)
+      (sync-blockers! app-config item (:blocked-by intent)))
+    (if (or (seq native-input) (contains? intent :blocked-by))
+      (task-by-gid app-config item-id)
+      (assoc item
+             :description description
+             :provider-description (if (contains? input :html_notes)
+                                     (:html_notes input)
+                                     (:provider-description item))
+             :labels labels))))
 
 (defn configured-scope
   [app-config]
@@ -453,7 +559,7 @@
   [app-config]
   {:provider :asana
    :capabilities capabilities
-   :item-capabilities #{}
+   :item-capabilities #{:item-lifecycle :item-due-dates :item-availability :item-blockers}
    :configured-scope #(configured-scope app-config)
    :list-items #(list-items app-config %1 %2)
    :search-parent-items #(tasks app-config)
@@ -463,6 +569,7 @@
    :resolve-project #(resolve-project app-config %)
    :search-labels #(tags app-config)
    :resolve-labels #(resolve-labels app-config %1 %2)
+   :validate-work-item-intent! #(validate-work-item-intent! %1 %2 %3)
    :create-item! #(create-item-from-intent! app-config %1 %2)
    :comment-item! #(comment-item! app-config %1 %2)
    :update-item! #(update-item-from-intent! app-config %1 %2)})

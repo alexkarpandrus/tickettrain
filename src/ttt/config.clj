@@ -64,6 +64,7 @@
     {:key :cloud-id :label "Jira cloud ID" :env "JIRA_CLOUD_ID" :required? true}
     {:key :project :env "JIRA_PROJECT"}
     {:key :issue-type :env "JIRA_ISSUE_TYPE"}
+    {:key :blocker-link-type :env "JIRA_BLOCKER_LINK_TYPE"}
     {:key :target-state :env "TTT_TRACKER_STATE"}]
    [:tracker :github-issues]
    [{:key :repository :label "GitHub repository" :env "GH_REPO"}

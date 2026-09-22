@@ -73,6 +73,18 @@
     (contains? request :blocked-by)
     (assoc :blocked-by (mapv #(resolve-item! runtime %) (:blocked-by request)))))
 
+(defn validate-work-item-intent!
+  [runtime action target intent]
+  (when (and (= :update-item action)
+             (some #(domain/same-identity? (:ref target) (:ref %))
+                   (:blocked-by intent)))
+    (throw (ex-info "A tracker item cannot block itself."
+                    {:code :invalid-blocker
+                     :item (:ref target)})))
+  (when-let [validate (get-in runtime [:tracker :validate-work-item-intent!])]
+    (validate action target intent))
+  intent)
+
 (defn resolve-parent!
   [runtime parent-ref]
   (let [parent ((get-in runtime [:tracker :resolve-parent-item]) parent-ref)]
@@ -237,7 +249,8 @@
   [runtime request]
   (let [context (resolve-context runtime request)
         labels (resolve-labels runtime (:labels request))
-        work-intent (work-item-intent runtime request)]
+        work-intent (validate-work-item-intent!
+                     runtime :create-item context (work-item-intent runtime request))]
     {:action :create-item
      :request request
      :context context
@@ -257,6 +270,8 @@
     (when (contains? request :comment)
       (require-tracker-operation! runtime :comment-item! "item comments"))
     (let [item (resolve-item! runtime (:item-ref request))
+          validated-work-intent (validate-work-item-intent!
+                                 runtime :update-item item work-intent)
           current (item-labels item)
           requested-add (resolve-labels runtime (:add-labels request))
           requested-remove (resolve-labels runtime (:remove-labels request))
@@ -277,7 +292,7 @@
                  :labels labels
                  :label-changes {:add (vec add) :remove (vec removed)}
                  :tracker-intent (merge {:description (:description item) :labels labels}
-                                        work-intent)}
+                                        validated-work-intent)}
           (contains? request :comment) (assoc :comment {:body (:comment request)}))))))
 
 (defn comment-item-proposal
