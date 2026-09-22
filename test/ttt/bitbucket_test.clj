@@ -90,6 +90,16 @@
             {:content {:raw "Looks good"}}]
            @request))))
 
+
+(deftest declines-pull-requests-with-an-optional-comment
+  (let [requests (atom [])]
+    (with-redefs [bitbucket/api! (fn [& args] (swap! requests conj args))]
+      (bitbucket/close-change-request! config "team/repo" 7 "Superseded."))
+    (is (= [[config :post "/repositories/team/repo/pullrequests/7/comments"
+             {:content {:raw "Superseded."}}]
+            [config :post "/repositories/team/repo/pullrequests/7/decline" nil]]
+           @requests))))
+
 (deftest setup-validates-the-current-repository
   (let [calls (atom 0)]
     (with-redefs [bitbucket/current-repo (fn [_]

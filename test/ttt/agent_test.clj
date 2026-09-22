@@ -12,9 +12,16 @@
 (def source {:branch "retry" :repository {:ref (domain/identity :github :repository "org/repo") :display-id "org/repo"} :change-request {:ref (domain/contained-identity :github :change-request "org/repo" 7) :display-id "org/repo#7" :title "Retry" :body "Body" :url "https://github/pr"}})
 (def config {:change-request {:body-begin-marker "<!-- ttt:begin -->" :body-end-marker "<!-- ttt:end -->" :section-title "Tracker"}})
 (defn runtime [calls]
-  {:config config :forge {:inspect-current (fn [] source) :prefix-change-request-title (fn [id title] (str "[" id "] " title)) :update-change-request! (fn [& _] (swap! calls conj :forge)) :comment-change-request! (fn [& _] (swap! calls conj :forge-comment))
-                          :create-change-request! (fn [intent] (swap! calls conj :forge-create) (assoc (:change-request source) :title (:title intent) :body (:body intent)))
-                          :identify-change-request (fn [_ created] created)}
+  {:config config
+   :forge {:inspect-current (fn [] source)
+           :current-repo (fn [] (:repository source))
+           :get-change-request (fn [_ _] (:change-request source))
+           :prefix-change-request-title (fn [id title] (str "[" id "] " title))
+           :update-change-request! (fn [& _] (swap! calls conj :forge))
+           :comment-change-request! (fn [& _] (swap! calls conj :forge-comment))
+           :close-change-request! (fn [& _] (swap! calls conj :forge-close))
+           :create-change-request! (fn [intent] (swap! calls conj :forge-create) (assoc (:change-request source) :title (:title intent) :body (:body intent)))
+           :identify-change-request (fn [_ created] created)}
    :tracker {:configured-scope (fn [] scope) :resolve-item (fn [ref] (when (= ref "APP-123") item)) :resolve-parent-item (fn [_] nil) :resolve-project (fn [_] nil) :resolve-labels (fn [_ _] []) :search-parent-items (fn [] [item]) :search-projects (fn [] []) :search-labels (fn [] []) :update-item! (fn [resolved _] (swap! calls conj :tracker) resolved) :create-item! (fn [& _] (swap! calls conj :tracker-create) item) :comment-item! (fn [& _] (swap! calls conj :tracker-comment))}})
 
 (deftest numeric-text-options-remain-strings
@@ -104,6 +111,7 @@
     (is (some #{"create-items"} (:capabilities version)))
     (is (some #{"update-items"} (:capabilities version)))
     (is (some #{"update-change-requests"} (:capabilities version)))
+    (is (some #{"close-change-requests"} (:capabilities version)))
     (is (some #{"named-profiles"} (:capabilities version)))
     (is (some #{"comment-items"} (:capabilities version)))
     (is (some #{"list-items"} (:capabilities version)))
@@ -329,6 +337,26 @@
     (is (= {:body "Updated body"} (:changeRequestUpdate proposal)))
     (is (= [["org/repo" "7" {:body "Updated body"}]] @calls))
     (is (= "Updated body" (get-in result [:changeRequestUpdate :body])))))
+
+(deftest approved-close-change-request-is-explicit-and-forge-only
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:forge :close-change-request!]
+                           (fn [& args] (swap! calls conj args)))
+        request {:action "close_change_request"
+                 :changeRequest "7"
+                 :comment "Superseded by #8."}
+        proposal (agent/preview-data runtime* request)
+        result (agent/apply-data! runtime* request (:proposalId proposal))]
+    (is (= "org/repo#7" (get-in proposal [:changeRequest :displayId])))
+    (is (= {:body "Superseded by #8."} (:comment proposal)))
+    (is (= [["org/repo" "7" "Superseded by #8."]] @calls))
+    (is (= "closed" (get-in result [:changeRequest :state])))))
+
+(deftest close-change-request-requires-a-safe-explicit-id
+  (is (thrown-with-msg? Exception #"positive integer string"
+                        (agent/validate-request!
+                         {:action "close_change_request"
+                          :changeRequest "../73"}))))
 
 (deftest item-comments-load-only-tracker-credentials
   (let [built-roles (atom [])]

@@ -69,7 +69,7 @@ A descriptor has a required `:build` function and optional `:validate-config!` a
 
 ## Capability maps
 
-A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, creation, update, commenting, and title prefixing. A tracker declares configured scope, item listing, searches and resolvers, `:create-item!`/`:update-item!`, and `:comment-item!`. Each tracker also declares its supported work-item concepts in `:item-capabilities`: `:item-lifecycle`, `:item-priority`, `:item-due-dates`, `:item-availability`, and `:item-blockers`. Preview rejects a requested concept that the selected tracker does not declare.
+A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, lookup, creation, update, commenting, closing, and title prefixing. A tracker declares configured scope, item listing, searches and resolvers, `:create-item!`/`:update-item!`, and `:comment-item!`. Each tracker also declares its supported work-item concepts in `:item-capabilities`: `:item-lifecycle`, `:item-priority`, `:item-due-dates`, `:item-availability`, and `:item-blockers`. Preview rejects a requested concept that the selected tracker does not declare.
 
 ```clojure
 {:provider :example-tracker
