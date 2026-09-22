@@ -622,25 +622,26 @@
 
 (defn validate-work-item-intent!
   [app-config action item intent]
-  (native-work-item-input app-config intent)
-  (when-let [target (and (contains? intent :state) (:state intent))]
-    (if item
-      (resolve-transition target
-                          (:transitions
-                           (api! app-config :get
-                                 (str "/issue/" (url-encode (provider-id item)) "/transitions")
-                                 nil)))
-      (when-let [project (get-in app-config [:tracker :project])]
-        (resolve-status-target target
-                               (project-statuses app-config project
-                                                 (configured-issue-type app-config))))))
-  (when (and item
-             (some #(= (provider-id item) (provider-id %)) (:blocked-by intent)))
-    (throw (ex-info "A Jira issue cannot block itself."
-                    {:code :invalid-blocker
-                     :provider :jira
-                     :item (provider-id item)})))
-  intent)
+  (let [item (when (= :update-item action) item)]
+    (native-work-item-input app-config intent)
+    (when-let [target (and (contains? intent :state) (:state intent))]
+      (if item
+        (resolve-transition target
+                            (:transitions
+                             (api! app-config :get
+                                   (str "/issue/" (url-encode (provider-id item)) "/transitions")
+                                   nil)))
+        (when-let [project (get-in app-config [:tracker :project])]
+          (resolve-status-target target
+                                 (project-statuses app-config project
+                                                   (configured-issue-type app-config))))))
+    (when (and item
+               (some #(= (provider-id item) (provider-id %)) (:blocked-by intent)))
+      (throw (ex-info "A Jira issue cannot block itself."
+                      {:code :invalid-blocker
+                       :provider :jira
+                       :item (provider-id item)})))
+    intent))
 
 (defn create-item-from-intent!
   [app-config context {:keys [title description labels] :as intent}]
