@@ -16,6 +16,14 @@
 
 (def base "https://acme.atlassian.net")
 
+
+(deftest maps-jira-status-categories-to-neutral-states
+  (doseq [[status expected] [[{:statusCategory {:key "new"}} "open"]
+                             [{:statusCategory {:key "indeterminate"}} "active"]
+                             [{:name "Done" :statusCategory {:key "done"}} "completed"]
+                             [{:name "Canceled" :statusCategory {:key "done"}} "canceled"]]]
+    (is (= expected (jira/normalize-state status)))))
+
 (deftest adf-round-trips-plain-text
   (is (= "line one\nline two" (jira/adf->text (jira/text->adf "line one\nline two")))))
 
@@ -60,7 +68,7 @@
   (let [issue {:key "APP-123"
                :fields {:summary "Retry"
                         :description "Body"
-                        :status {:name "In Progress"}
+                        :status {:name "In Progress" :statusCategory {:key "indeterminate"}}
                         :project {:id "p1" :key "APP" :name "App"}
                         :parent {:key "APP-1" :fields {:summary "Parent"}}
                         :labels ["backend"]}}
@@ -68,7 +76,7 @@
     (is (= "APP-123" (:display-id item)))
     (is (= "Retry" (:title item)))
     (is (= "Body" (:description item)))
-    (is (= "In Progress" (get-in item [:state :name])))
+    (is (= "active" (:state item)))
     (is (= "APP" (get-in item [:project :display-id])))
     (is (= "APP-1" (get-in item [:parent :display-id])))
     (is (= ["backend"] (mapv :display-id (:labels item))))
@@ -380,4 +388,5 @@
   (let [adapter (jira/neutral-adapter config)]
     (is (= :jira (:provider adapter)))
     (is (= jira/capabilities (:capabilities adapter)))
+    (is (empty? (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) jira/capabilities))))

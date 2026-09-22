@@ -1,6 +1,7 @@
 (ns ttt.cli.agent
   (:require [babashka.cli :as cli]
             [cheshire.core :as json]
+            [clojure.set :as set]
             [clojure.string :as str]
             [ttt.adapters :as adapters]
             [ttt.config :as config]
@@ -16,6 +17,9 @@
 (def schema-version 2)
 (def product-version (str/trim (slurp (java.io.File. (or (System/getenv "TTT_HOME") ".") "version.txt"))))
 (def max-request-bytes 65536)
+(def item-states #{"open" "active" "waiting" "completed" "canceled"})
+(def item-priorities #{"none" "low" "medium" "high" "urgent"})
+(def work-item-fields [:state :priority :dueAt :availableAt :blockedBy])
 (def option-spec {:config {:coerce :string}
                   :profile {:coerce :string}
                   :kind {:coerce :string}
@@ -24,6 +28,8 @@
                   :semantic {:coerce :boolean}
                   :project {:coerce :string}
                   :scope-item {:coerce :string}
+                  :state {:coerce :string}
+                  :label {:coerce :string}
                   :request {:coerce :string}
                   :request-file {:coerce :string}
                   :approve {:coerce :string}})
@@ -75,16 +81,28 @@
            (catch Exception ex (throw (ex-info "The request must contain valid JSON." {:code :invalid-request} ex)))))))
 
 (defn wire-identity [entity] (some-> entity :ref domain/identity-data))
+(defn wire-blocker [entity]
+  (cond-> {:identity (wire-identity entity) :displayId (:display-id entity)}
+    (:title entity) (assoc :title (:title entity))))
 (defn wire-entity [entity]
   (when entity
-    (cond-> {:identity (wire-identity entity) :displayId (:display-id entity)}
-      (:title entity) (assoc :title (:title entity))
-      (:url entity) (assoc :url (:url entity))
-      (:description entity) (assoc :description (:description entity))
-      (:state entity) (assoc :state (:state entity))
-      (:parent entity) (assoc :parent (wire-entity (:parent entity)))
-      (:project entity) (assoc :project (wire-entity (:project entity)))
-      (:score entity) (assoc :score (:score entity)))))
+    (let [item? (= :tracker-item (get-in entity [:ref :kind]))]
+      (cond-> {:identity (wire-identity entity) :displayId (:display-id entity)}
+        (:title entity) (assoc :title (:title entity))
+        (:url entity) (assoc :url (:url entity))
+        (or item? (:description entity)) (assoc :description (:description entity))
+        item? (assoc :state (:state entity)
+                     :priority (or (:priority entity) "none")
+                     :dueAt (:due-at entity)
+                     :availableAt (:available-at entity)
+                     :blockedBy (mapv wire-blocker (or (:blocked-by entity) []))
+                     :project (wire-entity (:project entity))
+                     :labels (mapv wire-entity (or (:labels entity) [])))
+        (and (not item?) (:state entity)) (assoc :state (:state entity))
+        (:parent entity) (assoc :parent (wire-entity (:parent entity)))
+        (and (not item?) (:project entity)) (assoc :project (wire-entity (:project entity)))
+        (and (not item?) (:labels entity)) (assoc :labels (mapv wire-entity (:labels entity)))
+        (:score entity) (assoc :score (:score entity))))))
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
 (defn wire-context [{:keys [parent project]}] {:parent (wire-entity parent) :project (wire-entity project)})
@@ -100,10 +118,20 @@
     (:title request) (assoc :title (:title request))
     (contains? request :description) (assoc :description (:description request))
     (contains? request :comment) (assoc :comment (:comment request))
-    (contains? request :body) (assoc :body (:body request))))
+    (contains? request :body) (assoc :body (:body request))
+    (contains? request :state) (assoc :state (:state request))
+    (contains? request :priority) (assoc :priority (:priority request))
+    (contains? request :due-at) (assoc :dueAt (:due-at request))
+    (contains? request :available-at) (assoc :availableAt (:available-at request))
+    (contains? request :blocked-by) (assoc :blockedBy (vec (:blocked-by request)))))
 (defn wire-intent [intent]
   (cond-> {:description (:description intent) :labels (mapv wire-entity (:labels intent))}
-    (:title intent) (assoc :title (:title intent))))
+    (:title intent) (assoc :title (:title intent))
+    (contains? intent :state) (assoc :state (:state intent))
+    (contains? intent :priority) (assoc :priority (:priority intent))
+    (contains? intent :due-at) (assoc :dueAt (:due-at intent))
+    (contains? intent :available-at) (assoc :availableAt (:available-at intent))
+    (contains? intent :blocked-by) (assoc :blockedBy (mapv wire-blocker (:blocked-by intent)))))
 (defn proposal->wire [proposal]
   (let [base (cond-> {:proposalId (:proposal-id proposal)
                       :action (wire-action (:action proposal))
@@ -121,6 +149,7 @@
       :update-item
       (assoc base
              :item (wire-entity (:item proposal))
+             :trackerIntent (wire-intent (:tracker-intent proposal))
              :labels (mapv wire-entity (:labels proposal))
              :labelChanges {:add (mapv wire-entity (get-in proposal [:label-changes :add]))
                             :remove (mapv wire-entity (get-in proposal [:label-changes :remove]))}
@@ -183,9 +212,50 @@
 (defn bounded-limit [value]
   (let [limit (or value 5)]
     (when-not (<= 1 limit 10) (throw (ex-info "--limit must be between 1 and 10." {:code :invalid-request}))) limit))
+
+(defn bounded-list-limit [value]
+  (let [limit (or value 50)]
+    (when-not (<= 1 limit 100)
+      (throw (ex-info "--limit must be between 1 and 100." {:code :invalid-request})))
+    limit))
+
+(defn named-entity? [entity expected]
+  (let [expected (some-> expected str/trim str/lower-case)]
+    (or (nil? expected)
+        (some #(= expected (some-> % str str/trim str/lower-case))
+              [(:name entity) (:display-id entity) (:title entity) (get-in entity [:ref :id])]))))
+
+
+(defn resolve-search-item [tracker-adapter query]
+  (try
+    ((:resolve-item tracker-adapter) query)
+    (catch Exception ex
+      (if (= :ambiguous-item (:code (ex-data ex)))
+        nil
+        (throw ex)))))
+
+(defn list-data [tracker-adapter options]
+  (let [kind (require-option options :kind)
+        scope ((:configured-scope tracker-adapter))
+        state (some-> (:state options) str/lower-case)
+        project (:project options)
+        label (:label options)
+        limit (bounded-list-limit (:limit options))]
+    (when-not (= "item" kind)
+      (throw (ex-info (str "Unsupported list kind: " kind) {:code :invalid-request})))
+    (when (and state (not (contains? item-states state)))
+      (throw (ex-info "--state must be open, active, waiting, completed, or canceled."
+                      {:code :invalid-request})))
+    {:items (->> ((:list-items tracker-adapter))
+                 (filter #(domain/entity-in-scope? % scope))
+                 (filter #(or (nil? state) (= state (:state %))))
+                 (filter #(named-entity? (:project %) project))
+                 (filter #(or (nil? label) (some (fn [item-label] (named-entity? item-label label)) (:labels %))))
+                 (take limit)
+                 (mapv wire-entity))}))
 (defn search-items [tracker-adapter query options limit]
   (let [scope ((:configured-scope tracker-adapter))
-        exact (some-> ((:resolve-item tracker-adapter) query)
+        exact (some-> (resolve-search-item tracker-adapter query)
                       (as-> item
                           (when (and (domain/entity-in-scope? item scope)
                                      (= (str/lower-case query)
@@ -250,76 +320,114 @@
           result (if semantic? (semantic-search query candidates) {:candidates candidates})]
       (assoc result :kind kind :query query :candidates (vec (take limit (:candidates result)))))))
 (defn invalid-request! [message] (throw (ex-info message {:code :invalid-request})))
+
+(def action-fields
+  {"link_existing" #{:action :item :labels}
+   "create_new" #{:action :parent :project :title :labels}
+   "create_item" (set/union #{:action :title :description :project :labels} (set work-item-fields))
+   "update_item" (set/union #{:action :item :comment :addLabels :removeLabels} (set work-item-fields))
+   "create_change_request" #{:action :title :body}
+   "update_change_request" #{:action :title :body}
+   "comment_item" #{:action :item :body}
+   "comment_change_request" #{:action :body}})
+
+(defn valid-instant? [value]
+  (try
+    (java.time.Instant/parse value)
+    true
+    (catch Exception _ false)))
+
 (defn assert-request-shape! [request]
   (doseq [field [:item :parent :project :title :body :description :comment] :when (contains? request field)]
     (when-not (string? (get request field)) (invalid-request! (str (name field) " must be a string."))))
-  (doseq [field [:labels :addLabels :removeLabels] :when (contains? request field)]
+  (doseq [field [:labels :addLabels :removeLabels :blockedBy] :when (contains? request field)]
     (when-not (and (sequential? (get request field)) (every? string? (get request field)))
       (invalid-request! (str (name field) " must be a collection of strings."))))
+  (when (and (contains? request :state) (not (contains? item-states (:state request))))
+    (invalid-request! "state must be open, active, waiting, completed, or canceled."))
+  (when (and (contains? request :priority)
+             (some? (:priority request))
+             (not (contains? item-priorities (:priority request))))
+    (invalid-request! "priority must be none, low, medium, high, urgent, or null."))
+  (doseq [field [:dueAt :availableAt] :when (contains? request field)]
+    (when-not (or (nil? (get request field))
+                  (and (string? (get request field)) (valid-instant? (get request field))))
+      (invalid-request! (str (name field) " must be an ISO-8601 timestamp or null."))))
   request)
+
 (defn validate-request! [request]
+  (let [action (:action request)]
+    (when-not (contains? action-fields action)
+      (invalid-request! (str "Unsupported action: " action))))
   (assert-request-shape! request)
   (case (:action request)
-    "link_existing" (do
-                      (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
-                      (when (or (:issue request) (:parent request) (:project request) (:title request) (:body request))
-                        (invalid-request! "link_existing accepts only item and labels.")))
-    "create_new" (when (or (:item request) (:issue request) (:body request))
-                   (invalid-request! "create_new accepts parent, project, title, and labels."))
+    "link_existing" (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
     "create_item" (do
                     (when (str/blank? (:title request)) (invalid-request! "create_item requires title."))
                     (when (and (contains? request :project) (str/blank? (:project request)))
                       (invalid-request! "create_item project must not be blank."))
                     (when (some str/blank? (:labels request))
                       (invalid-request! "create_item labels must not be blank."))
-                    (when (some #(contains? request %) [:item :issue :parent :body :comment :addLabels :removeLabels])
-                      (invalid-request! "create_item accepts only title, description, project, and labels.")))
+                    (when (some str/blank? (:blockedBy request))
+                      (invalid-request! "create_item blockers must not be blank.")))
     "update_item" (do
                     (when-not (seq (:item request)) (invalid-request! "update_item requires item."))
-                    (when-not (some #(contains? request %) [:comment :addLabels :removeLabels])
-                      (invalid-request! "update_item requires comment, addLabels, or removeLabels."))
+                    (when-not (some #(contains? request %) (concat [:comment :addLabels :removeLabels] work-item-fields))
+                      (invalid-request! "update_item requires comment, addLabels, or removeLabels, or a work-item field."))
                     (when (and (contains? request :comment) (str/blank? (:comment request)))
                       (invalid-request! "update_item comment must not be blank."))
                     (when (some str/blank? (concat (:addLabels request) (:removeLabels request)))
                       (invalid-request! "update_item labels must not be blank."))
-                    (when (some #(contains? request %) [:issue :parent :project :title :body :description :labels])
-                      (invalid-request! "update_item accepts only item, comment, addLabels, and removeLabels.")))
-    "create_change_request" (do
-                              (when (str/blank? (:title request))
-                                (invalid-request! "create_change_request requires title."))
-                              (when (some #(contains? request %) [:item :issue :parent :project :labels])
-                                (invalid-request! "create_change_request accepts only title and body.")))
+                    (when (some str/blank? (:blockedBy request))
+                      (invalid-request! "update_item blockers must not be blank.")))
+    "create_change_request" (when (str/blank? (:title request))
+                              (invalid-request! "create_change_request requires title."))
     "update_change_request" (do
                               (when-not (or (contains? request :title) (contains? request :body))
                                 (invalid-request! "update_change_request requires title or body."))
                               (when (and (contains? request :title) (str/blank? (:title request)))
-                                (invalid-request! "update_change_request title must not be blank."))
-                              (when (some #(contains? request %) [:item :issue :parent :project :labels])
-                                (invalid-request! "update_change_request accepts only title and body.")))
+                                (invalid-request! "update_change_request title must not be blank.")))
     "comment_item" (do
                      (when-not (seq (:item request)) (invalid-request! "comment_item requires item."))
-                     (when (str/blank? (:body request)) (invalid-request! "comment_item requires body."))
-                     (when (some #(contains? request %) [:issue :parent :project :title :labels])
-                       (invalid-request! "comment_item accepts only item and body.")))
-    "comment_change_request" (do
-                               (when (str/blank? (:body request)) (invalid-request! "comment_change_request requires body."))
-                               (when (some #(contains? request %) [:item :issue :parent :project :title :labels])
-                                 (invalid-request! "comment_change_request accepts only body.")))
-    (invalid-request! (str "Unsupported action: " (:action request))))
+                     (when (str/blank? (:body request)) (invalid-request! "comment_item requires body.")))
+    "comment_change_request" (when (str/blank? (:body request))
+                               (invalid-request! "comment_change_request requires body."))
+    nil)
+  (when-let [unknown (seq (set/difference (set (keys request))
+                                          (get action-fields (:action request))))]
+    (invalid-request!
+     (case (:action request)
+       ("create_change_request" "update_change_request")
+       (str (:action request) " accepts only title and body.")
+       "comment_change_request" "comment_change_request accepts only body."
+       (str (:action request) " does not accept fields: "
+            (str/join ", " (sort (map name unknown))) "."))))
   request)
+
+(defn assoc-work-item-fields [core-request request]
+  (cond-> core-request
+    (contains? request :state) (assoc :state (:state request))
+    (contains? request :priority) (assoc :priority (:priority request))
+    (contains? request :dueAt) (assoc :due-at (:dueAt request))
+    (contains? request :availableAt) (assoc :available-at (:availableAt request))
+    (contains? request :blockedBy) (assoc :blocked-by (vec (:blockedBy request)))))
 
 (defn core-request [request]
   (case (:action request)
-    "create_item" (cond-> {:action :create-item
-                            :title (:title request)
-                            :description (or (:description request) "")
-                            :labels (vec (or (:labels request) []))}
-                    (:project request) (assoc :project-ref (:project request)))
-    "update_item" (cond-> {:action :update-item
-                            :item-ref (:item request)
-                            :add-labels (vec (or (:addLabels request) []))
-                            :remove-labels (vec (or (:removeLabels request) []))}
-                    (contains? request :comment) (assoc :comment (:comment request)))
+    "create_item" (assoc-work-item-fields
+                    (cond-> {:action :create-item
+                             :title (:title request)
+                             :description (or (:description request) "")
+                             :labels (vec (or (:labels request) []))}
+                      (:project request) (assoc :project-ref (:project request)))
+                    request)
+    "update_item" (assoc-work-item-fields
+                    (cond-> {:action :update-item
+                             :item-ref (:item request)
+                             :add-labels (vec (or (:addLabels request) []))
+                             :remove-labels (vec (or (:removeLabels request) []))}
+                      (contains? request :comment) (assoc :comment (:comment request)))
+                    request)
     "create_change_request" {:action :create-change-request :title (:title request) :body (or (:body request) "")}
     "update_change_request" (cond-> {:action :update-change-request}
                               (contains? request :title) (assoc :title (:title request))
@@ -388,12 +496,13 @@
     (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "semantic-search" "link-existing" "create-new" "create-items" "update-items" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "link-existing" "create-new" "create-items" "update-items" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)
         "inspect" (inspect-data (forge-runtime options))
         "search" (search-data (:tracker (runtime options)) options)
+        "list" (list-data (:tracker (tracker-runtime options)) options)
         "preview" (let [request (parse-request options)]
                     (preview-data (request-runtime options request) request))
         "apply" (let [request (parse-request options)]

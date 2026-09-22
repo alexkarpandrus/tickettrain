@@ -31,6 +31,44 @@
     (is (= "APP-123" (:displayId candidate)))
     (is (= 1.0 (:score candidate)))))
 
+
+(deftest ambiguous-item-references-do-not-break-free-text-search
+  (let [calls (atom [])
+        tracker* (-> (:tracker (runtime calls))
+                     (assoc :resolve-item
+                            (fn [_]
+                              (throw (ex-info "ambiguous" {:code :ambiguous-item})))))
+        result (agent/search-data tracker* {:kind "item" :query "Retry"})]
+    (is (= ["APP-123"] (mapv :displayId (:candidates result))))))
+
+(deftest list-items-filters-normalized-fields-and-search-includes-labels
+  (let [project {:ref (domain/identity :linear :project "project-x")
+                 :display-id "Project X"
+                 :title "Project X"}
+        label {:ref (domain/identity :linear :label "waiting")
+               :display-id "waiting"}
+        matching (assoc item :state "waiting" :available-at "2026-09-21T09:00:00Z"
+                        :project project :labels [label])
+        other (assoc item :ref (domain/identity :linear :tracker-item "issue-2")
+                     :display-id "APP-456" :state "completed")
+        tracker* {:configured-scope (constantly scope)
+                  :list-items (fn [] [other matching])
+                  :resolve-item (constantly nil)
+                  :search-parent-items (fn [] [matching])}
+        listed (first (:items (agent/list-data tracker* {:kind "item"
+                                                         :state "WAITING"
+                                                         :project "project-x"
+                                                         :label "WAITING"})))
+        searched (first (:candidates (agent/search-data tracker* {:kind "item" :query "Retry"})))]
+    (is (= 50 (agent/bounded-list-limit nil)))
+    (is (= "APP-123" (:displayId listed)))
+    (is (= "Description" (:description listed)))
+    (is (= "waiting" (:state listed)))
+    (is (= "2026-09-21T09:00:00Z" (:availableAt listed)))
+    (is (= "Project X" (get-in listed [:project :displayId])))
+    (is (= "waiting" (get-in listed [:labels 0 :displayId])))
+    (is (= "waiting" (get-in searched [:labels 0 :displayId])))))
+
 (deftest semantic-search-reranks-before-applying-the-output-limit
   (let [calls (atom [])
         other (assoc item
@@ -67,6 +105,7 @@
     (is (some #{"update-change-requests"} (:capabilities version)))
     (is (some #{"named-profiles"} (:capabilities version)))
     (is (some #{"comment-items"} (:capabilities version)))
+    (is (some #{"list-items"} (:capabilities version)))
     (is (some #{"comment-change-requests"} (:capabilities version)))))
 
 (deftest status-shows-providers-and-sources-without-secret-values
@@ -317,6 +356,19 @@
                (set (keys (agent/request-runtime {} {:action action})))))
         (is (= [:tracker] @built-roles))))))
 
+(deftest list-items-loads-only-tracker-configuration
+  (let [built-roles (atom [])]
+    (with-redefs [config/load-config (fn [_ _ roles]
+                                       (is (= [:tracker] roles))
+                                       {:tracker {:provider :linear}})
+                  adapters/build (fn [_ role _]
+                                   (swap! built-roles conj role)
+                                   {:configured-scope (constantly scope)
+                                    :list-items (constantly [])})]
+      (is (= {:items []}
+             (agent/execute-command "list" ["--kind" "item"])))
+      (is (= [:tracker] @built-roles)))))
+
 (deftest standalone-change-request-needs-no-tracker
   (let [calls (atom [])
         source* (assoc source :change-request nil
@@ -358,15 +410,114 @@
 (deftest search-and-preview-carry-state-and-project
   (let [calls (atom [])
         project {:ref (domain/identity :linear :project "project-1") :display-id "reliability" :title "Reliability" :url "https://linear/project"}
-        stateful (assoc item :state {:name "In Progress" :type "started"} :project project)
+        stateful (assoc item :state "active" :project project)
         base (runtime calls)
         candidates (get-in (agent/search-data (assoc (:tracker base) :search-parent-items (fn [] [stateful]))
                                               {:kind "item" :query "Retry"})
                            [:candidates])]
-    (is (= "In Progress" (get-in candidates [0 :state :name])))
+    (is (= "active" (get-in candidates [0 :state])))
     (is (= "https://linear/project" (get-in candidates [0 :project :url])))
     (is (= "reliability" (get-in candidates [0 :project :displayId])))
     (let [preview-runtime (assoc-in base [:tracker :resolve-item] (fn [ref] (when (= ref "APP-123") stateful)))
           proposal (agent/preview-data preview-runtime {:action "link_existing" :item "APP-123" :labels []})]
-      (is (= "started" (get-in proposal [:item :state :type])))
+      (is (= "active" (get-in proposal [:item :state])))
       (is (= "Reliability" (get-in proposal [:item :project :title]))))))
+
+
+(deftest work-item-request-validation-is-neutral-and-strict
+  (let [create-request {:action "create_item"
+                        :title "Follow up"
+                        :state "open"
+                        :priority "high"
+                        :dueAt "2026-09-30T17:00:00Z"
+                        :availableAt nil
+                        :blockedBy ["APP-100"]}
+        clear-request {:action "update_item"
+                       :item "APP-123"
+                       :priority nil
+                       :dueAt nil
+                       :availableAt nil
+                       :blockedBy []}]
+    (is (= create-request (agent/validate-request! create-request)))
+    (is (= clear-request (agent/validate-request! clear-request)))
+    (is (thrown-with-msg? Exception #"state must be"
+                          (agent/validate-request! {:action "update_item" :item "APP-123" :state "pending"})))
+    (is (thrown-with-msg? Exception #"ISO-8601"
+                          (agent/validate-request! {:action "update_item" :item "APP-123" :dueAt "tomorrow"})))
+    (is (thrown-with-msg? Exception #"does not accept fields"
+                          (agent/validate-request! {:action "create_item"
+                                                    :title "No escape hatch"
+                                                    :providerAttributes {:status "pending"}})))))
+
+(deftest unsupported-work-item-concepts-fail-during-read-only-preview
+  (let [calls (atom [])]
+    (is (thrown-with-msg? Exception #"does not support the requested work-item fields"
+                          (agent/preview-data (dissoc (runtime calls) :forge)
+                                              {:action "update_item"
+                                               :item "APP-123"
+                                               :priority "high"})))
+    (is (empty? @calls))))
+
+
+(deftest blocker-preview-validates-existence-and-scope
+  (let [calls (atom [])
+        base (-> (runtime calls)
+                 (dissoc :forge)
+                 (assoc-in [:tracker :item-capabilities] #{:item-blockers}))
+        request {:action "create_item" :title "Blocked" :blockedBy ["APP-100"]}]
+    (is (thrown-with-msg? Exception #"not found"
+                          (agent/preview-data base request)))
+    (is (thrown-with-msg? Exception #"outside the configured scope"
+                          (agent/preview-data
+                           (assoc-in base [:tracker :resolve-item]
+                                     (fn [_] {:ref (domain/identity :linear :tracker-item "issue-100")
+                                              :display-id "APP-100"
+                                              :title "Other team"
+                                              :scopes [(domain/scope-identity :linear "team-2")]}))
+                           request)))
+    (is (empty? @calls))))
+
+(deftest work-item-preview-and-apply-resolve-blockers-and-preserve-null-clears
+  (let [calls (atom [])
+        intents (atom [])
+        blocker {:ref (domain/identity :linear :tracker-item "issue-100")
+                 :display-id "APP-100"
+                 :title "Blocked dependency"
+                 :scopes [scope]
+                 :labels []}
+        runtime* (-> (runtime calls)
+                     (dissoc :forge)
+                     (assoc-in [:tracker :item-capabilities]
+                               #{:item-lifecycle :item-priority :item-due-dates
+                                 :item-availability :item-blockers})
+                     (assoc-in [:tracker :resolve-item]
+                               (fn [ref] (case ref "APP-123" item "APP-100" blocker nil)))
+                     (assoc-in [:tracker :update-item!]
+                               (fn [resolved intent]
+                                 (swap! calls conj :tracker)
+                                 (swap! intents conj intent)
+                                 (merge resolved (select-keys intent [:state :priority :due-at :available-at :blocked-by])))))
+        request {:action "update_item"
+                 :item "APP-123"
+                 :comment "Still blocked."
+                 :state "active"
+                 :priority "urgent"
+                 :dueAt nil
+                 :availableAt "2026-09-21T09:00:00Z"
+                 :blockedBy ["APP-100"]}
+        proposal (agent/preview-data runtime* request)]
+    (is (empty? @calls))
+    (is (= "active" (get-in proposal [:trackerIntent :state])))
+    (is (nil? (get-in proposal [:trackerIntent :dueAt])))
+    (is (= "Blocked dependency" (get-in proposal [:trackerIntent :blockedBy 0 :title])))
+    (is (= "2026-09-21T09:00:00Z" (get-in proposal [:trackerIntent :availableAt])))
+    (is (= #{:identity :displayId :title}
+           (set (keys (get-in proposal [:trackerIntent :blockedBy 0])))))
+    (let [result (agent/apply-data! runtime* request (:proposalId proposal))]
+      (is (= [:tracker :tracker-comment] @calls))
+      (is (= "urgent" (get-in result [:item :priority])))
+      (is (nil? (get-in result [:item :dueAt])))
+      (is (= "2026-09-21T09:00:00Z" (get-in result [:item :availableAt])))
+      (is (= "APP-100" (get-in result [:item :blockedBy 0 :displayId])))
+      (is (= #{:description :labels :state :priority :due-at :available-at :blocked-by}
+             (set (keys (first @intents))))))))

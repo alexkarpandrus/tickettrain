@@ -63,3 +63,22 @@
                           (build-with {:provider :github})))
     (is (thrown-with-msg? Exception #"Unsupported tracker provider"
                           (adapters/build config :tracker {})))))
+
+
+(deftest tracker-adapters-must-declare-scope-and-granular-item-capabilities
+  (let [required (get adapters/required-capabilities :tracker)
+        functions (zipmap required (repeat (fn [& _] nil)))
+        adapter (merge {:provider :test :capabilities required} functions)]
+    (is (thrown-with-msg? Exception #"must declare item capabilities"
+                          (adapters/assert-capabilities! :tracker adapter)))
+    (is (thrown-with-msg? Exception #"unknown item capabilities"
+                          (adapters/assert-capabilities!
+                           :tracker
+                           (assoc adapter :item-capabilities #{:native-status}))))
+    (is (thrown-with-msg? Exception #"missing required capabilities"
+                          (adapters/assert-capabilities!
+                           :tracker
+                           (-> adapter
+                               (assoc :item-capabilities #{})
+                               (update :capabilities disj :configured-scope)
+                               (dissoc :configured-scope)))))))

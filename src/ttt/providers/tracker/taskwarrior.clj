@@ -5,6 +5,10 @@
             [ttt.platform.shell :as shell]))
 
 (def annotation-prefix "<!-- ttt:description -->\n")
+(def urgent-priority-prefix "<!-- ttt:priority -->urgent")
+(def waiting-state-marker "<!-- ttt:state -->waiting")
+(def task-date-formatter
+  (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd'T'HHmmss'Z'" java.util.Locale/ROOT))
 
 (defn command-args
   [app-config args]
@@ -76,6 +80,54 @@
   [annotation]
   (str/starts-with? (or (:description annotation) "") annotation-prefix))
 
+(defn urgent-priority? [task]
+  (some #(= urgent-priority-prefix (:description %)) (:annotations task)))
+
+(defn waiting-state-marker? [annotation]
+  (= waiting-state-marker (:description annotation)))
+
+(defn normalize-state [task]
+  (case (:status task)
+    "completed" "completed"
+    "deleted" "canceled"
+    "waiting" "waiting"
+    "pending" (cond (:start task) "active"
+                    (some waiting-state-marker? (:annotations task)) "waiting"
+                    :else "open")
+    "recurring" "open"
+    "open"))
+
+(defn normalize-priority [task]
+  (if (urgent-priority? task)
+    "urgent"
+    (case (:priority task)
+      "H" "high"
+      "M" "medium"
+      "L" "low"
+      "none")))
+
+(defn normalize-date [value]
+  (when value
+    (-> (java.time.LocalDateTime/parse value task-date-formatter)
+        (.toInstant java.time.ZoneOffset/UTC)
+        str)))
+
+(defn dependency-ids [task]
+  (let [depends (:depends task)]
+    (cond
+      (nil? depends) []
+      (sequential? depends) (mapv str depends)
+      :else (str/split (str depends) #","))))
+
+(declare short-uuid)
+
+(defn blocker-summary [scope task-index uuid]
+  (let [task (get task-index uuid)]
+    {:ref (domain/identity :taskwarrior :tracker-item uuid)
+     :display-id (short-uuid uuid)
+     :title (:description task)
+     :scopes [scope]}))
+
 (defn tracker-description
   [task]
   (if-let [annotation (first (filter managed-annotation? (:annotations task)))]
@@ -87,24 +139,32 @@
   (subs uuid 0 (min 8 (count uuid))))
 
 (defn normalize-task
-  [scope task]
-  (when task
-    (let [uuid (str (:uuid task))]
-      {:ref (domain/identity :taskwarrior :tracker-item uuid)
-       :display-id (short-uuid uuid)
-       :uuid uuid
-       :number (:id task)
-       :title (:description task)
-       :description (tracker-description task)
-       :state {:name (:status task)}
-       :scopes [scope]
-       :project (when-let [project (:project task)]
-                  (normalize-project scope project))
-       :labels (mapv #(normalize-tag scope %) (or (:tags task) []))})))
+  ([scope task]
+   (normalize-task scope task {}))
+  ([scope task task-index]
+   (when task
+     (let [uuid (str (:uuid task))]
+       {:ref (domain/identity :taskwarrior :tracker-item uuid)
+        :display-id (short-uuid uuid)
+        :uuid uuid
+        :number (:id task)
+        :title (:description task)
+        :description (tracker-description task)
+        :state (normalize-state task)
+        :priority (normalize-priority task)
+        :due-at (normalize-date (:due task))
+        :available-at (normalize-date (:wait task))
+        :blocked-by (mapv #(blocker-summary scope task-index %) (dependency-ids task))
+        :scopes [scope]
+        :project (when-let [project (:project task)]
+                   (normalize-project scope project))
+        :labels (mapv #(normalize-tag scope %) (or (:tags task) []))}))))
 
 (defn tasks
   [app-config scope]
-  (mapv #(normalize-task scope %) (export-tasks app-config)))
+  (let [native-tasks (export-tasks app-config)
+        task-index (into {} (map (juxt (comp str :uuid) identity)) native-tasks)]
+    (mapv #(normalize-task scope % task-index) native-tasks)))
 
 (defn task-reference?
   [reference]
@@ -119,11 +179,29 @@
 
 (defn resolve-item
   [app-config scope reference]
-  (let [reference (str/trim (or reference ""))]
-    (or (when (task-reference? reference)
-          (some-> (first (export-tasks app-config reference))
-                  (#(normalize-task scope %))))
-        (first (filter #(task-matches? % reference) (tasks app-config scope))))))
+  (let [reference (str/trim (or reference ""))
+        native-matches (when (task-reference? reference)
+                         (export-tasks app-config reference))
+        _ (when (> (count native-matches) 1)
+            (throw (ex-info (str "Taskwarrior item reference is ambiguous: " reference)
+                            {:code :ambiguous-item
+                             :reference reference
+                             :matches (mapv #(short-uuid (str (:uuid %))) native-matches)})))
+        native-direct (first native-matches)
+        direct (when native-direct
+                 (let [task-index (when (seq (dependency-ids native-direct))
+                                    (into {} (map (juxt (comp str :uuid) identity))
+                                          (export-tasks app-config)))]
+                   (normalize-task scope native-direct task-index)))]
+    (or direct
+        (let [matches (filter #(task-matches? % reference) (tasks app-config scope))]
+          (case (count matches)
+            0 nil
+            1 (first matches)
+            (throw (ex-info (str "Taskwarrior item reference is ambiguous: " reference)
+                            {:code :ambiguous-item
+                             :reference reference
+                             :matches (mapv :display-id matches)})))))))
 
 (defn helper-values
   [app-config & args]
@@ -187,7 +265,7 @@
 
 (defn timestamp
   []
-  (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd'T'HHmmss'Z'" java.util.Locale/ROOT)
+  (.format task-date-formatter
            (java.time.ZonedDateTime/now java.time.ZoneOffset/UTC)))
 
 (defn description-annotation
@@ -209,6 +287,61 @@
                    annotations)
              (conj annotations (description-annotation description))))))
 
+(defn native-date [value]
+  (when value
+    (.format task-date-formatter
+             (.atZone (java.time.Instant/parse value) java.time.ZoneOffset/UTC))))
+
+(defn set-native-date [task field value]
+  (if value
+    (assoc task field (native-date value))
+    (dissoc task field)))
+
+(defn apply-state [task state]
+  (let [task (update task :annotations
+                     #(vec (remove waiting-state-marker? (or % []))))]
+    (case state
+      "open" (-> task (assoc :status "pending") (dissoc :start :end))
+      "active" (-> task (assoc :status "pending" :start (or (:start task) (timestamp))) (dissoc :end))
+      "waiting" (-> task
+                    (assoc :status "pending")
+                    (dissoc :start :end)
+                    (update :annotations conj {:entry (timestamp) :description waiting-state-marker}))
+      "completed" (-> task (assoc :status "completed" :end (or (:end task) (timestamp))) (dissoc :start))
+      "canceled" (-> task (assoc :status "deleted" :end (or (:end task) (timestamp))) (dissoc :start)))))
+
+(defn set-priority [task priority]
+  (let [task (update task :annotations
+                     #(vec (remove (fn [annotation]
+                                     (= urgent-priority-prefix (:description annotation)))
+                                   (or % []))))]
+    (case priority
+      "urgent" (-> task
+                   (assoc :priority "H")
+                   (update :annotations conj {:entry (timestamp) :description urgent-priority-prefix}))
+      "high" (assoc task :priority "H")
+      "medium" (assoc task :priority "M")
+      "low" (assoc task :priority "L")
+      (dissoc task :priority))))
+
+(defn set-dependencies [task blockers]
+  (if (seq blockers)
+    (assoc task :depends (str/join "," (map entity-name blockers)))
+    (dissoc task :depends)))
+
+(defn apply-work-item-intent [task intent]
+  (cond-> task
+    (contains? intent :state) (apply-state (:state intent))
+    (contains? intent :priority) (set-priority (:priority intent))
+    (contains? intent :due-at) (set-native-date :due (:due-at intent))
+    (contains? intent :available-at) (set-native-date :wait (:available-at intent))
+    (contains? intent :blocked-by) (set-dependencies (:blocked-by intent))))
+
+(defn normalize-result [scope task previous intent]
+  (cond-> (normalize-task scope task)
+    (contains? intent :blocked-by) (assoc :blocked-by (:blocked-by intent))
+    (and previous (not (contains? intent :blocked-by))) (assoc :blocked-by (:blocked-by previous))))
+
 (defn import-task!
   [app-config task]
   (task-run-input app-config
@@ -216,34 +349,52 @@
                   "import" "-" "rc.confirmation=off"))
 
 (defn create-item-from-intent!
-  [app-config scope context {:keys [title description labels]}]
+  [app-config scope context intent]
   (when (:parent context)
     (throw (ex-info "Taskwarrior does not support parent tasks; use --project instead."
                     {:code :unsupported-parent})))
-  (let [uuid (str (java.util.UUID/randomUUID))
-        task (cond-> {:uuid uuid
-                      :description title
-                      :status "pending"
-                      :entry (timestamp)
-                      :annotations [(description-annotation description)]}
-               (:project context) (assoc :project (entity-name (:project context)))
-               (seq labels) (assoc :tags (mapv entity-name labels)))]
+  (let [{:keys [title description labels]} intent
+        uuid (str (java.util.UUID/randomUUID))
+        task (-> (cond-> {:uuid uuid
+                          :description title
+                          :status "pending"
+                          :entry (timestamp)
+                          :annotations [(description-annotation description)]}
+                   (:project context) (assoc :project (entity-name (:project context)))
+                   (seq labels) (assoc :tags (mapv entity-name labels)))
+                 (apply-work-item-intent intent))]
     (import-task! app-config task)
     (some-> (first (export-tasks app-config uuid))
-            (#(normalize-task scope %)))))
+            (#(normalize-result scope % nil intent)))))
+
+
+(defn merge-intended-tags [task item labels]
+  (let [previous (set (map entity-name (:labels item)))
+        desired (mapv entity-name labels)
+        desired-set (set desired)
+        added (remove previous desired)
+        removed (set (remove desired-set previous))]
+    (assoc task :tags (->> (concat (remove removed (or (:tags task) [])) added)
+                           distinct
+                           vec))))
 
 (defn update-item-from-intent!
-  [app-config scope item {:keys [description labels]}]
-  (let [uuid (get-in item [:ref :id])
+  [app-config scope item intent]
+  (let [{:keys [description labels]} intent
+        uuid (get-in item [:ref :id])
         task (or (first (export-tasks app-config uuid))
                  (throw (ex-info (str "Taskwarrior task not found: " uuid)
                                  {:code :tracker-item-not-found :item-ref uuid})))
-        updated (-> task
-                    (upsert-description description)
-                    (assoc :tags (mapv entity-name labels)))]
+        description-changed? (not= description (:description item))
+        labels-changed? (not= (set (map entity-name (:labels item)))
+                              (set (map entity-name labels)))
+        updated (cond-> task
+                  description-changed? (upsert-description description)
+                  labels-changed? (merge-intended-tags item labels)
+                  true (apply-work-item-intent intent))]
     (import-task! app-config updated)
     (some-> (first (export-tasks app-config uuid))
-            (#(normalize-task scope %)))))
+            (#(normalize-result scope % item intent)))))
 
 (defn comment-item!
   [app-config item body]
@@ -289,6 +440,7 @@
 
 (def capabilities
   #{:configured-scope
+    :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
@@ -305,7 +457,13 @@
   (let [scope* (delay (configured-scope app-config))]
     {:provider :taskwarrior
      :capabilities capabilities
+     :item-capabilities #{:item-lifecycle
+                          :item-priority
+                          :item-due-dates
+                          :item-availability
+                          :item-blockers}
      :configured-scope (fn [] @scope*)
+     :list-items #(tasks app-config @scope*)
      :search-parent-items #(tasks app-config @scope*)
      :resolve-parent-item unsupported-parent!
      :resolve-item #(resolve-item app-config @scope* %)
