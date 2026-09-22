@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.10.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.9.0...v0.10.0) (2026-09-22)
+
+
+### Features
+
+* **agent:** add neutral work item model ([84ff11f](https://github.com/alexkarpandrus/tickettrain/commit/84ff11f71fb1f7939def5325133adae487fed195))
+* **agent:** add tracker item listing ([43650c4](https://github.com/alexkarpandrus/tickettrain/commit/43650c4d3c0de3025425cf3ababf4418665158b2))
+
+
+### Fixes
+
+* **agent:** address work-item review findings ([34d22d7](https://github.com/alexkarpandrus/tickettrain/commit/34d22d71d0212d60322fc066fa6f1ada4145180f))
+* **agent:** paginate filtered item listings ([78623ff](https://github.com/alexkarpandrus/tickettrain/commit/78623ffa06c10cebd115bdc65683085ede187cd6))
+
+
+### Documentation
+
+* **agent:** refresh generated instructions ([cf53c25](https://github.com/alexkarpandrus/tickettrain/commit/cf53c2589824e1fcf36c9d7010d272782dd6e4bf))
+* **integrations:** document list pagination contract ([0ad10cc](https://github.com/alexkarpandrus/tickettrain/commit/0ad10ccf207cc90a2ff8c923e5d77972efe024e7))
+* **readme:** describe neutral work-item support ([138580b](https://github.com/alexkarpandrus/tickettrain/commit/138580b417fecc6ff48ea1c92acf64e80f932ecc))
+
 ## [0.9.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.8.0...v0.9.0) (2026-09-21)
 
 
