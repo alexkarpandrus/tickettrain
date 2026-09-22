@@ -10,6 +10,19 @@
 (def target-states [{:id "open" :name "open"}
                     {:id "closed" :name "closed"}])
 
+(def neutral-states #{"open" "completed" "canceled"})
+
+(defn validate-work-item-intent!
+  [_action _item intent]
+  (when (and (contains? intent :state)
+             (not (contains? neutral-states (:state intent))))
+    (throw (ex-info (str "GitHub Issues cannot represent neutral state: " (:state intent))
+                    {:code :unsupported-work-item-value
+                     :provider :github-issues
+                     :field :state
+                     :value (:state intent)})))
+  intent)
+
 (defn gh-json
   [& args]
   (json/parse-string (apply shell/run "gh" args) true))
@@ -155,6 +168,18 @@
     (apply shell/run "gh" args)
     (issue-by-number scope number)))
 
+(defn apply-neutral-state!
+  [scope item neutral-state]
+  (validate-work-item-intent! :update item {:state neutral-state})
+  (when (not= neutral-state (:state item))
+    (case neutral-state
+      "open" (shell/run "gh" "issue" "reopen" (str (:number item)) "--repo" (:id scope))
+      "completed" (shell/run "gh" "issue" "close" (str (:number item))
+                             "--repo" (:id scope) "--reason" "completed")
+      "canceled" (shell/run "gh" "issue" "close" (str (:number item))
+                            "--repo" (:id scope) "--reason" "not planned")))
+  (issue-by-number scope (:number item)))
+
 (defn comment-item!
   [scope item body]
   (shell/run "gh" "issue" "comment" (str (:number item))
@@ -163,14 +188,27 @@
   nil)
 
 (defn create-item-from-intent!
-  [app-config scope context {:keys [title description labels]}]
+  [app-config scope context {:keys [title description labels] :as intent}]
   (when (:parent context)
     (unsupported-parent!))
-  (create-item! app-config scope context title description labels))
+  (when (contains? intent :state)
+    (validate-work-item-intent! :create nil intent))
+  (let [cfg (if (contains? intent :state)
+              (update app-config :tracker dissoc :target-state)
+              app-config)
+        created (create-item! cfg scope context title description labels)]
+    (if (contains? intent :state)
+      (apply-neutral-state! scope created (:state intent))
+      created)))
 
 (defn update-item-from-intent!
-  [scope item {:keys [description labels]}]
-  (update-item! scope item description labels))
+  [scope item {:keys [description labels] :as intent}]
+  (when (contains? intent :state)
+    (validate-work-item-intent! :update item intent))
+  (let [updated (update-item! scope item description labels)]
+    (if (contains? intent :state)
+      (apply-neutral-state! scope updated (:state intent))
+      updated)))
 
 (defn assert-ready!
   [_app-config]
@@ -210,7 +248,7 @@
   (let [scope* (delay (domain/scope-identity :github-issues (repo-slug (get-in app-config [:tracker :repository]))))]
     {:provider :github-issues
      :capabilities capabilities
-     :item-capabilities #{}
+     :item-capabilities #{:item-lifecycle}
      :configured-scope (fn [] @scope*)
      :list-items #(list-items @scope* %1 %2)
      :search-parent-items #(list-issues @scope* 100)
@@ -220,6 +258,7 @@
      :resolve-project #(resolve-project @scope* %)
      :search-labels #(labels @scope*)
      :resolve-labels #(resolve-labels @scope* %1 %2)
+     :validate-work-item-intent! #(validate-work-item-intent! %1 %2 %3)
      :create-item! #(create-item-from-intent! app-config @scope* %1 %2)
      :comment-item! #(comment-item! @scope* %1 %2)
      :update-item! #(update-item-from-intent! @scope* %1 %2)}))

@@ -87,7 +87,7 @@ Shared code passes normalized label and blocker entities. Only the concrete trac
 
 Create and update intents contain only requested work-item fields. Omitted fields remain unchanged. A JSON `null` clears an optional scalar, and an empty `blockedBy` array clears blockers. Comments remain separate append-only operations.
 
-Taskwarrior implements all five work-item capabilities. Its adapter translates Taskwarrior statuses, priorities, dates, dependencies, tags, projects, and reserved annotations. It preserves unrelated exported fields during partial updates.
+Taskwarrior implements lifecycle, priority, due dates, availability, and blockers. Linear and Jira implement lifecycle, priority, due dates, and blockers. Asana implements lifecycle, due dates, availability, and blockers. GitHub Issues implements lifecycle. Adapters reject neutral values that the native tracker cannot represent, such as `active` for Asana or GitHub Issues.
 
 ## Registering a bundled provider
 

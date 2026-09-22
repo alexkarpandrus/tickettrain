@@ -42,6 +42,21 @@
                                                       :state "CLOSED"
                                                       :stateReason "NOT_PLANNED"})))))
 
+(deftest applies-supported-neutral-lifecycle-states
+  (let [calls (atom [])]
+    (with-redefs [shell/run (fn [& args] (swap! calls conj args))
+                  github-issues/issue-by-number (fn [_ number]
+                                                  {:number number :state "canceled"})]
+      (is (= "canceled"
+             (:state (github-issues/apply-neutral-state!
+                      scope {:number 7 :state "open"} "canceled")))))
+    (is (= [["gh" "issue" "close" "7" "--repo" "org/repo"
+             "--reason" "not planned"]]
+           @calls)))
+  (is (thrown-with-msg? Exception #"cannot represent neutral state: active"
+                        (github-issues/validate-work-item-intent!
+                         :update {:number 7} {:state "active"}))))
+
 
 (deftest list-items-widens-gh-pagination-until-the-filtered-limit-is-met
   (let [calls (atom [])
@@ -127,5 +142,5 @@
       (is (= :github-issues (:provider adapter)))
       (is (= scope ((:configured-scope adapter))))
       (is (= github-issues/capabilities (:capabilities adapter)))
-      (is (empty? (:item-capabilities adapter)))
+      (is (= #{:item-lifecycle} (:item-capabilities adapter)))
       (is (every? #(fn? (get adapter %)) github-issues/capabilities)))))
