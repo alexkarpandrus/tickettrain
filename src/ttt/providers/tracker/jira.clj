@@ -685,7 +685,8 @@
     (if (contains? intent :blocked-by)
       (try
         (sync-blockers! app-config created (:blocked-by intent))
-        (item-by-key app-config (provider-id created))
+        (or (item-by-key app-config (provider-id created))
+            (throw (ex-info "Jira issue refresh returned no item." {})))
         (catch Exception ex
           (throw (ex-info
                   (str "Jira created " (provider-id created)

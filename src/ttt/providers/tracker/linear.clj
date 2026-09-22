@@ -519,7 +519,8 @@
     (if (contains? intent :blocked-by)
       (try
         (sync-blockers! app-config (:id created) created (:blocked-by intent))
-        (some-> (item-by-identifier app-config (:id created)) normalize-item)
+        (or (some-> (item-by-identifier app-config (:id created)) normalize-item)
+            (throw (ex-info "Linear issue refresh returned no item." {})))
         (catch Exception ex
           (throw (ex-info
                   (str "Linear created " (:identifier created)
