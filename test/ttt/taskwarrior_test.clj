@@ -240,7 +240,7 @@
                   taskwarrior/export-tasks (fn [_]
                                              (swap! calls conj :export)
                                              [(assoc native-task :status "waiting")])]
-      (let [item (first ((:list-items (taskwarrior/neutral-adapter {}))))]
+      (let [item (first ((:list-items (taskwarrior/neutral-adapter {})) (constantly true) 1))]
         (is (= [:export] @calls))
         (is (= "a360fc44" (:display-id item)))
         (is (= "waiting" (:state item))))))

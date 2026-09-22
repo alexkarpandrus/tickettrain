@@ -5,6 +5,7 @@
             [ttt.config :as config]
             [ttt.domain :as domain]
             [ttt.platform.remote :as remote]
+            [ttt.providers.tracker.pagination :as pagination]
             [ttt.providers.tracker.state :as state]
             [ttt.text.links :as links]))
 
@@ -283,6 +284,24 @@
                        {:workspace gid :assignee "me" :limit 100 :opt_fields task-fields})]
     (mapv #(normalize-task scope %) (:data response))))
 
+
+(defn list-items
+  [app-config matches? limit]
+  (let [scope (site-scope app-config)
+        gid (workspace-gid app-config)]
+    (pagination/collect-matches
+     (fn [offset]
+       (let [response (api! app-config :get "/tasks"
+                            (cond-> {:workspace gid
+                                     :assignee "me"
+                                     :limit 100
+                                     :opt_fields task-fields}
+                              offset (assoc :offset offset)))]
+         {:items (mapv #(normalize-task scope %) (:data response))
+          :next-cursor (get-in response [:next_page :offset])}))
+     matches?
+     limit)))
+
 (defn search-tasks
   [app-config text]
   (let [scope (site-scope app-config)
@@ -436,7 +455,7 @@
    :capabilities capabilities
    :item-capabilities #{}
    :configured-scope #(configured-scope app-config)
-   :list-items #(tasks app-config)
+   :list-items #(list-items app-config %1 %2)
    :search-parent-items #(tasks app-config)
    :resolve-parent-item #(resolve-item app-config %)
    :resolve-item #(resolve-item app-config %)

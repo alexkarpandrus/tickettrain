@@ -98,6 +98,25 @@
                     items))
         (is (= [nil "cursor-1"] (mapv :after @calls)))))))
 
+
+(deftest list-items-paginates-until-the-filtered-limit-is-met
+  (let [calls (atom [])]
+    (with-redefs [linear/graphql! (fn [_ _ variables]
+                                    (swap! calls conj variables)
+                                    (if (nil? (:after variables))
+                                      {:team {:issues {:nodes [{:id "i1" :identifier "APP-1"
+                                                               :state {:type "completed"}
+                                                               :team {:id "team-1"}}]
+                                                       :pageInfo {:hasNextPage true
+                                                                  :endCursor "cursor-1"}}}}
+                                      {:team {:issues {:nodes [{:id "i2" :identifier "APP-2"
+                                                               :state {:type "unstarted"}
+                                                               :team {:id "team-1"}}]
+                                                       :pageInfo {:hasNextPage false}}}}))]
+      (is (= ["APP-2"]
+             (mapv :display-id (linear/list-items config #(= "open" (:state %)) 1))))
+      (is (= [nil "cursor-1"] (mapv :after @calls))))))
+
 (deftest paginate-stops-when-page-claims-more-without-a-cursor
   (with-redefs [linear/graphql! (fn [_ _ variables]
                                   (is (nil? (:after variables)))
