@@ -484,7 +484,8 @@
     (if (contains? intent :blocked-by)
       (try
         (sync-blockers! app-config created (:blocked-by intent))
-        (task-by-gid app-config (provider-id created))
+        (or (task-by-gid app-config (provider-id created))
+            (throw (ex-info "Asana task refresh returned no item." {})))
         (catch Exception ex
           (throw (ex-info
                   (str "Asana created " (provider-id created)
