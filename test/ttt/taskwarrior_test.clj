@@ -124,10 +124,26 @@
         (is (= "20260930T120000Z" (:wait @imported)))
         (is (= "dependency-uuid" (:depends @imported)))
         (is (= ["waiting" "blocked" "promised"] (:tags @imported)))
+        (is (= 1 (count (filter taskwarrior/managed-annotation? (:annotations @imported)))))
         (is (= "Body" (:description item)))
         (is (= "active" (:state item)))
         (is (= "urgent" (:priority item)))
         (is (= "Dependency" (get-in item [:blocked-by 0 :title])))))))
+
+(deftest create-omits-managed-annotation-for-blank-description
+  (let [imported (atom [])]
+    (with-redefs [taskwarrior/task-run-input
+                  (fn [_ input & _]
+                    (swap! imported conj (first (json/parse-string input true)))
+                    "")
+                  taskwarrior/export-tasks
+                  (fn [_ _] [(assoc (peek @imported) :id 8)])]
+      (doseq [intent [{:title "Retry"}
+                      {:title "Retry" :description nil}
+                      {:title "Retry" :description ""}
+                      {:title "Retry" :description " \n\t"}]]
+        (taskwarrior/create-item-from-intent! {} scope {} intent)))
+    (is (every? #(not (contains? % :annotations)) @imported))))
 
 (deftest resolve-projects-and-labels-allows-new-native-names
   (with-redefs [taskwarrior/projects
