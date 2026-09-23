@@ -48,7 +48,7 @@
         updated (links/upsert-change-request existing pull-request)]
     (is (str/includes? updated "org/repo#7 — Improve retry handling"))
     (is (str/includes? updated "\n\n## Notes\n\nKeep this"))
-    (is (= 2 (count (links/managed-entries updated))))))
+    (is (= 2 (count (:entries (links/parse-managed updated)))))))
 
 (deftest upsert-change-request-escapes-markdown-labels-and-destinations
   (let [updated (links/upsert-change-request
@@ -67,7 +67,7 @@
                       :display-id "group/repo!8"
                       :title "Add timeout metrics"
                       :url "https://gitlab.example/group/repo/-/merge_requests/8"})]
-    (is (= 2 (count (links/managed-entries second-link))))
+    (is (= 2 (count (:entries (links/parse-managed second-link)))))
     (is (str/includes? second-link "org/repo#7"))
     (is (str/includes? second-link "group/repo!8"))))
 
@@ -76,7 +76,7 @@
   (let [existing (str "## Pull requests\n\n"
                       "* [org/first#1 — First](<https://github.com/org/first/pull/1>)")
         updated (links/upsert-change-request existing pull-request)]
-    (is (= 2 (count (links/managed-entries updated))))
+    (is (= 2 (count (:entries (links/parse-managed updated)))))
     (is (str/includes? updated "https://github.com/org/first/pull/1"))
     (is (str/includes? updated (:url pull-request)))))
 
