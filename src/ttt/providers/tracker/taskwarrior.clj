@@ -130,9 +130,10 @@
 
 (defn tracker-description
   [task]
-  (if-let [annotation (first (filter managed-annotation? (:annotations task)))]
-    (subs (:description annotation) (count annotation-prefix))
-    ""))
+  (or (when-let [annotation (first (filter managed-annotation? (:annotations task)))]
+        (subs (:description annotation) (count annotation-prefix)))
+      (:details task)
+      ""))
 
 (defn short-uuid
   [uuid]
@@ -268,10 +269,6 @@
   (.format task-date-formatter
            (java.time.ZonedDateTime/now java.time.ZoneOffset/UTC)))
 
-(defn description-annotation
-  [description]
-  {:entry (timestamp) :description (str annotation-prefix description)})
-
 (defn upsert-description
   [task description]
   (let [annotations (vec (or (:annotations task) []))
@@ -279,13 +276,13 @@
     (when (> (count managed) 1)
       (throw (ex-info "The Taskwarrior task has duplicate ttt description annotations."
                       {:code :malformed-managed-section})))
-    (assoc task :annotations
-           (if (seq managed)
-             (mapv #(if (managed-annotation? %)
-                      (assoc % :description (str annotation-prefix description))
-                      %)
-                   annotations)
-             (conj annotations (description-annotation description))))))
+    (when (and (seq managed) (some? (:details task))
+               (not= (:details task) (tracker-description (dissoc task :details))))
+      (throw (ex-info "Taskwarrior details conflict with the legacy ttt description; resolve the conflict before updating."
+                      {:code :malformed-managed-section})))
+    (cond-> (assoc task :annotations (vec (remove managed-annotation? annotations)))
+      (some? description) (assoc :details description)
+      (nil? description) (dissoc :details))))
 
 (defn native-date [value]
   (when value
@@ -360,7 +357,7 @@
                           :status "pending"
                           :entry (timestamp)}
                    (not (str/blank? description))
-                   (assoc :annotations [(description-annotation description)])
+                   (assoc :details description)
                    (:project context) (assoc :project (entity-name (:project context)))
                    (seq labels) (assoc :tags (mapv entity-name labels)))
                  (apply-work-item-intent intent))]
@@ -386,11 +383,15 @@
         task (or (first (export-tasks app-config uuid))
                  (throw (ex-info (str "Taskwarrior task not found: " uuid)
                                  {:code :tracker-item-not-found :item-ref uuid})))
-        description-changed? (not= description (:description item))
+        description-changed? (or (not= description (:description item))
+                                 (some managed-annotation? (:annotations task)))
         labels-changed? (not= (set (map entity-name (:labels item)))
                               (set (map entity-name labels)))
         updated (cond-> task
-                  description-changed? (upsert-description description)
+                  description-changed? (upsert-description
+                                        (if (not= description (:description item))
+                                          description
+                                          (tracker-description task)))
                   labels-changed? (merge-intended-tags item labels)
                   true (apply-work-item-intent intent))]
     (import-task! app-config updated)
