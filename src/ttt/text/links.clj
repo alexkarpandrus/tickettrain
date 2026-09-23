@@ -52,10 +52,6 @@
                        vec)]
         (assoc section :entries (mapv parse-entry lines))))))
 
-(defn managed-entries
-  [description]
-  (or (:entries (parse-managed description)) []))
-
 (defn render-managed-section
   [entries]
   (str heading "\n\n"

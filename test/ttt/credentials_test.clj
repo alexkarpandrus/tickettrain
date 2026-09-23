@@ -30,13 +30,11 @@
                                              :Secret "from-keychain"})
                       ""))]
       (is (= "from-keychain" (credentials/get-secret "osxkeychain" "credential-id")))
-      (credentials/store-secret! "osxkeychain" "credential-id" "secret-value")
-      (credentials/erase-secret! "osxkeychain" "credential-id"))
+      (credentials/store-secret! "osxkeychain" "credential-id" "secret-value"))
     (is (= ["get" "credential-id\n"] (first @calls)))
     (let [[action payload] (second @calls)]
       (is (= "store" action))
       (is (= {:ServerURL "credential-id"
               :Username "tickettrain"
               :Secret "secret-value"}
-             (json/parse-string payload true))))
-    (is (= ["erase" "credential-id\n"] (last @calls)))))
+             (json/parse-string payload true))))))

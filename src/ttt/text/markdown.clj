@@ -102,11 +102,6 @@
         (and (escaped-label? label)
              (not-any? #{\( \) \newline \return} destination))))))
 
-(defn prefixed-link?
-  [line prefix]
-  (and (str/starts-with? line prefix)
-       (link-text? (subs line (count prefix)))))
-
 (defn link-destination
   [value]
   (when (and (str/starts-with? value "[")
