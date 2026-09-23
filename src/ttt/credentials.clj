@@ -92,8 +92,3 @@
                                      :Username "tickettrain"
                                      :Secret secret}))
   nil)
-
-(defn erase-secret!
-  [helper id]
-  (run-helper helper "erase" (str id "\n"))
-  nil)
