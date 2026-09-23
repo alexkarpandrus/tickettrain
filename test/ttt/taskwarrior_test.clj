@@ -49,9 +49,9 @@
   (let [updated (taskwarrior/upsert-description (assoc native-task :custom_uda "keep") "Updated")]
     (is (= "keep" (:custom_uda updated)))
     (is (= "User note" (get-in updated [:annotations 0 :description])))
-    (is (= (str taskwarrior/annotation-prefix "Updated")
-           (get-in updated [:annotations 1 :description])))
-    (is (= "20260907T120100Z" (get-in updated [:annotations 1 :entry])))))
+    (is (= 1 (count (:annotations updated))))
+    (is (= "Updated" (:details updated)))
+    (is (= "Updated" (taskwarrior/tracker-description updated)))))
 
 (deftest item-update-import-preserves-native-fields-and-existing-annotations
   (let [stored (atom (assoc native-task
@@ -66,7 +66,8 @@
         _ (swap! stored assoc
                  :tags ["bug" "backend" "concurrent"]
                  :annotations [(first (:annotations @stored))
-                               (taskwarrior/description-annotation "Concurrent")])]
+                               {:entry "20260907T120100Z"
+                                :description (str taskwarrior/annotation-prefix "Concurrent")}])]
     (with-redefs [taskwarrior/export-tasks (fn [_ _] [@stored])
                   taskwarrior/task-run-input (fn [_ input & _]
                                                (reset! stored (first (json/parse-string input true)))
@@ -79,6 +80,8 @@
     (is (= "20260930T120000Z" (:wait @stored)))
     (is (= "keep" (:custom_uda @stored)))
     (is (= "User note" (get-in @stored [:annotations 0 :description])))
+    (is (= 1 (count (:annotations @stored))))
+    (is (= "Concurrent" (:details @stored)))
     (is (= "Concurrent" (taskwarrior/tracker-description @stored)))
     (is (= ["bug" "concurrent" "waiting"] (:tags @stored)))))
 
@@ -87,9 +90,15 @@
        Exception
        #"duplicate ttt description"
        (taskwarrior/upsert-description
-        {:annotations [(taskwarrior/description-annotation "one")
-                       (taskwarrior/description-annotation "two")]}
+        {:annotations [{:description (str taskwarrior/annotation-prefix "one")}
+                       {:description (str taskwarrior/annotation-prefix "two")}]}
         "three"))))
+
+(deftest legacy-description-does-not-overwrite-existing-details
+  (let [task (assoc native-task :details "Unrelated details")]
+    (is (= "Body\n\n## Pull requests" (taskwarrior/tracker-description task)))
+    (is (thrown-with-msg? Exception #"details conflict"
+                          (taskwarrior/upsert-description task "Updated")))))
 
 (deftest create-imports-native-project-tags-and-description
   (let [imported (atom nil)]
@@ -124,7 +133,8 @@
         (is (= "20260930T120000Z" (:wait @imported)))
         (is (= "dependency-uuid" (:depends @imported)))
         (is (= ["waiting" "blocked" "promised"] (:tags @imported)))
-        (is (= 1 (count (filter taskwarrior/managed-annotation? (:annotations @imported)))))
+        (is (= "Body" (:details @imported)))
+        (is (not-any? taskwarrior/managed-annotation? (:annotations @imported)))
         (is (= "Body" (:description item)))
         (is (= "active" (:state item)))
         (is (= "urgent" (:priority item)))
@@ -144,6 +154,14 @@
                       {:title "Retry" :description " \n\t"}]]
         (taskwarrior/create-item-from-intent! {} scope {} intent)))
     (is (every? #(not (contains? % :annotations)) @imported))))
+
+(deftest details-remain-distinct-from-append-only-comments
+  (let [task (assoc native-task :details "Body" :annotations [{:entry "20260907T120000Z"
+                                                                :description "Exact comment"}])]
+    (is (= "Body" (taskwarrior/tracker-description task)))
+    (is (= [{:entry "20260907T120000Z" :description "Exact comment"}]
+           (:annotations (taskwarrior/upsert-description task nil))))
+    (is (not (contains? (taskwarrior/upsert-description task nil) :details)))))
 
 (deftest resolve-projects-and-labels-allows-new-native-names
   (with-redefs [taskwarrior/projects
