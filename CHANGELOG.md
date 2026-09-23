@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.11.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.10.0...v0.11.0) (2026-09-22)
+
+
+### Features
+
+* support neutral work-item fields across trackers ([293af1f](https://github.com/alexkarpandrus/tickettrain/commit/293af1fbe634e9f217742eaa2d2a7c1c8aaf8d40))
+
+
+### Fixes
+
+* **jira:** validate create intents against project states ([91117f7](https://github.com/alexkarpandrus/tickettrain/commit/91117f7f405f3f0ebe6711cdffc908ffeb9c6405))
+* **jira:** validate request project states during preview ([547b729](https://github.com/alexkarpandrus/tickettrain/commit/547b729e3702b2b069e5b0fafcbc9eb685b72a96))
+* paginate Linear blocker relations ([ab15f50](https://github.com/alexkarpandrus/tickettrain/commit/ab15f50376897a7b3e456bc98a8de337b4acc1fc))
+* report partial blocker setup after item creation ([d879c3c](https://github.com/alexkarpandrus/tickettrain/commit/d879c3c705b0f4ab175f937fef28dba65da2b47e))
+* surface missing tracker refreshes after creation ([a83df6e](https://github.com/alexkarpandrus/tickettrain/commit/a83df6ede2a824a1ae3aaa7442ecb8e90a794f43))
+* **taskwarrior:** skip empty description annotations ([b0ceabb](https://github.com/alexkarpandrus/tickettrain/commit/b0ceabba4a0f7964ceb5fb27a9f8944d58fdaa98))
+* **trackers:** close work-item support gaps ([6c509d6](https://github.com/alexkarpandrus/tickettrain/commit/6c509d613a82b19d51e55595e355d705831fc8e5))
+
 ## [0.10.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.9.0...v0.10.0) (2026-09-22)
 
 
