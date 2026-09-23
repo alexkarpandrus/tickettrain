@@ -7,9 +7,9 @@
   (is (= "split-mdps-into-separate-topics-per-data-type"
          (git/slugify "Split MDPs into separate topics per data type"))))
 
-(deftest branch-name-for-issue-builds-linear-style-branch
+(deftest branch-name-for-item-builds-linear-style-branch
   (is (= "app-324-split-mdps-into-separate-topics-per-data-type"
-         (git/branch-name-for-issue
+         (git/branch-name-for-item
           {:identifier "APP-324"
            :title "Split MDPs into separate topics per data type"}))))
 

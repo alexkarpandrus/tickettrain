@@ -65,10 +65,6 @@
       identifier
       (str identifier "-" title-slug))))
 
-(defn branch-name-for-issue
-  [issue]
-  (branch-name-for-item issue))
-
 (def branch-item-pattern
   #"(?i)^([a-z]+-\d+)(?:-|$)")
 
