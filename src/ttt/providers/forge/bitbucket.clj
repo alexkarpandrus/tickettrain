@@ -96,6 +96,7 @@
     :body (decode-body (:description change-request))
     :url (get-in change-request [:links :html :href])
     :state (case (:state change-request) "OPEN" "open" "MERGED" "merged" "DECLINED" "closed" nil)
+    :metadata-editable? (= "OPEN" (:state change-request))
     :source-branch (get-in change-request [:source :branch :name])
     :target-branch (get-in change-request [:destination :branch :name])})
   ([repo change-request]

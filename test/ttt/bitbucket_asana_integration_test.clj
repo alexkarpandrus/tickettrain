@@ -40,7 +40,7 @@
       {:full_name "team/repo" :mainbranch {:name "main"}}
 
       (and (= :get method) (= "/repositories/team/repo/pullrequests" path))
-      {:values [{:id 7 :title "Retry" :description "User body"
+      {:values [{:id 7 :title "Retry" :description "User body" :state "OPEN"
                  :links {:html {:href "https://bitbucket.org/team/repo/pull-requests/7"}}
                  :source {:branch {:name "retry"}} :destination {:branch {:name "main"}}}]}
 

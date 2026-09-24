@@ -202,6 +202,9 @@
 
 (defn assert-link-target-valid!
   [runtime request change-request item]
+  (when (false? (:metadata-editable? change-request))
+    (throw (ex-info "This change request does not allow title or body updates."
+                    {:code :change-request-not-editable})))
   (let [linked-ref (change-request/managed-item-ref (:body change-request) (:config runtime))
         linked-display-id (change-request/managed-issue-identifier (:body change-request) (:config runtime))
         same-target? (and (= :link-existing (:action request)) item

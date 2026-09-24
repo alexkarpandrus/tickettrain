@@ -126,6 +126,8 @@
     "{\"action\":\"link_existing\",\"item\":\"APP-123\",\"changeRequest\":\"7\"}"
     "```"
     ""
+    "Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` rejects those links before any tracker update."
+    ""
     "```json"
     "{\"action\":\"create_new\",\"parent\":\"APP-100\",\"project\":\"reliability\",\"title\":\"Improve retry handling\",\"labels\":[\"Backend\"]}"
     "```"
