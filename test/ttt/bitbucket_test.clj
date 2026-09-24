@@ -41,12 +41,17 @@
          (domain/contained-identity :bitbucket :change-request "team/repo" 7)
          (:ref cr)))))
 
-(deftest gets-a-merged-pull-request-by-id
-  (with-redefs [bitbucket/api! (fn [_ method path _]
-                                 (is (= :get method))
-                                 (is (= "/repositories/team/repo/pullrequests/7" path))
-                                 {:id 7 :title "Merged" :description "Body" :state "MERGED"})]
-    (is (= "merged" (:state (bitbucket/get-change-request config {:display-id "team/repo" :slug "team/repo"} "7"))))))
+(deftest bitbucket-change-request-editability
+  (let [repo {:display-id "team/repo" :slug "team/repo"}]
+    (doseq [[state editable?] [["OPEN" true] ["MERGED" false] ["DECLINED" false]]]
+      (with-redefs [bitbucket/api! (fn [_ method path _]
+                                     (is (= :get method))
+                                     (is (= "/repositories/team/repo/pullrequests/7" path))
+                                     {:id 7 :title "PR" :description "Body" :state state})]
+        (let [change-request (bitbucket/get-change-request config repo "7")]
+          (is (= editable? (:metadata-editable? change-request)))
+          (is (= (case state "OPEN" "open" "MERGED" "merged" "DECLINED" "closed")
+                 (:state change-request))))))))
 
 (deftest api-token-authentication-and-json-content-type
   (let [request (atom nil)]

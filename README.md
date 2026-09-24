@@ -182,6 +182,8 @@ ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
 
+Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` rejects those links before any tracker update.
+
 Create or update a tracker item without Git or forge configuration:
 
 ```bash

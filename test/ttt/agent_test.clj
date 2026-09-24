@@ -167,6 +167,20 @@
       (agent/apply-data! runtime* request approved)
       (is (= [:tracker :forge] @calls)))))
 
+(deftest immutable-historical-link-fails-before-tracker-write
+  (let [calls (atom [])
+        historical (atom (assoc (:change-request source) :metadata-editable? true))
+        runtime* (assoc-in (runtime calls) [:forge :get-change-request] (fn [_ _] @historical))
+        request {:action "link_existing" :item "APP-123" :changeRequest "7"}
+        approved (:proposalId (agent/preview-data runtime* request))]
+    (doseq [state ["merged" "closed"]]
+      (swap! historical assoc :state state :metadata-editable? false)
+      (is (thrown-with-msg? Exception #"does not allow title or body updates"
+                            (agent/preview-data runtime* request)))
+      (is (thrown-with-msg? Exception #"does not allow title or body updates"
+                            (agent/apply-data! runtime* request approved)))
+      (is (empty? @calls)))))
+
 (deftest explicit-link-rejects-unsafe-ids
   (doseq [id ["../7" "0" "7?repo=other" ""]]
     (is (thrown-with-msg? Exception #"positive integer string"
