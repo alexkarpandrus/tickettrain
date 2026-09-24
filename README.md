@@ -176,10 +176,13 @@ Preview a provider-neutral request before applying it:
 
 ```bash
 REQUEST='{"action":"link_existing","item":"APP-123","labels":["Bug"]}'
+# To link a merged or closed request instead, add "changeRequest":"7" to the JSON.
 ttt preview --request "$REQUEST"
 # Copy data.proposalId from the preview response, then:
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
+
+Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` rejects those links before any tracker update.
 
 Create or update a tracker item without Git or forge configuration:
 

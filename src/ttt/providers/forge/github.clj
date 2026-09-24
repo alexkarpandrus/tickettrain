@@ -19,6 +19,7 @@
     :title (:title change-request)
     :body (:body change-request)
     :url (:url change-request)
+    :state (some-> change-request :state str/lower-case)
     :source-branch (or (:source-branch change-request)
                        (:headRefName change-request))
     :target-branch (or (:target-branch change-request)
@@ -101,9 +102,6 @@
                                       "--repo" (:display-id repo)
                                       "--json" change-request-fields)
                            (json/parse-string true))]
-    (when-not (= "OPEN" (:state change-request))
-      (throw (ex-info (str "GitHub PR #" change-request-number " is not open.")
-                      {:code :change-request-not-open})))
     (normalize-change-request repo change-request)))
 
 (defn current-branch

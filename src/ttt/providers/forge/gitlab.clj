@@ -78,6 +78,7 @@
     :title (:title change-request)
     :body (:description change-request)
     :url (:web_url change-request)
+    :state (case (:state change-request) "opened" "open" "closed" "closed" "merged" "merged" nil)
     :source-branch (:source_branch change-request)
     :target-branch (:target_branch change-request)})
   ([repo change-request]
@@ -106,9 +107,6 @@
                              (str "/projects/" (url-encode slug)
                                   "/merge_requests/" change-request-number)
                              nil)]
-    (when-not (= "opened" (:state change-request))
-      (throw (ex-info (str "GitLab merge request !" change-request-number " is not open.")
-                      {:code :change-request-not-open})))
     (normalize-change-request repo change-request)))
 
 (defn maybe-current-change-request

@@ -71,6 +71,11 @@
                   "{\"number\":4,\"title\":\"Merged\",\"body\":\"\",\"url\":\"https://github.com/org/repo/pull/4\",\"headRefName\":\"branch\",\"baseRefName\":\"main\",\"state\":\"MERGED\"}")]
     (is (nil? (github/maybe-current-change-request)))))
 
+(deftest gets-a-merged-pull-request-by-id
+  (with-redefs [shell/run (fn [& _]
+                            "{\"number\":4,\"title\":\"Merged\",\"body\":\"\",\"state\":\"MERGED\"}")]
+    (is (= "merged" (:state (github/get-change-request {:display-id "org/repo"} "4"))))))
+
 (deftest comment-change-request-uses-the-explicit-repository
   (let [request (atom nil)]
     (with-redefs [shell/run (fn [& args] (reset! request args))]
