@@ -41,6 +41,13 @@
          (domain/contained-identity :bitbucket :change-request "team/repo" 7)
          (:ref cr)))))
 
+(deftest gets-a-merged-pull-request-by-id
+  (with-redefs [bitbucket/api! (fn [_ method path _]
+                                 (is (= :get method))
+                                 (is (= "/repositories/team/repo/pullrequests/7" path))
+                                 {:id 7 :title "Merged" :description "Body" :state "MERGED"})]
+    (is (= "merged" (:state (bitbucket/get-change-request config {:display-id "team/repo" :slug "team/repo"} "7"))))))
+
 (deftest api-token-authentication-and-json-content-type
   (let [request (atom nil)]
     (with-redefs [http/post (fn [_ opts]

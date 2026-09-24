@@ -95,6 +95,7 @@
     :title (:title change-request)
     :body (decode-body (:description change-request))
     :url (get-in change-request [:links :html :href])
+    :state (case (:state change-request) "OPEN" "open" "MERGED" "merged" "DECLINED" "closed" nil)
     :source-branch (get-in change-request [:source :branch :name])
     :target-branch (get-in change-request [:destination :branch :name])})
   ([repo change-request]
@@ -122,9 +123,6 @@
         change-request (api! app-config :get
                              (str "/repositories/" slug "/pullrequests/" change-request-number)
                              nil)]
-    (when-not (= "OPEN" (:state change-request))
-      (throw (ex-info (str "Bitbucket pull request #" change-request-number " is not open.")
-                      {:code :change-request-not-open})))
     (normalize-change-request repo change-request)))
 
 (defn maybe-current-change-request

@@ -326,7 +326,7 @@
 (defn invalid-request! [message] (throw (ex-info message {:code :invalid-request})))
 
 (def action-fields
-  {"link_existing" #{:action :item :labels}
+  {"link_existing" #{:action :item :labels :changeRequest}
    "create_new" #{:action :parent :project :title :labels}
    "create_item" (set/union #{:action :title :description :project :labels} (set work-item-fields))
    "update_item" (set/union #{:action :item :comment :addLabels :removeLabels} (set work-item-fields))
@@ -366,7 +366,11 @@
       (invalid-request! (str "Unsupported action: " action))))
   (assert-request-shape! request)
   (case (:action request)
-    "link_existing" (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
+    "link_existing" (do
+                      (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
+                      (when (and (contains? request :changeRequest)
+                                 (not (re-matches #"[1-9]\d*" (:changeRequest request))))
+                        (invalid-request! "link_existing changeRequest must be a positive integer string.")))
     "create_item" (do
                     (when (str/blank? (:title request)) (invalid-request! "create_item requires title."))
                     (when (and (contains? request :project) (str/blank? (:project request)))
@@ -451,7 +455,7 @@
     "comment_change_request" {:action :comment-change-request :body (:body request)}
     (cond-> {:action (case (:action request) "link_existing" :link-existing "create_new" :create-new)
              :labels (vec (or (:labels request) []))}
-      (:item request) (assoc :item-ref (:item request)) (:parent request) (assoc :parent-ref (:parent request))
+      (:item request) (assoc :item-ref (:item request)) (:changeRequest request) (assoc :change-request-ref (:changeRequest request)) (:parent request) (assoc :parent-ref (:parent request))
       (:project request) (assoc :project-ref (:project request)) (:title request) (assoc :title (:title request)))))
 (defn canonicalize [value]
   (cond (map? value) (into (sorted-map-by #(compare (str %1) (str %2))) (map (fn [[key item]] [key (canonicalize item)])) value)
@@ -511,7 +515,7 @@
     (runtime options)))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "link-existing" "create-new" "create-items" "update-items" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

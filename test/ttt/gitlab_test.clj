@@ -31,6 +31,13 @@
          (domain/contained-identity :gitlab :change-request "group/proj" 7)
          (:ref cr)))))
 
+(deftest gets-a-closed-merge-request-by-id
+  (with-redefs [gitlab/api! (fn [_ method path _]
+                              (is (= :get method))
+                              (is (= "/projects/group%2Fproj/merge_requests/7" path))
+                              {:iid 7 :title "Closed" :description "Body" :state "closed"})]
+    (is (= "closed" (:state (gitlab/get-change-request config {:display-id "group/proj" :slug "group/proj"} "7"))))))
+
 (deftest setup-validates-the-current-project
   (let [calls (atom 0)]
     (with-redefs [gitlab/current-repo (fn [_]
