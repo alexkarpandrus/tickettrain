@@ -145,6 +145,7 @@
              :context (wire-context (:context proposal))
              :labels (mapv wire-entity (:labels proposal))
              :trackerIntent (wire-intent (:tracker-intent proposal))
+             :comment (:comment proposal)
              :approvalContext (:approval-context proposal))
 
       :update-item
@@ -328,7 +329,7 @@
 (def action-fields
   {"link_existing" #{:action :item :labels :changeRequest}
    "create_new" #{:action :parent :project :title :labels}
-   "create_item" (set/union #{:action :title :description :project :labels} (set work-item-fields))
+   "create_item" (set/union #{:action :title :description :comment :project :labels} (set work-item-fields))
    "update_item" (set/union #{:action :item :comment :addLabels :removeLabels} (set work-item-fields))
    "create_change_request" #{:action :title :body}
    "update_change_request" #{:action :title :body}
@@ -373,6 +374,8 @@
                         (invalid-request! "link_existing changeRequest must be a positive integer string.")))
     "create_item" (do
                     (when (str/blank? (:title request)) (invalid-request! "create_item requires title."))
+                    (when (and (contains? request :comment) (str/blank? (:comment request)))
+                      (invalid-request! "create_item comment must not be blank."))
                     (when (and (contains? request :project) (str/blank? (:project request)))
                       (invalid-request! "create_item project must not be blank."))
                     (when (some str/blank? (:labels request))
@@ -435,7 +438,8 @@
                              :title (:title request)
                              :description (or (:description request) "")
                              :labels (vec (or (:labels request) []))}
-                      (:project request) (assoc :project-ref (:project request)))
+                      (:project request) (assoc :project-ref (:project request))
+                      (contains? request :comment) (assoc :comment (:comment request)))
                     request)
     "update_item" (assoc-work-item-fields
                     (cond-> {:action :update-item

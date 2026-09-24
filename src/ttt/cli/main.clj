@@ -170,7 +170,7 @@
     "- `version`, `status`, `inspect`, `search`, `list`, and `preview` are read-only; `apply` is the only mutating command."
     "- `apply` recomputes the proposal, including the selected profile, and rejects stale or mismatched approval."
     "- `link_existing` requires `item`; optional `changeRequest` is a positive integer string identifying an open, merged, or closed change request in the current repository. Without it, the current branch's open change request is used. v1 `issue` input is not supported."
-    "- `create_item` accepts `title`, optional `description`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context."
+    "- `create_item` accepts `title`, optional `description`, append-only `comment`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context. If creation succeeds but commenting fails, inspect the new item before retrying."
     "- `update_item` accepts `item` plus comments, label changes, or work-item fields. Omitted fields stay unchanged; `null` clears optional scalars and `blockedBy: []` clears blockers."
     "- Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name."
     "- `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration."
