@@ -281,6 +281,24 @@
     (is (= [:tracker-create] @calls))
     (is (= "APP-123" (get-in result [:item :displayId])))))
 
+(deftest standalone-item-create-comment-is-previewed-and-approval-gated
+  (let [calls (atom [])
+        runtime* (dissoc (runtime calls) :forge)
+        request {:action "create_item" :title "Status" :comment "Original note"}
+        proposal (agent/preview-data runtime* request)]
+    (is (= "Original note" (get-in proposal [:comment :body])))
+    (is (empty? @calls))
+    (is (thrown-with-msg? Exception #"Approval does not match"
+                          (agent/apply-data! runtime* request "lp2_wrong")))
+    (is (empty? @calls))
+    (let [result (agent/apply-data! runtime* request (:proposalId proposal))]
+      (is (= [:tracker-create :tracker-comment] @calls))
+      (is (= (:comment proposal) (:comment result))))))
+
+(deftest standalone-item-rejects-blank-create-comment
+  (is (thrown-with-msg? Exception #"create_item comment must not be blank"
+                        (agent/validate-request! {:action "create_item" :title "Status" :comment "  "}))))
+
 (deftest standalone-item-update-preview-is-exact-and-apply-is-gated
   (let [calls (atom [])
         bug {:ref (domain/identity :linear :label "bug") :display-id "Bug" :scopes [scope]}
