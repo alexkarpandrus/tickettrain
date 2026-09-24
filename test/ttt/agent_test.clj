@@ -9,7 +9,7 @@
 
 (def scope (domain/scope-identity :linear "team-1"))
 (def item {:ref (domain/identity :linear :tracker-item "issue-1") :display-id "APP-123" :title "Retry" :description "Description" :url "https://linear/item" :scopes [scope] :labels []})
-(def source {:branch "retry" :repository {:ref (domain/identity :github :repository "org/repo") :display-id "org/repo"} :change-request {:ref (domain/contained-identity :github :change-request "org/repo" 7) :display-id "org/repo#7" :title "Retry" :body "Body" :url "https://github/pr"}})
+(def source {:branch "retry" :repository {:ref (domain/identity :github :repository "org/repo") :display-id "org/repo"} :change-request {:ref (domain/contained-identity :github :change-request "org/repo" 7) :display-id "org/repo#7" :title "Retry" :body "Body" :state "open" :url "https://github/pr"}})
 (def config {:change-request {:body-begin-marker "<!-- ttt:begin -->" :body-end-marker "<!-- ttt:end -->" :section-title "Tracker"}})
 (defn runtime [calls]
   {:config config
@@ -142,6 +142,54 @@
            (get-in proposal [:approvalContext :trackerScope])))
     (is (= "In Progress"
            (get-in proposal [:approvalContext :trackerSettings :targetState])))))
+
+(deftest explicit-historical-link-uses-id-instead-of-branch
+  (let [calls (atom [])
+        historical (atom (assoc (:change-request source) :state "merged"))
+        runtime* (-> (runtime calls)
+                     (assoc-in [:forge :inspect-current] (fn [] (throw (ex-info "Branch must not be inspected" {}))))
+                     (assoc-in [:forge :get-change-request]
+                               (fn [repo id]
+                                 (is (= "org/repo" (:display-id repo)))
+                                 (is (= "7" id))
+                                 @historical)))
+        request {:action "link_existing" :item "APP-123" :changeRequest "7"}
+        preview (agent/preview-data runtime* request)]
+    (is (= "7" (get-in preview [:request :changeRequest])))
+    (is (= "org/repo#7" (get-in preview [:source :changeRequest :displayId])))
+    (is (str/includes? (get-in preview [:trackerIntent :description]) "org/repo#7"))
+    (is (empty? @calls))
+    (swap! historical assoc :body "Edited after preview")
+    (is (thrown-with-msg? Exception #"Approval does not match"
+                          (agent/apply-data! runtime* request (:proposalId preview))))
+    (is (empty? @calls))
+    (let [approved (:proposalId (agent/preview-data runtime* request))]
+      (agent/apply-data! runtime* request approved)
+      (is (= [:tracker :forge] @calls)))))
+
+(deftest explicit-link-rejects-unsafe-ids
+  (doseq [id ["../7" "0" "7?repo=other" ""]]
+    (is (thrown-with-msg? Exception #"positive integer string"
+                          (agent/validate-request!
+                           {:action "link_existing" :item "APP-123" :changeRequest id}))))
+  (is (thrown-with-msg? Exception #"must be a string"
+                        (agent/validate-request!
+                         {:action "link_existing" :item "APP-123" :changeRequest nil}))))
+
+(deftest missing-explicit-link-does-not-create-a-change-request
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:forge :get-change-request] (fn [_ _] nil))]
+    (is (thrown-with-msg? Exception #"Change request not found"
+                          (agent/preview-data runtime* {:action "link_existing" :item "APP-123" :changeRequest "77"})))
+    (is (empty? @calls))))
+
+(deftest close-historical-change-request-stays-rejected
+  (let [calls (atom [])
+        runtime* (assoc-in (runtime calls) [:forge :get-change-request]
+                           (fn [_ _] (assoc (:change-request source) :state "merged")))]
+    (is (thrown-with-msg? Exception #"not open"
+                          (agent/preview-data runtime* {:action "close_change_request" :changeRequest "7"})))
+    (is (empty? @calls))))
 
 (deftest selected-profile-is-visible-and-bound-to-the-proposal
   (let [calls (atom [])
