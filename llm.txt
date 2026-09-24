@@ -72,6 +72,13 @@ Output options:
 ```json
 {"action":"link_existing","item":"APP-123","labels":["Bug"]}
 ```
+For a merged or closed change request, pass its numeric ID explicitly (from the current repository), even on a reused branch:
+
+```json
+{"action":"link_existing","item":"APP-123","changeRequest":"7"}
+```
+
+Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` rejects those links before any tracker update.
 
 ```json
 {"action":"create_new","parent":"APP-100","project":"reliability","title":"Improve retry handling","labels":["Backend"]}
@@ -114,7 +121,7 @@ Rules:
 - Provide exactly one of `--request` or `--request-file`; use an owner-only file for untrusted content.
 - `version`, `status`, `inspect`, `search`, `list`, and `preview` are read-only; `apply` is the only mutating command.
 - `apply` recomputes the proposal, including the selected profile, and rejects stale or mismatched approval.
-- `link_existing` accepts `item`; v1 `issue` input is not supported.
+- `link_existing` requires `item`; optional `changeRequest` is a positive integer string identifying an open, merged, or closed change request in the current repository. Without it, the current branch's open change request is used. v1 `issue` input is not supported.
 - `create_item` accepts `title`, optional `description`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context.
 - `update_item` accepts `item` plus comments, label changes, or work-item fields. Omitted fields stay unchanged; `null` clears optional scalars and `blockedBy: []` clears blockers.
 - Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name.

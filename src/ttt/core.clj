@@ -202,6 +202,9 @@
 
 (defn assert-link-target-valid!
   [runtime request change-request item]
+  (when (false? (:metadata-editable? change-request))
+    (throw (ex-info "This change request does not allow title or body updates."
+                    {:code :change-request-not-editable})))
   (let [linked-ref (change-request/managed-item-ref (:body change-request) (:config runtime))
         linked-display-id (change-request/managed-issue-identifier (:body change-request) (:config runtime))
         same-target? (and (= :link-existing (:action request)) item
@@ -320,6 +323,8 @@
   (let [repository (:repository source)
         change-request ((get-in runtime [:forge :get-change-request])
                         repository (:change-request-ref request))]
+    (when-not (= "open" (:state change-request))
+      (throw (ex-info "The change request is not open." {:code :change-request-not-open})))
     {:source (assoc source :change-request change-request)
      :action :close-change-request
      :request request
@@ -364,7 +369,8 @@
    (if (contains? #{:create-item :update-item :comment-item} (:action request))
      (preview runtime nil request)
      (preview runtime
-              (if (= :close-change-request (:action request))
+              (if (or (= :close-change-request (:action request))
+                      (and (= :link-existing (:action request)) (:change-request-ref request)))
                 {:repository ((get-in runtime [:forge :current-repo]))}
                 (inspect runtime))
               request)))
@@ -377,7 +383,15 @@
      :comment-change-request (comment-change-request-proposal source request)
      :close-change-request (close-change-request-proposal runtime source request)
      :comment-item (comment-item-proposal runtime request)
-     (preview-tracker-link runtime source request))))
+     (preview-tracker-link runtime
+                           (if (and (= :link-existing (:action request)) (:change-request-ref request))
+                             (assoc source :change-request
+                                    (or ((get-in runtime [:forge :get-change-request])
+                                         (:repository source) (:change-request-ref request))
+                                        (throw (ex-info "Change request not found."
+                                                        {:code :change-request-not-found}))))
+                             source)
+                           request))))
 
 (defn update-change-request!
   [runtime source update]
