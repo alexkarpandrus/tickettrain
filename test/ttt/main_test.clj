@@ -90,3 +90,15 @@
   (doseq [command (keys main/command-usages)]
     (is (str/includes? (with-out-str (main/-main "help" command))
                        (str "Usage: ttt " command)))))
+
+
+(deftest check-project-command-is-routed-and-documented
+  (with-redefs [agent/run (fn [args]
+                           (is (= ["check-project" "--request" "{}"] (vec args)))
+                           {:exit 0 :envelope {:schemaVersion 2 :ok true :command "check-project"
+                                               :data {:relation "unspecified" :confidence 0.9}}})]
+    (is (= "unspecified" (get-in (json/parse-string
+                                  (with-out-str (main/-main "check-project" "--request" "{}")) true)
+                                 [:data :relation]))))
+  (is (str/includes? main/help-text "ttt check-project"))
+  (is (str/includes? (main/llm-doc) "invalid responses return errors without a fallback match")))
