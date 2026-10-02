@@ -1,5 +1,6 @@
 (ns ttt.agent-test
-  (:require [clojure.string :as str]
+  (:require [cheshire.core :as json]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
             [ttt.cli.agent :as agent]
@@ -269,6 +270,12 @@
   (is (thrown-with-msg? Exception #"labels must not be blank"
                         (agent/validate-request! {:action "create_item" :title "Status" :labels [""]}))))
 
+(deftest create-item-comment-validation
+  (let [request {:action "create_item" :title "Review a draft" :comment "Original note"}]
+    (is (= request (agent/validate-request! request)))
+    (doseq [comment [nil 1 true [] {} "" " \n\t"]]
+      (is (thrown? Exception (agent/validate-request! (assoc request :comment comment)))))))
+
 (deftest standalone-item-preview-and-apply-need-no-forge
   (let [calls (atom [])
         runtime* (dissoc (runtime calls) :forge)
@@ -280,6 +287,87 @@
     (is (= "Follow up" (get-in proposal [:trackerIntent :description])))
     (is (= [:tracker-create] @calls))
     (is (= "APP-123" (get-in result [:item :displayId])))))
+
+(deftest create-item-comment-is-separate-and-approved-exactly
+  (let [calls (atom [])
+        request {:action "create_item" :title "Review a draft" :description "Draft details"
+                 :labels [] :comment " Original note\nfor the draft "}
+        created (assoc item :title (:title request) :description (:description request))
+        runtime* (-> (runtime calls)
+                     (dissoc :forge)
+                     (assoc-in [:tracker :create-item!]
+                               (fn [_ intent] (swap! calls conj [:create intent]) created))
+                     (assoc-in [:tracker :comment-item!]
+                               (fn [item body] (swap! calls conj [:comment item body]))))
+        preview (agent/preview-data runtime* request)]
+    (is (empty? @calls))
+    (is (= request (:request preview)))
+    (is (= {:body (:comment request)} (:comment preview)))
+    (is (= {:title (:title request) :description (:description request) :labels []}
+           (:trackerIntent preview)))
+    (is (thrown-with-msg? Exception #"Approval does not match"
+                          (agent/apply-data! runtime* (assoc request :comment "Changed")
+                                             (:proposalId preview))))
+    (is (empty? @calls))
+    (let [result (agent/apply-data! runtime* request (:proposalId preview))]
+      (is (= [[:create {:title (:title request) :description (:description request) :labels []}]
+              [:comment created (:comment request)]] @calls))
+      (is (= (:title request) (get-in result [:item :title])))
+      (is (= (:description request) (get-in result [:item :description])))
+      (is (= {:body (:comment request)} (:comment result))))))
+
+(deftest create-item-comment-requires-provider-support-before-writing
+  (let [calls (atom [])
+        runtime* (update (dissoc (runtime calls) :forge) :tracker dissoc :comment-item!)]
+    (is (thrown-with-msg? Exception #"does not support item comments"
+                          (agent/preview-data runtime* {:action "create_item" :title "Draft"
+                                                        :comment "Note"})))
+    (is (empty? @calls))))
+
+(deftest failed-create-item-comment-reports-the-created-item
+  (let [calls (atom [])
+        request {:action "create_item" :title "Review a draft" :comment "Original note"}
+        runtime* (-> (runtime calls)
+                     (dissoc :forge)
+                     (assoc-in [:tracker :comment-item!]
+                               (fn [_ _]
+                                 (swap! calls conj :tracker-comment)
+                                 (throw (ex-info "Unavailable"
+                                                 {:provider :linear :status 503 :detail "Comment unavailable"})))))
+        preview (agent/preview-data runtime* request)]
+    (with-redefs [agent/request-runtime (fn [_ _] runtime*)]
+      (let [{:keys [exit envelope]} (agent/run ["apply" "--request" (json/generate-string request)
+                                              "--approve" (:proposalId preview)])]
+        (is (= 2 exit))
+        (is (false? (:ok envelope)))
+        (is (= "item-comment-failed" (get-in envelope [:error :code])))
+        (is (= "linear" (get-in envelope [:error :provider])))
+        (is (= 503 (get-in envelope [:error :status])))
+        (is (= "Comment unavailable" (get-in envelope [:error :details])))
+        (is (= (agent/wire-entity item) (get-in envelope [:error :partialResult :item])))
+        (is (str/includes? (get-in envelope [:error :message]) "do not repeat create_item"))
+        (is (= [:tracker-create :tracker-comment] @calls))))
+    (let [retry-runtime (assoc-in runtime* [:tracker :comment-item!]
+                                  (fn [resolved body] (swap! calls conj [:retry resolved body])))
+          retry-request {:action "comment_item" :item "APP-123" :body "Original note"}
+          retry-preview (agent/preview-data retry-runtime retry-request)]
+      (agent/apply-data! retry-runtime retry-request (:proposalId retry-preview))
+      (is (= [:tracker-create :tracker-comment [:retry item "Original note"]] @calls)))))
+
+(deftest failed-item-creation-does-not-comment-or-report-a-partial-result
+  (let [calls (atom [])
+        request {:action "create_item" :title "Draft" :comment "Note"}
+        runtime* (assoc-in (dissoc (runtime calls) :forge) [:tracker :create-item!]
+                          (fn [& _] (swap! calls conj :create)
+                            (throw (ex-info "Create failed" {:code :create-failed}))))
+        preview (agent/preview-data runtime* request)]
+    (with-redefs [agent/request-runtime (fn [_ _] runtime*)]
+      (let [{:keys [exit envelope]} (agent/run ["apply" "--request" (json/generate-string request)
+                                              "--approve" (:proposalId preview)])]
+        (is (= 2 exit))
+        (is (= "create-failed" (get-in envelope [:error :code])))
+        (is (not (contains? (:error envelope) :partialResult)))
+        (is (= [:create] @calls))))))
 
 (deftest standalone-item-update-preview-is-exact-and-apply-is-gated
   (let [calls (atom [])

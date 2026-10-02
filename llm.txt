@@ -85,7 +85,7 @@ Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` reje
 ```
 
 ```json
-{"action":"create_item","title":"Ask Jade for a status update on Project X","description":"Follow up this week.","project":"Work","labels":["follow-up","waiting"],"state":"open","priority":"high","dueAt":"2026-09-30T17:00:00Z","availableAt":null,"blockedBy":["APP-100"]}
+{"action":"create_item","title":"Ask Jade for a status update on Project X","description":"Follow up this week.","comment":"Original request for a status update.","project":"Work","labels":["follow-up","waiting"],"state":"open","priority":"high","dueAt":"2026-09-30T17:00:00Z","availableAt":null,"blockedBy":["APP-100"]}
 ```
 
 ```json
@@ -122,7 +122,8 @@ Rules:
 - `version`, `status`, `inspect`, `search`, `list`, and `preview` are read-only; `apply` is the only mutating command.
 - `apply` recomputes the proposal, including the selected profile, and rejects stale or mismatched approval.
 - `link_existing` requires `item`; optional `changeRequest` is a positive integer string identifying an open, merged, or closed change request in the current repository. Without it, the current branch's open change request is used. v1 `issue` input is not supported.
-- `create_item` accepts `title`, optional `description`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context.
+- `create_item` accepts `title`, optional `description`, `comment`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context. The optional comment is previewed separately and appended through the tracker's native comment operation after approved creation.
+- If the create succeeds but its comment fails, `apply` returns `ok: false`, code `item-comment-failed`, and the created item under `error.partialResult.item`. Inspect that item before retrying with `comment_item`; do not repeat `create_item`. Creation plus commenting is not atomic, and retries are not automatically deduplicated.
 - `update_item` accepts `item` plus comments, label changes, or work-item fields. Omitted fields stay unchanged; `null` clears optional scalars and `blockedBy: []` clears blockers.
 - Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.
