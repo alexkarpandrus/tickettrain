@@ -27,7 +27,8 @@
    :jira "Jira"
    :github-issues "GitHub Issues"
    :asana "Asana"
-   :taskwarrior "Taskwarrior"})
+   :taskwarrior "Taskwarrior"
+   :logseq "Logseq"})
 
 (defn normalize-linear-workspace
   [workspace]
@@ -76,7 +77,12 @@
     {:key :base-url}
     {:key :target-state :env "TTT_TRACKER_STATE"}]
    [:tracker :taskwarrior]
-   [{:key :taskrc :label "Taskwarrior taskrc" :env "TASKRC"}]})
+   [{:key :taskrc :label "Taskwarrior taskrc" :env "TASKRC"}]
+   [:tracker :logseq]
+   [{:key :graph :label "Logseq graph path" :env "LOGSEQ_GRAPH" :required? true}
+    {:key :token :label "Logseq HTTP API token" :env "LOGSEQ_TOKEN"
+     :required? true :secret? true}
+    {:key :base-url :env "LOGSEQ_BASE_URL"}]})
 
 (defn setting-environment-value
   [environment {:keys [env transform required?]}]
