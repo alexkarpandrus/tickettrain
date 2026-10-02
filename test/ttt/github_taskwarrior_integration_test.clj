@@ -26,7 +26,9 @@
    :status "pending"
    :project "App"
    :tags ["existing" "Bug"]
-   :annotations [{:entry "20260907T120000Z"
+   :details "Native vendor phone numbers"
+   :annotations [{:entry "20260907T115900Z" :description "Exact user comment"}
+                 {:entry "20260907T120000Z"
                   :description (str taskwarrior/annotation-prefix "Tracker body")}]})
 
 (defn shell-stub
@@ -92,6 +94,10 @@
         (core/apply! runtime proposal)))
     (is (= [:tracker :forge] @order))
     (is (= ["existing" "Bug"] (:tags @task*)))
+    (is (= "Native vendor phone numbers" (:details @task*)))
+    (is (= [{:entry "20260907T115900Z" :description "Exact user comment"}]
+           (:annotations @task*)))
+    (is (str/starts-with? (:tttDescription @task*) "Tracker body"))
     (is (str/includes? (taskwarrior/tracker-description @task*)
                        "https://github.com/org/repo/pull/7"))
     (is (= "[a360fc44] Retry" (:title @forge-payload)))
