@@ -250,18 +250,21 @@
 
 (defn standalone-item-proposal
   [runtime request]
+  (when (contains? request :comment)
+    (require-tracker-operation! runtime :comment-item! "item comments"))
   (let [context (resolve-context runtime request)
         labels (resolve-labels runtime (:labels request))
         work-intent (validate-work-item-intent!
                      runtime :create-item context (work-item-intent runtime request))]
-    {:action :create-item
-     :request request
-     :context context
-     :labels labels
-     :tracker-intent (merge {:title (:title request)
-                             :description (:description request)
-                             :labels labels}
-                            work-intent)}))
+    (cond-> {:action :create-item
+             :request request
+             :context context
+             :labels labels
+             :tracker-intent (merge {:title (:title request)
+                                     :description (:description request)
+                                     :labels labels}
+                                    work-intent)}
+      (contains? request :comment) (assoc :comment {:body (:comment request)}))))
 
 (defn update-item-proposal
   [runtime request]
@@ -469,8 +472,17 @@
   [runtime proposal]
   (case (:action proposal)
     :create-item
-    {:item (create-item! runtime (:context proposal) (:tracker-intent proposal))
-     :change-request nil}
+    (let [item (create-item! runtime (:context proposal) (:tracker-intent proposal))
+          comment (:comment proposal)]
+      (when comment
+        (try
+          (comment-item! runtime item (:body comment))
+          (catch Exception ex
+            (throw (ex-info "The item was created, but adding its comment failed. Inspect the created item before retrying the comment; do not repeat create_item."
+                            {:code :item-comment-failed :partial-result {:item item}}
+                            ex)))))
+      (cond-> {:item item :change-request nil}
+        comment (assoc :comment comment)))
 
     :update-item
     (let [labels-changed? (some seq (vals (:label-changes proposal)))

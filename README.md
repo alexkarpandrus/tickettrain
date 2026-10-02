@@ -187,7 +187,7 @@ Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` reje
 Create or update a tracker item without Git or forge configuration:
 
 ```bash
-REQUEST='{"action":"create_item","title":"Ask Jade for a status update on Project X","description":"Follow up this week.","project":"Work","labels":["follow-up","waiting"]}'
+REQUEST='{"action":"create_item","title":"Ask Jade for a status update on Project X","description":"Follow up this week.","comment":"Original request for a status update.","project":"Work","labels":["follow-up","waiting"]}'
 ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 
@@ -195,6 +195,8 @@ REQUEST='{"action":"update_item","item":"APP-123","comment":"Jade replied. Waiti
 ttt preview --request "$REQUEST"
 ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 ```
+
+An optional `create_item` comment appears separately in preview and is appended through the tracker's native comment operation after approved creation. It does not change the title or description. If commenting fails after creation, `apply` returns `ok: false`, error code `item-comment-failed`, and the created item under `error.partialResult.item`. Inspect that item before retrying with `comment_item`; do not repeat `create_item`. Creation plus commenting is not atomic, and retries are not automatically deduplicated.
 
 Create a change request without a tracker item:
 
