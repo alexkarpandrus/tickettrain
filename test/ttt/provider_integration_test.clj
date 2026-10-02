@@ -2,6 +2,7 @@
   (:require [cheshire.core :as json]
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
+            [ttt.cli.agent :as agent]
             [ttt.core :as core]
             [ttt.providers.forge :as forge]
             [ttt.platform.shell :as shell]
@@ -53,6 +54,35 @@
     (is (= "parent-1" (get-in @tracker-payload [:input :parentId])))
     (is (= ["bug"] (get-in @tracker-payload [:input :labelIds])))
     (is (= "[APP-200] Improve retry handling" (get-in @forge-payload [:payload :title])))))
+
+(deftest standalone-create-comment-uses-native-provider-operations
+  (let [calls (atom [])
+        request {:action "create_item" :title "Review a draft" :description "Draft details"
+                 :comment "Original note\nfor the draft"}
+        runtime {:config config :tracker (adapters/build config :tracker tracker/registry)}]
+    (with-redefs [shell/run (fn [& _] (throw (ex-info "Unexpected forge call" {})))
+                  linear/graphql!
+                  (fn [_ query variables]
+                    (swap! calls conj [query variables])
+                    (cond
+                      (= query linear/create-issue-mutation)
+                      {:issueCreate {:success true
+                                     :issue (assoc item-response :title (:title request)
+                                                                :description (:description request)
+                                                                :labels {:nodes []})}}
+                      (= query linear/create-comment-mutation)
+                      {:commentCreate {:success true :comment {:id "comment-1"}}}
+                      :else (throw (ex-info "Unexpected GraphQL operation" {}))))]
+      (let [preview (agent/preview-data runtime request)]
+        (is (empty? @calls))
+        (let [result (agent/apply-data! runtime request (:proposalId preview))]
+          (is (= [linear/create-issue-mutation linear/create-comment-mutation] (mapv first @calls)))
+          (is (= {:title (:title request) :description (:description request)}
+                 (select-keys (get-in @calls [0 1 :input]) [:title :description])))
+          (is (not (contains? (get-in @calls [0 1 :input]) :comment)))
+          (is (= {:input {:issueId "issue-1" :body (:comment request)}} (get-in @calls [1 1])))
+          (is (= (:title request) (get-in result [:item :title])))
+          (is (= (:description request) (get-in result [:item :description]))))))))
 
 (deftest adapter-build-rejects-invalid-registry-descriptors
   (let [config {:tracker {:provider :bad} :forge {:provider :github}}
