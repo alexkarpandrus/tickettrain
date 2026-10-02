@@ -520,15 +520,28 @@
     ("create_change_request" "update_change_request" "close_change_request" "comment_change_request") (forge-runtime options)
     ("create_item" "update_item" "comment_item") (tracker-runtime options)
     (runtime options)))
+
+
+(defn check-project-data [options]
+  (let [request (parse-request options)]
+    (when-not (and (map? request)
+                   (= #{:note :project} (set (keys request)))
+                   (every? (fn [field]
+                             (let [value (get request field)]
+                               (and (string? value) (not (str/blank? value)))))
+                           [:note :project]))
+      (invalid-request! "check-project requires only non-blank note and project strings."))
+    (typesafe/check-project (:note request) (:project request))))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)
         "inspect" (inspect-data (forge-runtime options))
         "search" (search-data (:tracker (runtime options)) options)
         "list" (list-data (:tracker (tracker-runtime options)) options)
+        "check-project" (check-project-data options)
         "preview" (let [request (parse-request options)]
                     (preview-data (request-runtime options request) request))
         "apply" (let [request (parse-request options)]
