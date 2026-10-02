@@ -291,3 +291,40 @@
 
 (deftest authenticated-client-does-not-follow-redirects
   (is (= "NEVER" (str (.followRedirects (:client logseq/api-client))))))
+
+(deftest interrupted-creation-reports-native-uuid-without-retrying
+  (let [state (atom (native-state)) before @state calls (atom []) order (atom [])
+        send (http-stub state calls order)
+        request {:action "create_item" :title "Review a draft"}]
+    (with-redefs [logseq/today (constantly "2026-09-21")
+                  http/post (fn [url options]
+                              (let [result (send url options)]
+                                (when (= "logseq.Editor.appendBlockInPage"
+                                         (:method (json/parse-string (:body options) true)))
+                                  (throw (ex-info "Connection closed after native creation." {})))
+                                result))]
+      (let [runtime (runtime)
+            approval (:proposalId (agent/preview-data runtime request))
+            error (try (agent/apply-data! runtime request approval)
+                       (catch Exception error error))
+            uuid (first (remove (set (keys (:blocks before))) (keys (:blocks @state))))]
+        (is (= :logseq-create-outcome-unknown (:code (ex-data error))))
+        (is (str/includes? (.getMessage error) uuid))
+        (is (str/includes? (.getMessage error) "before retrying create_item"))
+        (is (= uuid (get-in @state [:blocks uuid :properties :id])))
+        (is (= (:blocks before) (dissoc (:blocks @state) uuid)))
+        (is (= 1 (count (write-calls calls))))))))
+
+(deftest adapter-rejects-edits-after-preview-before-native-writes
+  (let [state (atom (native-state)) calls (atom []) order (atom [])]
+    (with-redefs [http/post (http-stub state calls order) logseq/today (constantly "2026-09-21")]
+      (let [adapter (:tracker (runtime))
+            item ((:resolve-item adapter) task-id)]
+        (swap! state update-in [:blocks task-id :content] str "\nA user edit")
+        (let [before @state]
+          (is (thrown-with-msg? Exception #"Logseq block changed"
+                                ((:update-item! adapter) item {:state "completed"})))
+          (is (thrown-with-msg? Exception #"Logseq block changed"
+                                ((:comment-item! adapter) item "Follow up.")))
+          (is (= before @state))
+          (is (empty? (write-calls calls))))))))
