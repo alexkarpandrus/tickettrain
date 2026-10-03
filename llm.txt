@@ -31,6 +31,7 @@ Non-interactive API (schema v2):
   ttt status
   ttt search --kind item|project|label --query TEXT [--semantic]
   ttt list --kind item [--state NAME] [--project NAME] [--label NAME] [--limit N]
+  ttt check-project (--request JSON | --request-file PATH)
   ttt preview --request JSON
   ttt preview --request-file PATH
   ttt apply --request JSON --approve PROPOSAL_ID
@@ -119,7 +120,9 @@ ttt apply --request-file REQUEST_FILE_PATH --approve lp2_...
 
 Rules:
 - Provide exactly one of `--request` or `--request-file`; use an owner-only file for untrusted content.
-- `version`, `status`, `inspect`, `search`, `list`, and `preview` are read-only; `apply` is the only mutating command.
+- `version`, `status`, `inspect`, `search`, `list`, `check-project`, and `preview` are read-only; `apply` is the only mutating command.
+- `check-project` accepts only non-blank `note` and `project` strings in request JSON, for example `{"note":"I archived invoices in Atlas","project":"Beacon"}`. It compares raw text, not tracker references, and returns `relation` (`same`, `different`, or `unspecified`) plus `confidence` from Jev. An omitted project in the note means `unspecified`, not a conflict.
+- `check-project` sends the note and candidate project to TypeSafe AI. It needs `TYPESAFE_API_KEY` from the environment or tickettrain's `.env`, but no repository, profile, forge, or tracker configuration. Missing credentials, provider failures, and invalid responses return errors without a fallback match. It does not inspect or change tracker items.
 - `apply` recomputes the proposal, including the selected profile, and rejects stale or mismatched approval.
 - `link_existing` requires `item`; optional `changeRequest` is a positive integer string identifying an open, merged, or closed change request in the current repository. Without it, the current branch's open change request is used. v1 `issue` input is not supported.
 - `create_item` accepts `title`, optional `description`, `comment`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context. The optional comment is previewed separately and appended through the tracker's native comment operation after approved creation.
@@ -151,7 +154,7 @@ Tracker item descriptions use a separate `ttt:pull-requests` managed section. Us
 
 ## LLM usage pattern
 
-1. Run `ttt status`, choose the intended profile, and use the same `--profile NAME` for every command in the operation.
+1. For forge or tracker operations, run `ttt status`, choose the intended profile, and use the same `--profile NAME` for every command in the operation.
 2. For `create_change_request`, `update_change_request`, or `close_change_request`, set the exact requested change, then skip tracker searches.
 3. For tracker actions, derive two or three short queries from the change request and search existing items first. Add `--semantic` only when Jev is configured and sending candidate text to TypeSafe AI is acceptable.
 4. Use `ttt list --kind item` when the user asks for current tracker items without a search query.
