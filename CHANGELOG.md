@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.12.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.11.0...v0.12.0) (2026-10-03)
+
+
+### Features
+
+* **inference:** check task project relations with Jev ([9b2687d](https://github.com/alexkarpandrus/tickettrain/commit/9b2687d1e07fa64286e167a0538780da6f72bf30)), closes [#89](https://github.com/alexkarpandrus/tickettrain/issues/89)
+* **items:** append native comments during item creation ([dd6786f](https://github.com/alexkarpandrus/tickettrain/commit/dd6786fd072bd3eff7d96caa60966a8ecf76b99e)), closes [#87](https://github.com/alexkarpandrus/tickettrain/issues/87)
+
+
+### Fixes
+
+* **agent:** keep generated guidance current ([08952e9](https://github.com/alexkarpandrus/tickettrain/commit/08952e9a4725fe090e6fd63fece53f087b154eec))
+* **agent:** link merged and closed change requests ([d6feb2e](https://github.com/alexkarpandrus/tickettrain/commit/d6feb2e4f59662f5a9a932edd7e56ee0357efd44))
+* **bitbucket:** reject immutable pull request links before tracker writes ([84c4080](https://github.com/alexkarpandrus/tickettrain/commit/84c408012a5db8ed4506907a103c363908f3e977))
+* **taskwarrior:** keep item details out of annotations ([d1dd6cd](https://github.com/alexkarpandrus/tickettrain/commit/d1dd6cd5af32e24c834ed19b74093955ecaef3e5))
+
 ## [0.11.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.10.0...v0.11.0) (2026-09-22)
 
 
