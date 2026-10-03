@@ -104,6 +104,53 @@
         (is (= {:method "lexical" :fallbackReason "provider-unavailable"}
                (:ranking result)))))))
 
+(deftest check-project-does-not-load-forge-or-tracker-configuration
+  (let [note " I archived invoices in Atlas\n"]
+    (with-redefs [config/load-config (fn [& _] (throw (Exception. "Unexpected configuration access")))
+                  adapters/build (fn [& _] (throw (Exception. "Unexpected adapter access")))
+                  typesafe/api-key (constantly "test-key")
+                  typesafe/system-one! (fn [_ body]
+                                        (is (= {:note note :project "Beacon"} (:state body)))
+                                        {:answers {:project-relation
+                                                   {:type "choice" :choice "different" :confidence 0.9
+                                                    :probabilities {:same 0.05 :different 0.9 :unspecified 0.05}}}})]
+      (let [{:keys [exit envelope]} (agent/run ["check-project" "--request"
+                                              (json/generate-string {:note note :project "Beacon"})])]
+        (is (= 0 exit))
+        (is (= {:schemaVersion 2 :ok true :command "check-project"
+                :data {:relation "different" :confidence 0.9}} envelope))))))
+
+(deftest check-project-rejects-invalid-requests-before-calling-jev
+  (let [calls (atom 0)
+        valid {:note "I archived invoices" :project "Beacon"}
+        invalid (concat [nil [] "note" {} (dissoc valid :note) (dissoc valid :project)
+                         (assoc valid :action "update_item")]
+                        (for [field [:note :project] value [nil 1 true [] {} "" " \n\t"]]
+                          (assoc valid field value)))]
+    (with-redefs [typesafe/check-project (fn [& _] (swap! calls inc))]
+      (doseq [request invalid]
+        (let [{:keys [exit envelope]} (agent/run ["check-project" "--request"
+                                                (json/generate-string request)])]
+          (is (= 2 exit))
+          (is (false? (:ok envelope)))
+          (is (= "invalid-request" (get-in envelope [:error :code])))))
+      (is (zero? @calls)))))
+
+(deftest check-project-returns-errors-instead-of-fallback-matches
+  (doseq [[code status] [[:provider-unavailable nil] [:remote-api-error 503]
+                        [:invalid-typesafe-response nil] [:typesafe-api-key-missing nil]]]
+    (with-redefs [typesafe/api-key (constantly "test-key")
+                  typesafe/system-one! (fn [& _]
+                                        (throw (ex-info "Jev check failed" {:code code :provider :typesafe :status status})))]
+      (let [{:keys [exit envelope]} (agent/run ["check-project" "--request"
+                                              "{\"note\":\"I archived invoices\",\"project\":\"Beacon\"}"])]
+        (is (= 2 exit))
+        (is (false? (:ok envelope)))
+        (is (= (name code) (get-in envelope [:error :code])))
+        (is (= "typesafe" (get-in envelope [:error :provider])))
+        (is (= status (get-in envelope [:error :status])))
+        (is (not (contains? envelope :data)))))))
+
 (deftest version-advertises-product-and-agent-api-versions
   (let [version (agent/execute-command "version" [])]
     (is (= (str/trim (slurp "version.txt")) (:version version)))
@@ -113,6 +160,7 @@
     (is (some #{"update-items"} (:capabilities version)))
     (is (some #{"update-change-requests"} (:capabilities version)))
     (is (some #{"close-change-requests"} (:capabilities version)))
+    (is (some #{"check-project"} (:capabilities version)))
     (is (some #{"named-profiles"} (:capabilities version)))
     (is (some #{"comment-items"} (:capabilities version)))
     (is (some #{"list-items"} (:capabilities version)))
