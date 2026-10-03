@@ -184,12 +184,14 @@
                            ["DOING comment" "> DOING comment"] ["WAITING" "> WAITING"]
                            ["WAIT comment" "> WAIT comment"] ["CANCELED" "> CANCELED"]
                            ["CANCELLED comment" "> CANCELLED comment"] ["IN-PROGRESS" "> IN-PROGRESS"]
+                           ["STARTED comment" "> STARTED comment"]
                            ["# NOW comment" "> # NOW comment"] ["## LATER" "> ## LATER"]
                            ["### TODO comment" "> ### TODO comment"] ["# DOING" "> # DOING"]
                            ["## DONE comment" "> ## DONE comment"] ["# WAITING" "> # WAITING"]
                            ["# WAIT comment" "> # WAIT comment"] ["# CANCELED" "> # CANCELED"]
                            ["# CANCELLED comment" "> # CANCELLED comment"]
                            ["# IN-PROGRESS" "> # IN-PROGRESS"]
+                           ["# STARTED" "> # STARTED"]
                            [" \tTODO comment" ">  \tTODO comment"]
                            [" \t## DONE comment" ">  \t## DONE comment"]
                            ["TODO     \r" "> TODO     \r> "]
@@ -199,6 +201,7 @@
                            ["Ordinary comment\r\nTODO detail" "Ordinary comment\r\nTODO detail"]
                            ["TODOish comment" "TODOish comment"] ["DONE: comment" "DONE: comment"]
                            ["NOWHERE comment" "NOWHERE comment"] ["WAITING-room" "WAITING-room"]
+                           ["TODO\u00a0comment" "TODO\u00a0comment"]
                            ["#TODO comment" "#TODO comment"] ["## Note TODO" "## Note TODO"]
                            ["todo comment" "todo comment"]
                            ["> TODO comment\n> DONE detail" "> TODO comment\n> DONE detail"]]]
@@ -226,7 +229,7 @@
               (is (= expected (:content comment)))
               ;; Independent native first-token oracle: neutral reads only recognize TODO/DONE.
               (is (not (contains? #{"NOW" "LATER" "TODO" "DOING" "DONE" "WAITING" "WAIT"
-                                    "CANCELED" "CANCELLED" "IN-PROGRESS"}
+                                    "CANCELED" "CANCELLED" "IN-PROGRESS" "STARTED"}
                                   (first (str/split (str/replace-first (str/trim (:content comment))
                                                                      #"^#+\s+" "") #"\s+" 2)))))
               (is (= parent (:fixture-parent comment)))

@@ -200,7 +200,7 @@
 
 (defn native-task-comment? [body]
   ;; Native markers are broader than the TODO/DONE states exposed by this tracker.
-  (boolean (re-find #"^\s*+(?:#++\s++)?(?:NOW|LATER|TODO|DOING|DONE|WAITING|WAIT|CANCELED|CANCELLED|IN-PROGRESS)(?=\s|$)"
+  (boolean (re-find #"^\s*+(?:#++\s++)?(?:NOW|LATER|TODO|DOING|DONE|WAITING|WAIT|CANCELED|CANCELLED|IN-PROGRESS|STARTED)(?=\s|$)"
                     body)))
 
 (defn comment-item! [app-config scope item body]
