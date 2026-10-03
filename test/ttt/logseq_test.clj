@@ -180,9 +180,27 @@
                            ["TODO" "> TODO"] ["DONE" "> DONE"]
                            ["TODO\tComment task\n\nDONE detail\n" "> TODO\tComment task\n> \n> DONE detail\n> "]
                            ["DONE Comment task\r\nTODO detail\r\n" "> DONE Comment task\r\n> TODO detail\r\n> "]
+                           ["NOW comment" "> NOW comment"] ["LATER" "> LATER"]
+                           ["DOING comment" "> DOING comment"] ["WAITING" "> WAITING"]
+                           ["WAIT comment" "> WAIT comment"] ["CANCELED" "> CANCELED"]
+                           ["CANCELLED comment" "> CANCELLED comment"] ["IN-PROGRESS" "> IN-PROGRESS"]
+                           ["# NOW comment" "> # NOW comment"] ["## LATER" "> ## LATER"]
+                           ["### TODO comment" "> ### TODO comment"] ["# DOING" "> # DOING"]
+                           ["## DONE comment" "> ## DONE comment"] ["# WAITING" "> # WAITING"]
+                           ["# WAIT comment" "> # WAIT comment"] ["# CANCELED" "> # CANCELED"]
+                           ["# CANCELLED comment" "> # CANCELLED comment"]
+                           ["# IN-PROGRESS" "> # IN-PROGRESS"]
+                           [" \tTODO comment" ">  \tTODO comment"]
+                           [" \t## DONE comment" ">  \t## DONE comment"]
+                           ["TODO     \r" "> TODO     \r> "]
+                           ["NOW comment\rDONE detail" "> NOW comment\r> DONE detail"]
+                           [(str "TODO " (apply str (repeat 16384 " ")) "\r")
+                            (str "> TODO " (apply str (repeat 16384 " ")) "\r> ")]
                            ["Ordinary comment\r\nTODO detail" "Ordinary comment\r\nTODO detail"]
                            ["TODOish comment" "TODOish comment"] ["DONE: comment" "DONE: comment"]
-                           ["todo comment" "todo comment"] [" TODO comment" " TODO comment"]
+                           ["NOWHERE comment" "NOWHERE comment"] ["WAITING-room" "WAITING-room"]
+                           ["#TODO comment" "#TODO comment"] ["## Note TODO" "## Note TODO"]
+                           ["todo comment" "todo comment"]
                            ["> TODO comment\n> DONE detail" "> TODO comment\n> DONE detail"]]]
     (testing (str action " " (pr-str body))
       (let [state (atom (-> (native-state)
@@ -206,6 +224,11 @@
                   comment (first (filter :fixture-parent (vals added)))
                   item-ids (cond-> #{task-id other-id} (= action "create_item") (conj parent))]
               (is (= expected (:content comment)))
+              ;; Independent native first-token oracle: neutral reads only recognize TODO/DONE.
+              (is (not (contains? #{"NOW" "LATER" "TODO" "DOING" "DONE" "WAITING" "WAIT"
+                                    "CANCELED" "CANCELLED" "IN-PROGRESS"}
+                                  (first (str/split (str/replace-first (str/trim (:content comment))
+                                                                     #"^#+\s+" "") #"\s+" 2)))))
               (is (= parent (:fixture-parent comment)))
               (is (= (if (= action "create_item") 2 1) (count added)))
               (is (= (:blocks before) (apply dissoc (:blocks @state) (keys added))))

@@ -198,10 +198,15 @@
     (or (resolve-item app-config scope (get-in item [:ref :id]))
         (invalid-response! "Inspect the Logseq block before retrying; the updated task could not be read."))))
 
+(defn native-task-comment? [body]
+  ;; Native markers are broader than the TODO/DONE states exposed by this tracker.
+  (boolean (re-find #"^\s*+(?:#++\s++)?(?:NOW|LATER|TODO|DOING|DONE|WAITING|WAIT|CANCELED|CANCELLED|IN-PROGRESS)(?=\s|$)"
+                    body)))
+
 (defn comment-item! [app-config scope item body]
   (current-item! app-config scope item)
-  (let [body (if (re-matches task-content-pattern body)
-               (str "> " (str/replace body #"\r?\n" "$0> "))
+  (let [body (if (native-task-comment? body)
+               (str "> " (str/replace body #"\r\n|\r|\n" "$0> "))
                body)
         block (api! app-config "logseq.Editor.insertBlock"
                     (get-in item [:ref :id]) body {:sibling false :focus false})]
