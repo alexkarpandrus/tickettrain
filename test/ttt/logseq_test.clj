@@ -173,6 +173,51 @@
         (is (= "open" (:state item)))
         (is (str/starts-with? (get-in @state [:blocks uuid :content]) "TODO Review a draft"))))))
 
+(deftest task-looking-comments-stay-comments-through-preview-and-apply
+  (doseq [action ["comment_item" "create_item"]
+          [body expected] [["TODO Comment task" "> TODO Comment task"]
+                           ["DONE Comment task" "> DONE Comment task"]
+                           ["TODO" "> TODO"] ["DONE" "> DONE"]
+                           ["TODO\tComment task\n\nDONE detail\n" "> TODO\tComment task\n> \n> DONE detail\n> "]
+                           ["DONE Comment task\r\nTODO detail\r\n" "> DONE Comment task\r\n> TODO detail\r\n> "]
+                           ["Ordinary comment\r\nTODO detail" "Ordinary comment\r\nTODO detail"]
+                           ["TODOish comment" "TODOish comment"] ["DONE: comment" "DONE: comment"]
+                           ["todo comment" "todo comment"] [" TODO comment" " TODO comment"]
+                           ["> TODO comment\n> DONE detail" "> TODO comment\n> DONE detail"]]]
+    (testing (str action " " (pr-str body))
+      (let [state (atom (-> (native-state)
+                            (assoc-in [:blocks task-id :fixture-parent] note-id)
+                            (assoc-in [:blocks other-id :page :id] 1)
+                            (assoc-in [:blocks other-id :fixture-parent] task-id)
+                            (assoc-in [:blocks other-id :content] "DONE Nested task")))
+            before @state calls (atom []) order (atom [])
+            request (if (= action "comment_item")
+                      {:action action :item task-id :body body}
+                      {:action action :title "Created task" :comment body})]
+        (with-redefs [http/post (http-stub state calls order) logseq/today (constantly "2026-09-21")]
+          (let [runtime (runtime) adapter (:tracker runtime)
+                preview (agent/preview-data runtime request)]
+            (is (= body (get-in preview [:comment :body])))
+            (is (= before @state))
+            (is (empty? (write-calls calls)))
+            (let [result (agent/apply-data! runtime request (:proposalId preview))
+                  parent (get-in result [:item :identity :id])
+                  added (apply dissoc (:blocks @state) (keys (:blocks before)))
+                  comment (first (filter :fixture-parent (vals added)))
+                  item-ids (cond-> #{task-id other-id} (= action "create_item") (conj parent))]
+              (is (= expected (:content comment)))
+              (is (= parent (:fixture-parent comment)))
+              (is (= (if (= action "create_item") 2 1) (count added)))
+              (is (= (:blocks before) (apply dissoc (:blocks @state) (keys added))))
+              (is (= item-ids (set (map #(get-in % [:identity :id])
+                                       (:items (agent/list-data adapter {:kind "item"}))))))
+              (is (= item-ids (set (map :display-id ((:search-parent-items adapter))))))
+              (is (not-any? #(= (:uuid comment) (get-in % [:identity :id]))
+                            (:candidates (agent/search-data adapter {:kind "item" :query (:uuid comment)}))))
+              (is (nil? ((:resolve-item adapter) (:uuid comment))))
+              (is (= "open" (:state ((:resolve-item adapter) task-id))))
+              (is (= "completed" (:state ((:resolve-item adapter) other-id)))))))))))
+
 (deftest unsupported-work-item-concepts-fail-preview-without-writes
   (let [state (atom (native-state)) calls (atom []) order (atom [])]
     (with-redefs [http/post (http-stub state calls order) logseq/today (constantly "2026-09-21")]

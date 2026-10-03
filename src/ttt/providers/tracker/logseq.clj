@@ -66,11 +66,12 @@
 
 (defn journal? [page] (true? (:journal? page)))
 
+(def task-content-pattern #"(?s)^(TODO|DONE)(?:[ \t]+([^\r\n]*))?(?:\r?\n(.*))?$")
+
 (defn normalize-block [scope block]
   (when-let [[_ marker title description]
              (when (string? (:content block))
-               (re-matches #"(?s)^(TODO|DONE)(?:[ \t]+([^\r\n]*))?(?:\r?\n(.*))?$"
-                           (:content block)))]
+               (re-matches task-content-pattern (:content block)))]
     (when-not (block-uuid? (:uuid block))
       (invalid-response! "Logseq returned a task without a valid block UUID."))
     {:ref (domain/contained-identity :logseq :tracker-item (:id scope) (:uuid block))
@@ -199,7 +200,10 @@
 
 (defn comment-item! [app-config scope item body]
   (current-item! app-config scope item)
-  (let [block (api! app-config "logseq.Editor.insertBlock"
+  (let [body (if (re-matches task-content-pattern body)
+               (str "> " (str/replace body #"\r?\n" "$0> "))
+               body)
+        block (api! app-config "logseq.Editor.insertBlock"
                     (get-in item [:ref :id]) body {:sibling false :focus false})]
     (when-not (block-uuid? (:uuid block))
       (invalid-response! "Inspect the Logseq block before retrying; its comment could not be confirmed.")))
