@@ -50,7 +50,7 @@
     (is (= "keep" (:custom_uda updated)))
     (is (= "User note" (get-in updated [:annotations 0 :description])))
     (is (= 1 (count (:annotations updated))))
-    (is (= "Updated" (:details updated)))
+    (is (= "Updated" (:tttDescription updated)))
     (is (= "Updated" (taskwarrior/tracker-description updated)))))
 
 (deftest item-update-import-preserves-native-fields-and-existing-annotations
@@ -81,7 +81,7 @@
     (is (= "keep" (:custom_uda @stored)))
     (is (= "User note" (get-in @stored [:annotations 0 :description])))
     (is (= 1 (count (:annotations @stored))))
-    (is (= "Concurrent" (:details @stored)))
+    (is (= "Concurrent" (:tttDescription @stored)))
     (is (= "Concurrent" (taskwarrior/tracker-description @stored)))
     (is (= ["bug" "concurrent" "waiting"] (:tags @stored)))))
 
@@ -94,11 +94,44 @@
                        {:description (str taskwarrior/annotation-prefix "two")}]}
         "three"))))
 
-(deftest legacy-description-does-not-overwrite-existing-details
-  (let [task (assoc native-task :details "Unrelated details")]
-    (is (= "Body\n\n## Pull requests" (taskwarrior/tracker-description task)))
-    (is (thrown-with-msg? Exception #"details conflict"
-                          (taskwarrior/upsert-description task "Updated")))))
+(deftest legacy-description-migrates-without-overwriting-native-details
+  (doseq [legacy [native-task (assoc native-task :tttDescription "Body\n\n## Pull requests")]]
+    (let [task (assoc legacy :details "Unrelated details")
+          updated (taskwarrior/upsert-description task (taskwarrior/tracker-description task))]
+      (is (= "Body\n\n## Pull requests" (:tttDescription updated)))
+      (is (= "Unrelated details" (:details updated)))
+      (is (= [(first (:annotations task))] (:annotations updated))))))
+
+(deftest conflicting-description-sources-fail-before-import
+  (let [task (assoc native-task :tttDescription "Different description")
+        imports (atom [])]
+    (with-redefs [taskwarrior/export-tasks (fn [_ _] [task])
+                  taskwarrior/import-task! (fn [_ task] (swap! imports conj task))]
+      (is (thrown-with-msg? Exception #"tttDescription conflicts"
+                            (taskwarrior/resolve-item {} scope uuid)))
+      (is (thrown-with-msg? Exception #"tttDescription conflicts"
+                            (taskwarrior/update-item-from-intent!
+                             {} scope (taskwarrior/normalize-task scope native-task)
+                             {:description "Updated" :labels []}))))
+    (is (empty? @imports))))
+
+
+(deftest malformed-description-in-another-task-does-not-block-listing-or-fuzzy-selection
+  (doseq [malformed [(assoc native-task :tttDescription "Conflicting description")
+                    (update native-task :annotations conj
+                            {:entry "20260907T120200Z"
+                             :description (str taskwarrior/annotation-prefix "Duplicate")})]]
+    (let [good (assoc native-task :uuid "b360fc44-315c-4366-b70c-ea7e7520b749"
+                     :description "Healthy task")
+          malformed (assoc malformed :description "Malformed task")
+          all [malformed good]]
+      (with-redefs [taskwarrior/export-tasks (fn
+                                             ([_] all)
+                                             ([_ reference] (filterv #(= reference (:uuid %)) all)))]
+        (is (= 2 (count (taskwarrior/tasks {} scope))))
+        (is (= (:uuid good) (get-in (taskwarrior/resolve-item {} scope "Healthy task") [:ref :id])))
+        (is (thrown-with-msg? Exception #"ttt description|tttDescription conflicts"
+                              (taskwarrior/resolve-item {} scope "Malformed task")))))))
 
 (deftest create-imports-native-project-tags-and-description
   (let [imported (atom nil)]
@@ -133,7 +166,8 @@
         (is (= "20260930T120000Z" (:wait @imported)))
         (is (= "dependency-uuid" (:depends @imported)))
         (is (= ["waiting" "blocked" "promised"] (:tags @imported)))
-        (is (= "Body" (:details @imported)))
+        (is (= "Body" (:tttDescription @imported)))
+        (is (not (contains? @imported :details)))
         (is (not-any? taskwarrior/managed-annotation? (:annotations @imported)))
         (is (= "Body" (:description item)))
         (is (= "active" (:state item)))
@@ -155,13 +189,17 @@
         (taskwarrior/create-item-from-intent! {} scope {} intent)))
     (is (every? #(not (contains? % :annotations)) @imported))))
 
-(deftest details-remain-distinct-from-append-only-comments
-  (let [task (assoc native-task :details "Body" :annotations [{:entry "20260907T120000Z"
-                                                                :description "Exact comment"}])]
-    (is (= "Body" (taskwarrior/tracker-description task)))
-    (is (= [{:entry "20260907T120000Z" :description "Exact comment"}]
-           (:annotations (taskwarrior/upsert-description task nil))))
-    (is (not (contains? (taskwarrior/upsert-description task nil) :details)))))
+(deftest descriptions-remain-distinct-from-native-details-and-comments
+  (let [task (assoc native-task :tttDescription "Call vendor" :details "Vendor phone numbers"
+                    :annotations [{:entry "20260907T120000Z" :description "Exact comment"}])
+        cleared (taskwarrior/upsert-description task nil)]
+    (is (= "Call vendor" (taskwarrior/tracker-description task)))
+    (is (= "Call vendor" (taskwarrior/tracker-description (assoc task :details "Changed natively"))))
+    (is (= "" (taskwarrior/tracker-description (dissoc task :tttDescription))))
+    (is (= (:annotations task) (:annotations cleared)))
+    (is (= "Vendor phone numbers" (:details cleared)))
+    (is (not (contains? cleared :tttDescription)))
+    (is (= "" (taskwarrior/tracker-description cleared)))))
 
 (deftest resolve-projects-and-labels-allows-new-native-names
   (with-redefs [taskwarrior/projects
@@ -345,3 +383,10 @@
                      (assoc native-task :uuid "deadbeef-2222-4222-8222-222222222222")]))]
     (is (thrown-with-msg? Exception #"ambiguous"
                           (taskwarrior/resolve-item {} scope "deadbeef")))))
+
+
+(deftest fuzzy-selected-task-disappearance-fails-before-mutation
+  (with-redefs [taskwarrior/export-tasks (fn ([_] [native-task]) ([_ _] []))]
+    (is (= :tracker-item-not-found
+           (try (taskwarrior/resolve-item {} scope "Retry sync")
+                (catch Exception ex (:code (ex-data ex))))))))

@@ -295,7 +295,8 @@
   (try
     ((:resolve-item tracker-adapter) query)
     (catch Exception ex
-      (if (= :ambiguous-item (:code (ex-data ex)))
+      (if (contains? #{:ambiguous-item :malformed-managed-section :tracker-item-not-found}
+                     (:code (ex-data ex)))
         nil
         (throw ex)))))
 
