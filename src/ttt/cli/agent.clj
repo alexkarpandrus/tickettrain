@@ -21,7 +21,7 @@
 (def max-request-bytes 65536)
 (def item-states #{"open" "active" "waiting" "completed" "canceled"})
 (def item-priorities #{"none" "low" "medium" "high" "urgent"})
-(def work-item-fields [:state :priority :dueAt :availableAt :blockedBy])
+(def work-item-fields [:title :description :state :priority :dueAt :availableAt :blockedBy])
 (def option-spec {:config {:coerce :string}
                   :profile {:coerce :string}
                   :kind {:coerce :string}
@@ -446,6 +446,8 @@
                       (invalid-request! "create_item blockers must not be blank.")))
     "update_item" (do
                     (when-not (seq (:item request)) (invalid-request! "update_item requires item."))
+                    (when (and (contains? request :title) (str/blank? (:title request)))
+                      (invalid-request! "update_item title must not be blank."))
                     (when-not (some #(contains? request %) (concat [:comment :addLabels :removeLabels] work-item-fields))
                       (invalid-request! "update_item requires comment, addLabels, or removeLabels, or a work-item field."))
                     (when (and (contains? request :comment) (str/blank? (:comment request)))
@@ -487,6 +489,8 @@
 
 (defn assoc-work-item-fields [core-request request]
   (cond-> core-request
+    (contains? request :title) (assoc :title (:title request))
+    (contains? request :description) (assoc :description (:description request))
     (contains? request :state) (assoc :state (:state request))
     (contains? request :priority) (assoc :priority (:priority request))
     (contains? request :dueAt) (assoc :due-at (:dueAt request))
@@ -635,7 +639,7 @@
       (inspect-data runtime))))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :forgeFeedbackCapabilities (forge-feedback-capabilities) :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "inspect-change-request-feedback" "review-change-requests" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :forgeFeedbackCapabilities (forge-feedback-capabilities) :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "inspect-change-request-feedback" "review-change-requests" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-titles" "item-descriptions" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

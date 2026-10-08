@@ -1,6 +1,7 @@
 (ns ttt.logseq-test
   (:require [babashka.http-client :as http]
             [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [ttt.adapters :as adapters]
@@ -53,6 +54,21 @@
           (case method
             "logseq.App.getCurrentGraph" (:graph @state)
             "logseq.Editor.getAllPages" (vec (vals (:pages @state)))
+
+            "logseq.DB.datascriptQuery"
+            (let [query (edn/read-string (first args))
+                  markers (second (first (nth query 4)))]
+              (is (= (quote [:find ?uuid :where [?block :block/marker ?marker]])
+                     (subvec query 0 4)))
+              (is (= #{"TODO" "LATER" "NOW" "DOING" "STARTED" "IN-PROGRESS" "WAIT" "WAITING" "DONE" "CANCELED" "CANCELLED"} markers))
+              (is (= 'contains? (first (first (nth query 4)))))
+              (is (= '?marker (last (first (nth query 4)))))
+              (is (= (quote [[?block :block/page ?page] [?page :block/uuid ?uuid]]) (subvec query 5)))
+              (->> (vals (:blocks @state))
+                   (filter #(contains? markers (second (re-find #"^(?:[ \t]*#+[ \t]+)?([A-Z-]+)(?:[ \t]|$)" (:content %)))))
+                   (map #(get-in @state [:pages (get-in % [:page :id]) :uuid]))
+                   distinct
+                   (mapv vector)))
             "logseq.Editor.getPage" (get-in @state [:pages (first args)])
             "logseq.Editor.getBlock" (get-in @state [:blocks (first args)])
             "logseq.Editor.getPageBlocksTree"
@@ -66,9 +82,9 @@
             "logseq.Editor.appendBlockInPage"
             (let [[page-id content options] args
                   uuid (get-in options [:properties :id])
-                  block {:id 20 :uuid uuid :page {:id 1}
+                  block {:id 20 :uuid uuid :page {:id (:id (first (filter #(= page-id (:uuid %)) (vals (:pages @state)))))}
                          :content (str content "\nid:: " uuid) :properties {:id uuid}}]
-              (is (= journal-id page-id))
+              (is (some #(= page-id (:uuid %)) (vals (:pages @state))))
               (is (false? (:focus options)))
               (swap! state assoc-in [:blocks uuid] block)
               block)
@@ -144,7 +160,7 @@
                (mapv first (write-calls calls))))
         (is (= 1 (count (:blocks @state))))))))
 
-(deftest journal-search-includes-nested-tasks-and-excludes-ordinary-pages
+(deftest all-pages-search-includes-nested-and-ordinary-page-tasks
   (let [state (atom (assoc-in (native-state) [:blocks task-id :fixture-parent] note-id))
         calls (atom []) order (atom [])]
     (with-redefs [http/post (http-stub state calls order) logseq/today (constantly "2026-09-21")]
@@ -155,7 +171,8 @@
         (is (= task-id (:display-id ((:resolve-item adapter)
                                     (domain/identity-key (domain/contained-identity
                                                           :logseq :tracker-item (:id scope) task-id))))))
-        (is (nil? ((:resolve-item adapter) other-id)))
+        (is (= other-id (:display-id ((:resolve-item adapter) other-id))))
+        (is (= #{task-id other-id} (set (map :display-id ((:list-items adapter) (constantly true) 10)))))
         (is (nil? ((:resolve-item adapter) "Missing task")))
         (is (empty? (write-calls calls)))))))
 
@@ -249,7 +266,7 @@
     (with-redefs [http/post (http-stub state calls order) logseq/today (constantly "2026-09-21")]
       (let [runtime (runtime)]
         (doseq [fields [{:priority "high"} {:dueAt "2026-09-30T12:00:00Z"}
-                        {:availableAt nil} {:blockedBy []} {:state "waiting"}
+                        {:availableAt nil} {:blockedBy []}
                         {:project "Work"} {:labels ["follow-up"]}]]
           (is (thrown? Exception (agent/preview-data runtime
                                                    (merge {:action "create_item" :title "Review a draft"} fields)))))
@@ -277,12 +294,12 @@
                               (agent/apply-data! runtime create (:proposalId creation))))
         (is (empty? (write-calls calls)))))))
 
-(deftest foreign-graph-and-non-journal-references-cannot-be-mutated
+(deftest foreign-graph-and-non-task-references-cannot-be-mutated
   (let [state (atom (native-state)) calls (atom []) order (atom [])]
     (with-redefs [http/post (http-stub state calls order) logseq/today (constantly "2026-09-21")]
       (let [runtime (runtime)]
         (is (thrown-with-msg? Exception #"not found"
-                              (agent/preview-data runtime {:action "update_item" :item other-id :state "completed"})))
+                              (agent/preview-data runtime {:action "update_item" :item note-id :state "completed"})))
         (is (thrown-with-msg? Exception #"outside the configured"
                               (agent/preview-data runtime
                                                   {:action "update_item"
@@ -399,3 +416,350 @@
                                 ((:comment-item! adapter) item "Follow up.")))
           (is (= before @state))
           (is (empty? (write-calls calls))))))))
+
+(deftest native-markers-and-heading-tasks-support-approved-content-edits
+  (doseq [[marker neutral] {"TODO" "open" "LATER" "open" "NOW" "active" "DOING" "active"
+                           "STARTED" "active" "IN-PROGRESS" "active" "WAIT" "waiting" "WAITING" "waiting"
+                           "DONE" "completed" "CANCELED" "canceled" "CANCELLED" "canceled"}
+          prefix ["" "## " "  "]]
+    (let [state (atom (assoc-in (native-state) [:blocks other-id :content]
+                               (str prefix marker " Original title\nOriginal body\ncustom:: keep\nid:: " other-id)))
+          calls (atom []) order (atom [])]
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (runtime) item ((get-in rt [:tracker :resolve-item]) other-id)
+              req {:action "update_item" :item other-id :title "Edited title" :description "Edited body\n"}
+              approval (:proposalId (agent/preview-data rt req))]
+          (is (= neutral (:state item)))
+          (is (= "Original body" (:description item)))
+          (is (empty? (write-calls calls)))
+          (is (thrown? Exception (agent/apply-data! rt (assoc req :title "Unapproved") approval)))
+          (let [updated (:item (agent/apply-data! rt req approval))
+                raw (get-in @state [:blocks other-id :content])]
+            (is (= "Edited title" (:title updated)))
+            (is (= "Edited body\n" (:description updated)))
+            (is (= neutral (:state updated)))
+            (is (str/starts-with? raw (str prefix marker " Edited title\ncustom:: keep\nid:: " other-id "\nEdited body\n")))
+            (is (str/includes? raw "custom:: keep"))
+            (is (str/includes? raw (str "id:: " other-id)))
+            (is (= 1 (count (write-calls calls))))))))))
+
+(deftest state-only-edits-preserve-native-separators-and-property-placement
+  (doseq [prefix ["" "## "] sep [" " "\t"] newline ["\n" "\r\n"]]
+    (let [raw (str prefix "TODO" sep "Title" newline "id:: " other-id newline "Body ")
+          state (atom (assoc-in (native-state) [:blocks other-id :content] raw))
+          calls (atom []) order (atom [])]
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (runtime) req {:action "update_item" :item other-id :state "active"}]
+          (agent/apply-data! rt req (:proposalId (agent/preview-data rt req)))
+          (is (= (str prefix "DOING" (subs raw (+ (count prefix) 4)))
+                 (get-in @state [:blocks other-id :content]))))))))
+
+(deftest selected-page-creation-supports-all-neutral-states
+  (doseq [neutral (keys logseq/native-states)]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])]
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (runtime)
+              req {:action "create_item" :project "Ordinary page" :title "Page task" :state neutral}
+              p (agent/preview-data rt req)
+              item (:item (agent/apply-data! rt req (:proposalId p)))
+              uuid (get-in item [:identity :id])]
+          (is (nil? (get-in p [:approvalContext :trackerContext])))
+          (is (= neutral (:state item)))
+          (is (= 2 (get-in @state [:blocks uuid :page :id])))
+          (is (= ["logseq.Editor.appendBlockInPage"] (mapv first (write-calls calls)))))))))
+
+(deftest native-property-and-multiline-title-injection-fails-before-write
+  (let [state (atom (native-state)) calls (atom []) order (atom [])]
+    (with-redefs [http/post (http-stub state calls order)]
+      (doseq [fields [{:title "First\nSecond"} {:title " "}
+                      {:description (str "id:: " other-id)} {:description "custom:: changed"}]]
+        (is (thrown? Exception (agent/preview-data (runtime)
+                              (merge {:action "update_item" :item task-id} fields)))))
+      (is (empty? (write-calls calls))))))
+
+(deftest classic-title-and-body-edits-preserve-priority-and-indented-properties
+  (doseq [cookie ["[#A]" "[#B]" "[#C]"] indentation ["  " "\t"]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])
+          property (str indentation "custom:: keep")
+          raw (str "TODO " cookie " Original\nOriginal body\n" property "\nid:: " task-id)]
+      (swap! state assoc-in [:blocks task-id :content] raw)
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (runtime) item ((get-in rt [:tracker :resolve-item]) task-id)]
+          (is (= "Original" (:title item)))
+          (is (= "Original body" (:description item)))
+          (doseq [fields [{:title "Renamed"} {:description "Replacement body"} {:state "active"}]]
+            (let [req (merge {:action "update_item" :item task-id} fields)]
+              (agent/apply-data! rt req (:proposalId (agent/preview-data rt req)))))
+          (is (= (str "DOING " cookie " Renamed\n" property "\nid:: " task-id "\nReplacement body")
+                 (get-in @state [:blocks task-id :content])))
+          (let [before (count (write-calls calls))]
+            (doseq [fields [{:description (str indentation "id:: " other-id)}
+                            {:description (str indentation "custom:: changed")}]]
+              (is (thrown? Exception (agent/preview-data rt (merge {:action "update_item" :item task-id} fields)))))
+            (is (= before (count (write-calls calls))))))))))
+
+(deftest fenced-property-looking-source-remains-body-text
+  (doseq [fence ["```" "~~~"]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])
+          body (str fence "cpp\nstd::vector<int> xs;\n  a::b\n" fence)]
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (runtime)
+              req {:action "update_item" :item task-id :description body}
+              item (:item (agent/apply-data! rt req (:proposalId (agent/preview-data rt req))))]
+          (is (= body (:description item)))
+          (let [rename {:action "update_item" :item task-id :title "Renamed"}]
+            (agent/apply-data! rt rename (:proposalId (agent/preview-data rt rename))))
+          (is (= body (:description ((get-in rt [:tracker :resolve-item]) task-id)))))))))
+
+(deftest leading-priority-cookies-are-not-title-only-mutations
+  (let [state (atom (native-state)) calls (atom []) order (atom [])]
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [rt (runtime) before @state]
+        (doseq [action ["create_item" "update_item"]
+                title ["[#A] Renamed" "[#B] Renamed" "  [#C] Renamed" "\t[#A] Renamed"]]
+          (let [request (cond-> {:action action :title title}
+                          (= action "update_item") (assoc :item task-id))
+                error (try (agent/preview-data rt request) (catch Exception e e))]
+            (is (= :unsupported-work-item-value (:code (ex-data error))))))
+        (is (empty? (write-calls calls)))
+        (is (= before @state))))))
+
+(deftest unclosed-body-fences-cannot-consume-existing-native-properties
+  (let [state (atom (native-state)) calls (atom []) order (atom [])]
+    (swap! state update-in [:blocks task-id :content] str "\ncustom:: keep")
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [rt (runtime)]
+        (doseq [body ["```text\nunfinished" "fixed" "~~~text\nunfinished" "fixed again"]]
+          (let [request {:action "update_item" :item task-id :description body}
+                item (:item (agent/apply-data! rt request (:proposalId (agent/preview-data rt request))))
+                raw (get-in @state [:blocks task-id :content])]
+            (is (= body (:description item)))
+            (is (str/includes? raw (str "id:: " task-id)))
+            (is (str/includes? raw "custom:: keep"))))))))
+
+(deftest missing-classic-approved-page-rejects-uuid-title-substitution
+  (let [state (atom (native-state)) calls (atom []) order (atom [])]
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [a (:tracker (runtime)) project ((:resolve-project a) "Ordinary page")
+            ref (:ref project)]
+        (swap! state update :pages dissoc 2)
+        (swap! state assoc-in [:pages 3] {:id 3 :uuid "ffffffff-ffff-4fff-8fff-ffffffffffff" :name (:id ref) :journal? false})
+        (let [error (try ((:create-item! a) {:project project} {:title "Approved only"})
+                         (catch Exception e e))]
+          (is (= :stale-proposal (:code (ex-data error))))
+          (is (empty? (write-calls calls))))))))
+
+(deftest derived-creation-properties-are-quoted-without-changing-fenced-source
+  (let [body "Estimate:: 3\n```cpp\nstd::vector<int> xs;\n```\n  Note:: x"
+        intent (logseq/validate-work-item-intent! :create-new {} {:title "Derived title" :description body})]
+    (is (= "> Estimate:: 3\n```cpp\nstd::vector<int> xs;\n```\n>   Note:: x" (:description intent)))
+    (is (= intent (logseq/validate-work-item-intent! :create-item {} intent)))))
+
+(deftest registry-derived-create-new-quotes-body-through-preview-and-exact-apply
+  (let [state (atom (native-state)) calls (atom []) order (atom []) payload (atom nil)
+        body "Estimate:: 3\n```cpp\nstd::vector<int> xs;\n```\n  Note:: x\n:PROPERTIES:\n:custom: source\n:END:"
+        quoted "> Estimate:: 3\n```cpp\nstd::vector<int> xs;\n```\n>   Note:: x\n> :PROPERTIES:\n> :custom: source\n> :END:"
+        command (integration/command-stub order payload)
+        source-body (atom body)]
+    (with-redefs [http/post (http-stub state calls order)
+                  logseq/today (constantly "2026-09-21")
+                  shell/run (fn [& args]
+                              (let [out (apply command args)]
+                                (if (= "view" (nth args 2 nil))
+                                  (json/generate-string (assoc (json/parse-string out true) :body @source-body))
+                                  out)))]
+      (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+            request {:action "create_new"}
+            preview (agent/preview-data rt request)]
+        (is (str/includes? (get-in preview [:trackerIntent :description]) quoted))
+        (reset! source-body (str body "\nchanged after approval"))
+        (is (thrown-with-msg? Exception #"Approval does not match"
+                              (agent/apply-data! rt request (:proposalId preview))))
+        (is (empty? (write-calls calls)))
+        (reset! source-body body)
+        (let [item (:item (agent/apply-data! rt request (:proposalId preview)))]
+          (is (str/includes? (:description item) quoted))
+          (is (= [:tracker :forge] @order)))
+        (reset! order [])
+        (let [p (agent/preview-data rt {:action "link_existing" :item task-id})]
+          (is (not (str/includes? (get-in p [:trackerIntent :description]) "Estimate:: 3")))
+          (agent/apply-data! rt {:action "link_existing" :item task-id} (:proposalId p))
+          (is (= [:tracker :forge] @order)))))))
+
+(deftest task-discovery-does-not-fetch-ten-thousand-unrelated-page-trees
+  (let [state (atom (native-state)) calls (atom []) order (atom [])]
+    (swap! state update :pages into
+           (for [i (range 3 10003)]
+             [i {:id i :uuid (str (java.util.UUID/randomUUID)) :name (str "Empty page " i) :journal? false}]))
+    (doseq [[i marker] (map-indexed vector ["TODO" "LATER" "NOW" "DOING" "STARTED" "IN-PROGRESS" "WAIT" "WAITING" "DONE" "CANCELED" "CANCELLED"])]
+      (let [uuid (str (java.util.UUID/randomUUID))]
+        (swap! state assoc-in [:blocks uuid] {:id (+ 50 i) :uuid uuid :page {:id 2}
+                                             :content (str "## " marker " Indexed task " i)})))
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [a (:tracker (runtime)) results ((:search-parent-items a))]
+        (is (= 13 (count results)))
+        (is (= 1 (count (filter #(= "logseq.DB.datascriptQuery" (first %)) @calls))))
+        (is (= 2 (count (filter #(= "logseq.Editor.getPageBlocksTree" (first %)) @calls))))
+        (is (<= (count @calls) 10))
+        (is (empty? (write-calls calls)))))))
+
+(deftest native-fence-boundaries-control-property-safety
+  (doseq [indent ["" "   " "    " "\t"]
+          opener ["```cpp" "~~~text"]
+          closer ["```" "~~~" "```tail"]]
+    (let [body (str indent opener "\nFoo:: literal source\n" indent closer)]
+      (is (= [body []] (logseq/split-description body)))
+      (is (= body (:description (logseq/validate-work-item-intent! :update-item {} {:description body}))))))
+  (doseq [body ["```cpp\nFoo:: native property" "~~~text\nFoo:: native property"
+                "```\n~~~\nFoo:: native property" "```\n```tail\nFoo:: native property"]]
+    (is (= ["Foo:: native property"] (second (logseq/split-description body))))
+    (is (thrown-with-msg? Exception #"Edit native Logseq properties"
+                          (logseq/validate-work-item-intent! :update-item {} {:description body})))
+    (is (str/includes? (:description (logseq/validate-work-item-intent! :create-new {} {:description body}))
+                       "> Foo:: native property"))))
+
+(deftest registry-preserves-native-drawers-and-literal-line-endings
+  (doseq [newline ["\n" "\r\n"]
+          body [(str "Line one" newline "Line two" newline)
+                (str ":PROPERTIES:" newline ":custom: keep" newline ":END:" newline "Body" newline)]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])]
+      (swap! state assoc-in [:blocks task-id :content] (str "TODO Existing" newline body))
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+              request {:action "update_item" :item task-id :title "Renamed"}
+              proposal (agent/preview-data rt request)]
+          (agent/apply-data! rt request (:proposalId proposal))
+          (is (= (str "TODO Renamed" newline body) (get-in @state [:blocks task-id :content])))
+          (let [request {:action "update_item" :item task-id :description (str "Replacement" newline)}
+                proposal (agent/preview-data rt request)
+                result (agent/apply-data! rt request (:proposalId proposal))]
+            (is (= (str "Replacement" newline) (get-in result [:item :description])))
+            (when (str/starts-with? body ":PROPERTIES:")
+              (is (str/includes? (get-in @state [:blocks task-id :content])
+                                 (str ":PROPERTIES:" newline ":custom: keep" newline ":END:"))))))))))
+
+(deftest registry-rejects-explicit-drawers-before-approval
+  (let [state (atom (native-state)) calls (atom []) order (atom [])
+        drawer ":PROPERTIES:\r\n:custom: changed\r\n:END:"]
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [rt (adapters/runtime app-config forge/registry tracker/registry)]
+        (is (thrown-with-msg? Exception #"Edit native Logseq properties"
+                              (agent/preview-data rt {:action "update_item" :item task-id :description drawer})))
+        (is (empty? (write-calls calls)))))
+    (is (= ["" [":PROPERTIES:" ":custom: changed" ":END:"]] (logseq/split-description drawer)))
+    (is (= "> :PROPERTIES:\r\n> :custom: changed\r\n> :END:"
+           (:description (logseq/validate-work-item-intent! :create-new {} {:description drawer}))))
+    (is (= [(str "```\n" drawer "\n~~~") []]
+           (logseq/split-description (str "```\n" drawer "\n~~~"))))))
+
+(deftest native-drawers-preserve-source-order-and-closing-text
+  (doseq [start [":PROPERTIES:" ":properties:" "    :PROPERTIES:" "\t:PROPERTIES:"]
+          ending [":END:" ":end:" ":END: trailing" ":END:tail"]]
+    (let [body (str start "\n:custom: keep\n" ending)
+          tail (subs ending 5)]
+      (is (= [tail [start ":custom: keep" (subs ending 0 5)]] (logseq/split-description body)))
+      (is (thrown-with-msg? Exception #"Edit native Logseq properties"
+                            (logseq/validate-work-item-intent! :update-item {} {:description body})))))
+  (doseq [body [":PROPERTIES:\nHello\n:END:" ":PROPERTIES:\nFoo:: literal\n:END:"
+                ":PROPERTIES:\n:custom: keep" ":LOGBOOK:\nFoo:: literal\n:END:"]]
+    (is (= [body []] (logseq/split-description body))))
+  (let [body ":PROPERTIES:\n```\n:END:\nFoo:: native\n~~~"]
+    (is (= ["Foo:: native"] (second (logseq/split-description body))))
+    (is (thrown-with-msg? Exception #"Edit native Logseq properties"
+                          (logseq/validate-work-item-intent! :update-item {} {:description body}))))
+  (is (= "One\r\nTwo\nThree\rFour\r\n"
+         (first (logseq/split-description "One\r\nTwo\nThree\rFour\r\n")))))
+
+(deftest registry-title-only-keeps-interleaved-and-appended-native-properties
+  (doseq [body ["First\ncustom:: keep\r\nSecond\n"
+                (str "Body\r\nid:: " task-id)
+                "First\n:PROPERTIES:\n:custom: keep\n:END:tail\r\nSecond\n"]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])]
+      (swap! state assoc-in [:blocks task-id :content] (str "TODO Existing\r\n" body))
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+              request {:action "update_item" :item task-id :title "Renamed"}
+              p (agent/preview-data rt request)]
+          (agent/apply-data! rt request (:proposalId p))
+          (is (= (str "TODO Renamed\r\n" body) (get-in @state [:blocks task-id :content]))))))))
+
+(deftest direct-adapter-title-only-keeps-omitted-body
+  (let [state (atom (native-state)) calls (atom []) order (atom [])
+        body (str "Body\r\nid:: " task-id)]
+    (swap! state assoc-in [:blocks task-id :content] (str "TODO Existing\r\n" body))
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [a (:tracker (adapters/runtime app-config forge/registry tracker/registry))]
+        ((:update-item! a) ((:resolve-item a) task-id) {:title "Direct"})
+        (is (= (str "TODO Direct\r\n" body) (get-in @state [:blocks task-id :content])))))))
+
+(deftest registry-explicit-same-neutral-state-keeps-every-native-marker
+  (doseq [[marker state-name] [["TODO" "open"] ["LATER" "open"] ["NOW" "active"] ["DOING" "active"]
+                               ["STARTED" "active"] ["IN-PROGRESS" "active"] ["WAIT" "waiting"] ["WAITING" "waiting"]
+                               ["DONE" "completed"] ["CANCELED" "canceled"] ["CANCELLED" "canceled"]]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])
+          raw (str marker " [#A] Native\r\nBody\ncustom:: keep")]
+      (swap! state assoc-in [:blocks task-id :content] raw)
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+              req {:action "update_item" :item task-id :state state-name}
+              p (agent/preview-data rt req)]
+          (agent/apply-data! rt req (:proposalId p))
+          (is (= raw (get-in @state [:blocks task-id :content])))
+          (is (empty? (write-calls calls))))))))
+
+(deftest literal-double-colons-and-quote-continuations-remain-body
+  (doseq [body ["std::vector<int> xs;" "MyClass::CONST = 5" "Note::see below" "Foo::: bar" "Foo::\tbar"
+                "> quote\nFoo:: bar" ">quote\r\nFoo:: bar" "> quote\n>\nFoo:: bar"]]
+    (is (= [body []] (logseq/split-description body)))
+    (is (= body (:description (logseq/validate-work-item-intent! :create-new {} {:description body}))))
+    (let [state (atom (native-state)) calls (atom []) order (atom [])]
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+              req {:action "update_item" :item task-id :description body}
+              p (agent/preview-data rt req)
+              result (agent/apply-data! rt req (:proposalId p))]
+          (is (= body (get-in result [:item :description])))
+          (is (str/includes? (get-in @state [:blocks task-id :content]) body))))))
+  (doseq [body ["Foo:: bar" "Foo::" "> quote\n\nFoo:: bar" "> quote\n# Heading\nFoo:: bar"
+                "> quote\nid:: native-id" "> quote\n- sibling\nFoo:: bar"]]
+    (is (seq (second (logseq/split-description body))))
+    (is (thrown-with-msg? Exception #"Edit native Logseq properties"
+                          (logseq/validate-work-item-intent! :update-item {} {:description body})))))
+
+(deftest registry-empty-description-clears-body-but-keeps-native-metadata
+  (let [state (atom (native-state)) calls (atom []) order (atom [])
+        metadata (str "custom:: keep\r\n:PROPERTIES:\r\n:id: " task-id "\r\n:END:")]
+    (swap! state assoc-in [:blocks task-id :content] (str "LATER [#B] Native\r\nOld body\r\n" metadata))
+    (with-redefs [http/post (http-stub state calls order)]
+      (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+            request {:action "update_item" :item task-id :description ""}
+            p (agent/preview-data rt request)
+            result (agent/apply-data! rt request (:proposalId p))]
+        (is (= "" (get-in result [:item :description])))
+        (is (= (str "LATER [#B] Native\r\n" metadata) (get-in @state [:blocks task-id :content])))
+        (is (not (str/includes? (get-in @state [:blocks task-id :content]) "Old body")))
+        (is (= 1 (count (write-calls calls))))))))
+
+(deftest registry-rejects-leading-native-title-separators-before-approval
+  (doseq [title [" Leading" "\tLeading"]
+          request [{:action "update_item" :item task-id :title title}
+                   {:action "create_item" :title title :project "Ordinary page"}]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])]
+      (with-redefs [http/post (http-stub state calls order)]
+        (is (thrown-with-msg? Exception #"Logseq task titles"
+                              (agent/preview-data (adapters/runtime app-config forge/registry tracker/registry) request)))
+        (is (empty? (write-calls calls)))))))
+
+(deftest native-deep-heading-tasks-survive-discovery-and-updates
+  (doseq [depth [7 12]]
+    (let [state (atom (native-state)) calls (atom []) order (atom [])
+          prefix (str (apply str (repeat depth "#")) " ")]
+      (swap! state assoc-in [:blocks task-id :content] (str prefix "TODO Deep"))
+      (with-redefs [http/post (http-stub state calls order)]
+        (let [rt (adapters/runtime app-config forge/registry tracker/registry)
+              items ((:list-items (:tracker rt)) #(= task-id (:display-id %)) 10)
+              request {:action "update_item" :item task-id :state "completed"}
+              p (agent/preview-data rt request)]
+          (is (= 1 (count items)))
+          (agent/apply-data! rt request (:proposalId p))
+          (is (= (str prefix "DONE Deep") (get-in @state [:blocks task-id :content]))))))))

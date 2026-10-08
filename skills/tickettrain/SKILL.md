@@ -49,7 +49,7 @@ context:
 - Jira uses the default `Blocks` issue-link type for blockers. Set `JIRA_BLOCKER_LINK_TYPE` to a custom type ID or name when needed.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior creates pending tasks, preserves native status during updates, and uses projects instead of native parent tasks.
-- Logseq requires its local HTTP API server and the exact configured graph to be open. `LOGSEQ_GRAPH` selects its path; `LOGSEQ_TOKEN` authenticates the API. Native journal `TODO`/`DONE` blocks map to `open`/`completed`; item references are full block UUIDs and comments are child blocks. Preview again after midnight before creation.
+- Logseq file provider `logseq` uses the local HTTP API with `LOGSEQ_GRAPH` and `LOGSEQ_TOKEN`. DB provider `logseq-db` uses the official CLI with `LOGSEQ_DB_GRAPH` and optional `LOGSEQ_ROOT_DIR`. Both read all native tasks, use native pages as projects, support title/body updates and `open`/`active`/`waiting`/`completed`/`canceled`, and append native child comments. Item references are full native UUIDs. Default file-graph creation uses today's journal and binds its date; DB creation requires a selected page. Failed creation may have succeeded: inspect the native page before retrying.
 - Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
 - Never guess a state name. If setup reports an unavailable state, present the available states and ask the user to choose.
 
@@ -84,7 +84,7 @@ ttt check-project --request '{"note":"I archived invoices in Atlas","project":"B
    {"action":"update_item","item":"APP-123","comment":"Jade replied. Waiting for the revised timeline.","addLabels":["waiting"],"removeLabels":["blocked"]}
    ```
 
-   Taskwarrior creates new project and tag names implicitly. Other trackers can require existing projects and labels. Logseq journal items do not support projects, labels, or parent selection.
+   Taskwarrior creates new project and tag names implicitly. Other trackers can require existing projects and labels. Both Logseq providers use existing native pages as projects and do not support labels or parent selection. Logseq `update_item` accepts a nonblank single-line `title` and a `description` string (empty clears it); unrelated native properties and equivalent native status aliases stay unchanged.
 
    To create only a change request, use:
 

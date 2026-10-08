@@ -10,7 +10,7 @@
   <a href="https://github.com/alexkarpandrus/tickettrain/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/alexkarpandrus/tickettrain/actions/workflows/test.yml/badge.svg"></a>
   <img alt="Babashka 1.12.217+" src="https://img.shields.io/badge/Babashka-1.12.217%2B-8b5cf6?logo=clojure&logoColor=white">
   <img alt="Agent API v2" src="https://img.shields.io/badge/Agent_API-v2-06b6d4">
-  <img alt="9 providers" src="https://img.shields.io/badge/providers-9-14b8a6">
+  <img alt="10 providers" src="https://img.shields.io/badge/providers-10-14b8a6">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-e85d3f"></a>
 </p>
 
@@ -99,24 +99,24 @@ Every registered adapter implements the shared contract for its role. Provider-n
 
 ### Trackers
 
-| Capability | Linear | Jira | GitHub Issues | Asana | Taskwarrior | Logseq |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Search and resolve items | ✓ | ✓ | ✓ | ✓¹ | ✓ | ✓ |
-| List normalized items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Parent hierarchy | ✓ | ✓ | —² | ✓ | —⁴ | — |
-| Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ | — |
-| Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Create items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ | — |
-| Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ | ✓⁷ |
-| Set neutral priority | ✓ | ✓ | — | — | ✓⁶ | — |
-| Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ | — |
-| Set availability | — | — | — | ✓ | ✓⁶ | — |
-| Set blockers | ✓ | ✓ | — | ✓ | ✓⁶ | — |
-| Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI | Local HTTP API |
+| Capability | Linear | Jira | GitHub Issues | Asana | Taskwarrior | Logseq files | Logseq DB |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Search, resolve, and list items | ✓ | ✓ | ✓ | ✓¹ | ✓ | ✓ | ✓ |
+| Parent hierarchy | ✓ | ✓ | —² | ✓ | —⁴ | — | — |
+| Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ | Native pages | Native pages |
+| Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| Create and comment on items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ | — | — |
+| Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ | ✓⁷ | ✓⁷ |
+| Set neutral priority | ✓ | ✓ | — | — | ✓⁶ | — | — |
+| Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ | — | — |
+| Set availability | — | — | — | ✓ | ✓⁶ | — | — |
+| Set blockers | ✓ | ✓ | — | ✓ | ✓⁶ | — | — |
+| Edit item titles | — | — | — | — | — | ✓ | ✓ |
+| Edit item bodies | — | — | — | — | — | ✓ | ✓ |
+| Update managed backlinks | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI | Local HTTP API | Native `logseq` CLI |
 
 1. Asana's full-workspace search requires a paid plan. On HTTP 402, `ttt` searches only tasks assigned to the authenticated user.
 2. GitHub Issues does not support parent issues. GitHub milestones provide the project scope.
@@ -124,17 +124,31 @@ Every registered adapter implements the shared contract for its role. Provider-n
 4. Taskwarrior does not support native parent tasks. Use Taskwarrior projects for hierarchy.
 5. Taskwarrior creates pending tasks and preserves native status during updates.
 6. Unsupported neutral fields or values fail during read-only preview.
-7. Logseq maps `open` to native `TODO` and `completed` to `DONE`. It lists journal tasks only, including nested tasks.
+7. Logseq files map TODO/LATER to `open`, NOW/DOING/STARTED/IN-PROGRESS to `active`, WAIT/WAITING to `waiting`, DONE to `completed`, and CANCELED/CANCELLED to `canceled`. DB graphs map Backlog/Todo to `open`, Doing to `active`, In Review to `waiting`, Done to `completed`, and Canceled to `canceled`. Body edits and same-neutral-state updates preserve the native marker/status.
 
-All 18 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
+All 21 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
 
-### Logseq journals
+### Logseq file graphs
 
-Enable Logseq's local HTTP API server and keep the selected file graph open. The server must expose the [Logseq SDK](https://github.com/logseq/logseq/blob/0.10.15/src/main/logseq/api.cljs) methods `App.getCurrentGraph` and the file-graph page/block read and write methods, including `Editor.getAllPages` and `Editor.createPage`. Set `LOGSEQ_GRAPH` to the exact graph path reported by `App.getCurrentGraph` and `LOGSEQ_TOKEN` to the API token, then select Logseq in `ttt setup`. `LOGSEQ_BASE_URL` defaults to `http://127.0.0.1:12315`; only loopback HTTP URLs are accepted.
+Enable Logseq's local HTTP API server and keep the selected file graph open. The server must expose the [Logseq SDK](https://github.com/logseq/logseq/blob/0.10.15/src/main/logseq/api.cljs) methods `App.getCurrentGraph`, `DB.datascriptQuery`, and the file-graph page/block read and write methods, including `Editor.getAllPages` and `Editor.createPage`. Set `LOGSEQ_GRAPH` to the exact graph path reported by `App.getCurrentGraph` and `LOGSEQ_TOKEN` to the API token, then select Logseq in `ttt setup`. `LOGSEQ_BASE_URL` defaults to `http://127.0.0.1:12315`; only loopback HTTP URLs are accepted.
 
-Use `create_item` to append a native `TODO` in today's journal. Search and list return full native block UUIDs. Use that UUID with `update_item` and `state: "completed"` to change only its marker to `DONE`. Descriptions remain in the block content; comments append native child blocks. Comments starting with a native task marker (`NOW`, `LATER`, `TODO`, `DOING`, `DONE`, `WAITING`, `WAIT`, `CANCELED`, `CANCELLED`, `IN-PROGRESS`, or `STARTED`), including leading whitespace or Markdown headings, are Markdown-quoted (`> ` on each line) so they remain comments, not tasks; other comments are unchanged. Tracker reads still expose only `TODO`/`DONE` tasks. New tasks use Logseq's native `id` property to persist their UUID, not separate `ttt` task storage.
+Select provider `logseq`. Search and list include tasks from every page, including journals, headings, and nested tasks. Native pages are projects: pass a page UUID or name as `project` to create a task there; omit it to append to today's journal. `update_item` accepts `title`, `description`, and all five neutral states. Titles must be nonblank single lines; an empty description clears the body. Native property lines are not part of the neutral body and remain intact during edits; edit properties in Logseq, not through `description`. New tasks use Logseq's native `id` property to persist their UUID, not separate `ttt` storage. Comments append native child blocks. Leading task-looking comments are Markdown-quoted per line, including all eleven native markers and Markdown headings; other comments are unchanged.
+
+Classic title edits retain existing native priority cookies; new titles cannot start with spaces, tabs, or a priority cookie. Explicit bodies cannot set native properties. Property-looking lines in derived change-request bodies are quoted as text; fenced source stays unchanged. Content edits keep native properties before the body so an unclosed fence cannot absorb them.
 
 Preview does not create journal pages or blocks. Creation approval includes the journal date; preview again after midnight. An API failure after creation can leave a task behind. Inspect the reported block UUID before retrying `create_item`. The desktop API has no graph-scoped transaction: do not switch graphs or edit the selected block while apply runs.
+
+### Logseq DB graphs
+
+Select provider `logseq-db`. Install the official Logseq DB CLI (tested with the CLI bundled with Logseq 2.0.1), set `LOGSEQ_DB_GRAPH` to its graph name, and optionally set `LOGSEQ_ROOT_DIR` to its CLI root directory (native default: `~/logseq`). No HTTP token is needed. The adapter uses graph-scoped native CLI commands and the native graph UUID; it never opens SQLite files or stores its own tasks.
+
+Native Task-tag blocks without a status remain readable with `state: null`; no lifecycle default is invented. Explicit status assignment sets one of the five neutral states. Discovery and UUID lookup query native Task-class membership, including inherited classes and empty tasks. Task data is read in bounded batches; exact page references use bound native queries.
+
+Search and list cover all native tasks and pages. Select an existing page by name or UUID with `project` when creating a task; an explicit page avoids an implicit journal destination. Title/body updates preserve unrelated native properties. Comments are native child blocks, not task records. Native creation, content edits, status edits, and commenting can require separate operations. If a write fails, inspect the selected native page/task before retrying; never repeat creation automatically. Do not rename the selected page, replace the graph, or edit the task while apply runs.
+
+New DB comments appear before existing children, with the newest comment first. This insertion position preserves existing empty child blocks.
+
+Run the optional real-graph check with `bb --classpath src:test test/logseq_db_live.clj`. It creates and removes its own disposable graph under the current directory and leaves existing graphs unchanged.
 
 ## Human workflow
 
