@@ -31,7 +31,7 @@
               :destination {:repository {:uuid repo-id} :branch {:name "main"}}
               :source {:branch {:name "feature"} :commit {:hash "head-a"}} :reviewers [old-user]})
    :comments (atom [(native-note 1 nil) (native-note 10 nil) (native-note 11 10) (native-note 12 11)])
-   :writes (atom []) :reads (atom []) :failure (atom nil) :next-page (atom nil) :outage (atom false)})
+   :writes (atom []) :failure (atom nil) :next-page (atom nil) :outage (atom false)})
 
 (defn response [status body]
   {:status status :body (if (= status 204) "" (json/generate-string body))})
@@ -46,7 +46,6 @@
       (is (false? (:throw options)))
       (if (= :get method)
         (do
-          (swap! (:reads state) conj [path query])
           (when @(:outage state) (throw (ex-info "Outage" {})))
           (response 200
                     (cond

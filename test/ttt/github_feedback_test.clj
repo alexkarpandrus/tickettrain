@@ -14,6 +14,11 @@
 (def old-user {:__typename "User" :id "U_old" :login "existing" :name "Existing"})
 (def new-user {:__typename "User" :id "U_new" :login "requested" :name "Requested"})
 (def team {:__typename "Team" :id "T_keep" :slug "reviewers" :name "Reviewers" :organization {:login "org"}})
+(def enterprise-team {:__typename "EnterpriseTeam" :id "ET_new" :name "Enterprise reviewers"})
+(def bot {:__typename "Bot" :id "B_new" :login "review-bot"})
+(def mannequin {:__typename "Mannequin" :id "M_keep" :name "Imported reviewer"})
+(def reviewer-nodes {"U_new" new-user "U_old" old-user "T_keep" team
+                     "ET_new" enterprise-team "B_new" bot "M_keep" mannequin})
 
 (defn native-note [id]
   {:id id :body "Original" :author {:id "U_me" :login "me"}
@@ -30,7 +35,7 @@
               :state "OPEN" :headRefOid "head-a" :headRefName "feature" :baseRefName "main"})
    :threads (atom [(native-thread "PRT_first" (native-note "PRRC_first"))
                    (native-thread "PRT_second" (native-note "PRRC_second"))])
-   :reviewers (atom [old-user team]) :writes (atom []) :failure (atom nil) :calls (atom []) :outage (atom false)})
+   :reviewers (atom [old-user team]) :writes (atom []) :failure (atom nil) :outage (atom false)})
 
 (defn connection [items cursor]
   (let [offset (if cursor (parse-long cursor) 0)
@@ -43,7 +48,6 @@
     (is (= ["gh" "api" "graphql" "--hostname"
             (.getAuthority (java.net.URI. (:url @(:repository state)))) "--input" "-"] args))
     (let [{:keys [query variables]} (json/parse-string input true)
-          _ (swap! (:calls state) conj [query variables])
           thread-index (fn [id] (first (keep-indexed #(when (= id (:id %2)) %1) @(:threads state))))
           data (cond
                  (str/starts-with? query "query Feedback(")
@@ -61,7 +65,7 @@
                  (let [thread (get @(:threads state) (thread-index (:id variables)))]
                    {:node (-> thread (dissoc :notes) (assoc :comments (connection (:notes thread) (:cursor variables))))})
                  (str/starts-with? query "query Reviewer")
-                 {:node (get {"U_new" new-user "U_old" old-user "T_keep" team} (:id variables))}
+                 {:node (get reviewer-nodes (:id variables))}
                  :else
                  (let [[_ mutation] (re-find #"\{ ([a-zA-Z]+)\(input:" query)
                        fields (:input variables)
@@ -93,7 +97,7 @@
                            "requestReviews"
                            (do (is (= "PR_7" (:pullRequestId fields)))
                                (is (= #{:pullRequestId :userIds :teamIds :botIds :union} (set (keys fields))))
-                               (let [requested (mapv {"U_new" new-user "U_old" old-user "T_keep" team}
+                               (let [requested (mapv reviewer-nodes
                                                      (concat (:userIds fields) (:teamIds fields) (:botIds fields)))]
                                  (swap! (:reviewers state) #(vec (distinct (if (:union fields) (concat % requested) requested)))))
                                {:pullRequest {:id "PR_7"}}))]
@@ -260,3 +264,36 @@
            (is (= 2 (:exit (support/apply-request request id))))
            (is (= 1 (count @(:writes s))))
            (is (= 2 (count (get-in @(:threads s) [1 :notes])))))))))
+
+(deftest native-reviewer-kinds-preserve-and-route-exact-additions-replacement-and-clearing
+  (let [s (state)]
+    (reset! (:reviewers s) [old-user team mannequin])
+    (with-github s
+      #(let [addition (support/request [{:type "update_reviewers" :reviewers ["ET_new" "B_new"]}])
+             result (support/apply-request addition (support/proposal-id addition))]
+         (is (= 0 (:exit result)) (pr-str result))
+         (is (= {:pullRequestId "PR_7" :userIds [] :teamIds ["ET_new"] :botIds ["B_new"] :union true}
+                (second (last @(:writes s)))))
+         (is (= ["U_old" "T_keep" "M_keep" "ET_new" "B_new"] (mapv :id @(:reviewers s))))
+         (let [retain (assoc (support/request [reviewers]) :batchId "retain-native-kinds")]
+           (is (= 0 (:exit (support/apply-request retain (support/proposal-id retain)))))
+           (is (= {:pullRequestId "PR_7" :userIds ["U_new"] :teamIds [] :botIds [] :union true}
+                  (second (last @(:writes s)))))
+           (is (= ["U_old" "T_keep" "M_keep" "ET_new" "B_new" "U_new"] (mapv :id @(:reviewers s)))))
+         (let [replacement (assoc (support/request [{:type "update_reviewers" :reviewers ["T_keep" "ET_new" "B_new"] :replace true}])
+                                  :batchId "replace-native-kinds")]
+           (is (= 0 (:exit (support/apply-request replacement (support/proposal-id replacement)))))
+           (is (= {:pullRequestId "PR_7" :userIds [] :teamIds ["T_keep" "ET_new"] :botIds ["B_new"] :union false}
+                  (second (last @(:writes s)))))
+           (is (= ["T_keep" "ET_new" "B_new"] (mapv :id @(:reviewers s)))))
+         (let [clear (assoc (support/request [{:type "update_reviewers" :reviewers [] :replace true}]) :batchId "clear-native-kinds")]
+           (is (= 0 (:exit (support/apply-request clear (support/proposal-id clear)))))
+           (is (= {:pullRequestId "PR_7" :userIds [] :teamIds [] :botIds [] :union false}
+                  (second (last @(:writes s)))))
+           (is (empty? @(:reviewers s))))
+         (let [before @(:writes s)]
+           (is (= "reviewer-not-found"
+                  (get-in (support/preview (assoc (support/request [{:type "update_reviewers" :reviewers ["M_keep"]}])
+                                                 :batchId "unsupported-mannequin"))
+                          [:envelope :error :code])))
+           (is (= before @(:writes s))))))))
