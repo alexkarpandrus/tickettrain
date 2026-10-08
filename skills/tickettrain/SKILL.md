@@ -114,6 +114,16 @@ ttt check-project --request '{"note":"I archived invoices in Atlas","project":"B
    {"action":"close_change_request","changeRequest":"73","comment":"Superseded by #74 and #76."}
    ```
 
+   To handle GitLab review feedback, first run `ttt inspect --feedback --change-request 7`. Use exact native discussion/note IDs and a unique repository-local batch ID:
+
+   ```json
+   {"action":"review_change_request","changeRequest":"7","batchId":"review-fix-1","operations":[{"type":"reply","discussion":"native-thread-id","body":"Fixed and verified"},{"type":"resolve_discussion","discussion":"native-thread-id","resolved":true}]}
+   ```
+
+   `edit_note` needs `discussion`, `note`, and `body`. `resolve_discussion` needs a boolean `resolved`. `update_reviewers` needs native user ID strings in `reviewers`; preserve existing reviewers unless `replace: true` is explicitly approved. Check `version.forgeFeedbackCapabilities` for provider support. Preview pins the immutable `nativeIdentity` and head; optional `expectedHead` validates the reviewed revision. Fixing and pushing code need separate authorization, then a new preview if the head changes.
+
+   On partial failure, retain the request, profile, configuration, proposal ID, and recovery journal in `<git-common-dir>/ttt-feedback`. Local worktrees share the journal and MR mutation lock; a competing apply stops before writing. Retry skips successful writes. Matching saved outcomes remain visible if retry inspection fails. `started` or `unknown` outcomes stop without resending; inspect native feedback before manual recovery. Read final `feedback.unresolvedDiscussions`, not only a top-level summary.
+
    Push the current branch before previewing `create_change_request`.
 
 2. `ttt preview --profile NAME --request-file req.json` — read-only; retain its proposal ID internally.
