@@ -156,3 +156,39 @@
           (is (= [{:entry "20260907T115900Z" :description "Existing comment"}
                   {:entry "20261008T120000Z" :description "New comment"}]
                  annotations (:annotations @task*))))))))
+
+
+(deftest read-only-search-falls-back-without-weakening-selected-target-validation
+  (let [malformed (assoc (native-task) :description "Repair inventory" :project "Other"
+                         :tttDescription "Conflicting description")
+        healthy (assoc (native-task) :id 8 :uuid "b360fc44-315c-4366-b70c-ea7e7520b749"
+                       :description "Prepare inventory" :project "Healthy"
+                       :annotations [] :tttDescription "Healthy body")
+        native-run (shell-stub (atom malformed) (atom []) (atom nil))
+        export (fn [_ & [reference]]
+                 (if reference (filterv #(= reference (:uuid %)) [malformed healthy])
+                     [malformed healthy]))
+        search (fn [& options]
+                 (agent/run (into ["search" "--kind" "item" "--query" "Repair"] options)))]
+    (with-redefs [app-config/load-config (fn [& _] config)
+                  shell/run (fn [& args]
+                              (if (= ["task" "_unique" "project"] (vec args))
+                                "Other\nHealthy" (apply native-run args)))
+                  shell/run-input (fn [& _] (throw (ex-info "Search must not write" {})))
+                  taskwarrior/export-tasks export]
+      (let [unfiltered (search) filtered (search "--project" "Healthy")]
+        (is (= 0 (:exit unfiltered) (:exit filtered)))
+        (is (= "a360fc44" (get-in unfiltered [:envelope :data :candidates 0 :displayId])))
+        (is (= ["b360fc44"] (mapv :displayId (get-in filtered [:envelope :data :candidates])))))
+      (is (= "malformed-managed-section"
+             (get-in (agent/run ["preview" "--request"
+                                 (json/generate-string {:action "update_item" :item existing-uuid
+                                                        :state "completed"})])
+                     [:envelope :error :code])))
+      (with-redefs [taskwarrior/export-tasks (fn [_ & [reference]]
+                                             (if reference [] [malformed healthy]))]
+        (is (= 0 (:exit (search "--project" "Healthy")))))
+      (with-redefs [taskwarrior/export-tasks (fn [& _]
+                                             (throw (ex-info "Provider unavailable"
+                                                             {:code :provider-unavailable})))]
+        (is (= "provider-unavailable" (get-in (search) [:envelope :error :code])))))))
