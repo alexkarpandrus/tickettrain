@@ -188,7 +188,11 @@
       (with-redefs [taskwarrior/export-tasks (fn [_ & [reference]]
                                              (if reference [] [malformed healthy]))]
         (is (= 0 (:exit (search "--project" "Healthy")))))
-      (with-redefs [taskwarrior/export-tasks (fn [& _]
-                                             (throw (ex-info "Provider unavailable"
-                                                             {:code :provider-unavailable})))]
-        (is (= "provider-unavailable" (get-in (search) [:envelope :error :code])))))))
+      (let [list-reads (atom 0)]
+        (with-redefs [taskwarrior/export-tasks (fn [_ & [reference]]
+                                               (if reference
+                                                 (throw (ex-info "Provider unavailable"
+                                                                 {:code :provider-unavailable}))
+                                                 (do (swap! list-reads inc) [malformed healthy])))]
+          (is (= "provider-unavailable" (get-in (search) [:envelope :error :code])))
+          (is (= 1 @list-reads)))))))
