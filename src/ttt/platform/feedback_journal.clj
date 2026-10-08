@@ -15,8 +15,12 @@
       (let [batch (try (edn/read-string (slurp file))
                        (catch Exception ex
                          (throw (ex-info "Cannot read the feedback recovery journal; preserve it for inspection."
-                                         {:code :feedback-journal-invalid} ex))))]
+                                         {:code :feedback-journal-invalid} ex))))
+            target (get-in batch [:proposal :change-request :native-ref])]
         (when-not (and (= 1 (:version batch)) (map? (:proposal batch))
+                       (keyword? (:provider target)) (= :change-request (:kind target))
+                       (every? #(and (string? %) (not (str/blank? %)))
+                               [(:container target) (:id target)])
                        (vector? (:outcomes batch))
                        (= (count (:outcomes batch)) (count (get-in batch [:proposal :operations])))
                        (every? #(contains? #{:pending :started :succeeded :failed :unknown} (:status %))
