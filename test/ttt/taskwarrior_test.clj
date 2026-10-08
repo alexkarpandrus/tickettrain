@@ -105,15 +105,33 @@
 (deftest conflicting-description-sources-fail-before-import
   (let [task (assoc native-task :tttDescription "Different description")
         imports (atom [])]
-    (is (thrown-with-msg? Exception #"tttDescription conflicts"
-                          (taskwarrior/normalize-task scope task)))
     (with-redefs [taskwarrior/export-tasks (fn [_ _] [task])
                   taskwarrior/import-task! (fn [_ task] (swap! imports conj task))]
+      (is (thrown-with-msg? Exception #"tttDescription conflicts"
+                            (taskwarrior/resolve-item {} scope uuid)))
       (is (thrown-with-msg? Exception #"tttDescription conflicts"
                             (taskwarrior/update-item-from-intent!
                              {} scope (taskwarrior/normalize-task scope native-task)
                              {:description "Updated" :labels []}))))
     (is (empty? @imports))))
+
+
+(deftest malformed-description-in-another-task-does-not-block-listing-or-fuzzy-selection
+  (doseq [malformed [(assoc native-task :tttDescription "Conflicting description")
+                    (update native-task :annotations conj
+                            {:entry "20260907T120200Z"
+                             :description (str taskwarrior/annotation-prefix "Duplicate")})]]
+    (let [good (assoc native-task :uuid "b360fc44-315c-4366-b70c-ea7e7520b749"
+                     :description "Healthy task")
+          malformed (assoc malformed :description "Malformed task")
+          all [malformed good]]
+      (with-redefs [taskwarrior/export-tasks (fn
+                                             ([_] all)
+                                             ([_ reference] (filterv #(= reference (:uuid %)) all)))]
+        (is (= 2 (count (taskwarrior/tasks {} scope))))
+        (is (= (:uuid good) (get-in (taskwarrior/resolve-item {} scope "Healthy task") [:ref :id])))
+        (is (thrown-with-msg? Exception #"ttt description|tttDescription conflicts"
+                              (taskwarrior/resolve-item {} scope "Malformed task")))))))
 
 (deftest create-imports-native-project-tags-and-description
   (let [imported (atom nil)]
@@ -365,3 +383,10 @@
                      (assoc native-task :uuid "deadbeef-2222-4222-8222-222222222222")]))]
     (is (thrown-with-msg? Exception #"ambiguous"
                           (taskwarrior/resolve-item {} scope "deadbeef")))))
+
+
+(deftest fuzzy-selected-task-disappearance-fails-before-mutation
+  (with-redefs [taskwarrior/export-tasks (fn ([_] [native-task]) ([_ _] []))]
+    (is (= :tracker-item-not-found
+           (try (taskwarrior/resolve-item {} scope "Retry sync")
+                (catch Exception ex (:code (ex-data ex))))))))

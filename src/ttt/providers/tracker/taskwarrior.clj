@@ -130,6 +130,13 @@
 
 (defn tracker-description
   [task]
+  ;; Unmarked details may be native text; never infer ttt ownership from it.
+  (or (:tttDescription task)
+      (some-> (first (filter managed-annotation? (:annotations task)))
+              :description (subs (count annotation-prefix)))
+      ""))
+
+(defn assert-description-sources! [task]
   (let [managed (filter managed-annotation? (:annotations task))
         legacy (some-> (first managed) :description (subs (count annotation-prefix)))]
     (when (> (count managed) 1)
@@ -138,9 +145,8 @@
     (when (and (seq managed) (contains? task :tttDescription)
                (not= (:tttDescription task) legacy))
       (throw (ex-info "Taskwarrior tttDescription conflicts with the legacy ttt description; resolve the conflict before updating."
-                      {:code :malformed-managed-section})))
-    ;; Unmarked details may be native text; never infer ttt ownership from it.
-    (or (:tttDescription task) legacy "")))
+                      {:code :malformed-managed-section}))))
+  task)
 
 (defn short-uuid
   [uuid]
@@ -200,12 +206,17 @@
                  (let [task-index (when (seq (dependency-ids native-direct))
                                     (into {} (map (juxt (comp str :uuid) identity))
                                           (export-tasks app-config)))]
-                   (normalize-task scope native-direct task-index)))]
+                   (normalize-task scope (assert-description-sources! native-direct) task-index)))]
     (or direct
         (let [matches (filter #(task-matches? % reference) (tasks app-config scope))]
           (case (count matches)
             0 nil
-            1 (first matches)
+            1 (let [item (first matches)]
+                (assert-description-sources!
+                 (or (first (export-tasks app-config (get-in item [:ref :id])))
+                     (throw (ex-info "The selected Taskwarrior task no longer exists."
+                                     {:code :tracker-item-not-found}))))
+                item)
             (throw (ex-info (str "Taskwarrior item reference is ambiguous: " reference)
                             {:code :ambiguous-item
                              :reference reference
@@ -278,7 +289,7 @@
 
 (defn upsert-description
   [task description]
-  (tracker-description task)
+  (assert-description-sources! task)
   (cond-> (assoc task :annotations (vec (remove managed-annotation? (:annotations task))))
     (some? description) (assoc :tttDescription description)
     (nil? description) (dissoc :tttDescription)))

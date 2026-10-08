@@ -4,6 +4,8 @@
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
             [ttt.core :as core]
+            [ttt.cli.agent :as agent]
+            [ttt.config :as app-config]
             [ttt.platform.shell :as shell]
             [ttt.providers.forge :as forge]
             [ttt.providers.tracker :as tracker]
@@ -118,3 +120,39 @@
     (is (= "App" (:project @task*)))
     (is (= ["Bug"] (:tags @task*)))
     (is (str/includes? (:body @forge-payload) "## Taskwarrior"))))
+
+
+(deftest approved-create-comment-and-completion-preserve-native-details-and-description
+  (let [task* (atom nil) order (atom []) forge-payload (atom nil)
+        native-run (shell-stub task* order forge-payload)
+        apply-request (fn [request]
+                        (let [preview (agent/run ["preview" "--request" (json/generate-string request)])]
+                          (is (= 0 (:exit preview)))
+                          (let [result (agent/run ["apply" "--request" (json/generate-string request)
+                                                   "--approve" (get-in preview [:envelope :data :proposalId])])]
+                            (is (= 0 (:exit result)))
+                            result)))]
+    (with-redefs [app-config/load-config (fn [& _] config)
+                  shell/run-input (input-stub task* order)
+                  shell/run (fn [& args]
+                              (if (= "annotate" (nth args 2 nil))
+                                (do (swap! task* update :annotations conj
+                                           {:entry "20261008T120000Z" :description (last args)})
+                                    "")
+                                (apply native-run args)))]
+      (apply-request {:action "create_item" :title "Review native details" :description "Managed body"})
+      (swap! task* assoc :details "Native details" :custom_uda "Keep this"
+             :entry "20260907T115800Z"
+             :annotations [{:entry "20260907T115900Z" :description "Existing comment"}])
+      (let [entry (:entry @task*) uuid (:uuid @task*)]
+        (apply-request {:action "comment_item" :item uuid :body "New comment"})
+        (let [annotations (:annotations @task*)
+              result (apply-request {:action "update_item" :item uuid :state "completed"})]
+          (is (= "completed" (get-in result [:envelope :data :item :state])))
+          (is (= "Managed body" (:tttDescription @task*)))
+          (is (= "Native details" (:details @task*)))
+          (is (= "Keep this" (:custom_uda @task*)))
+          (is (= entry (:entry @task*)))
+          (is (= [{:entry "20260907T115900Z" :description "Existing comment"}
+                  {:entry "20261008T120000Z" :description "New comment"}]
+                 annotations (:annotations @task*))))))))

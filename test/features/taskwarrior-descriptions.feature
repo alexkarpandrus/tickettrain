@@ -21,6 +21,13 @@ Feature: Taskwarrior descriptions do not overwrite native task details
     Then the update fails before importing a task
     And all task data remains unchanged
 
+  Scenario: One malformed task does not prevent access to unrelated tasks
+    Given a task with duplicate or conflicting managed descriptions
+    And an unrelated task with a valid description
+    When I list tasks or select the unrelated task by title
+    Then the list and unrelated selection succeed
+    And selecting the malformed task fails for manual repair
+
   Scenario: Creation, comments, and completion keep description storage separate
     Given an approved managed task creation
     When I create the task, append a comment, and complete it
