@@ -4,6 +4,7 @@
             [ttt.providers.tracker.github-issues :as github-issues]
             [ttt.providers.tracker.jira :as jira]
             [ttt.providers.tracker.linear :as linear]
+            [ttt.providers.tracker.logseq :as logseq]
             [ttt.providers.tracker.taskwarrior :as taskwarrior]))
 
 (def registry
@@ -36,4 +37,10 @@
                  :setup-settings (get config/provider-settings [:tracker :taskwarrior])
                  :build taskwarrior/neutral-adapter
                  :validate-config! taskwarrior/assert-ready!
-                 :setup taskwarrior/setup}})
+                 :setup taskwarrior/setup}
+   :logseq {:display-name "Logseq"
+            :setup-order 5
+            :setup-settings (get config/provider-settings [:tracker :logseq])
+            :build logseq/neutral-adapter
+            :validate-config! logseq/assert-ready!
+            :setup logseq/setup}})

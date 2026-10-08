@@ -473,21 +473,24 @@
 (defn proposal-id [proposal] (str "lp2_" (subs (sha256 proposal) 0 24)))
 
 (defn approval-context
-  [runtime]
+  [runtime request]
   (let [{:keys [target-state state-id state-name project issue-type assignee-id]}
         (get-in runtime [:config :tracker])
-        target (first (remove #(str/blank? (str %)) [target-state state-id state-name]))]
-    {:trackerScope (domain/identity-data ((get-in runtime [:tracker :configured-scope])))
+        target (first (remove #(str/blank? (str %)) [target-state state-id state-name]))
+        tracker-context (when-let [context (get-in runtime [:tracker :approval-context])]
+                          (context request))]
+    (cond-> {:trackerScope (domain/identity-data ((get-in runtime [:tracker :configured-scope])))
      :trackerSettings (cond-> {}
                         target (assoc :targetState target)
                         (not (str/blank? (str project))) (assoc :project project)
                         (not (str/blank? (str issue-type))) (assoc :issueType issue-type)
-                        (not (str/blank? (str assignee-id))) (assoc :assigneeId assignee-id))}))
+                        (not (str/blank? (str assignee-id))) (assoc :assigneeId assignee-id))}
+      tracker-context (assoc :trackerContext tracker-context))))
 (defn preview-proposal [runtime request]
   (validate-request! request)
   (let [profile (get-in runtime [:config :profile])
         proposal (cond-> (core/preview runtime (core-request request))
-                   (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime))
+                   (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime (core-request request)))
                    profile (assoc :profile profile)
                    true (assoc :config-id (sha256 (:config runtime))))]
     (assoc proposal :proposal-id (proposal-id proposal))))

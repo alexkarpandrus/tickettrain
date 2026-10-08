@@ -1,6 +1,6 @@
 ---
 name: tickettrain
-description: Create, update, or comment on a GitHub, GitLab, or Bitbucket change request or a Linear, GitHub Issues, Jira, Asana, or Taskwarrior item. Use when the user wants to open or update a pull or merge request, manage a tracker item, or track work for the current branch.
+description: Create, update, or comment on a GitHub, GitLab, or Bitbucket change request or a Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq item. Use when the user wants to open or update a pull or merge request, manage a tracker item, or track work for the current branch.
 origin: https://github.com/alexkarpandrus/tickettrain
 license: MIT
 compatibility: Requires tickettrain (ttt), Git, Babashka 1.12.217 or newer, and configured provider credentials.
@@ -25,7 +25,7 @@ context:
 
 # tickettrain (`ttt`)
 
-`ttt` creates, updates, and comments on GitHub, GitLab, or Bitbucket change requests and Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API.
+`ttt` creates, updates, and comments on GitHub, GitLab, or Bitbucket change requests and Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq items. It is a local CLI with a provider-neutral JSON API.
 
 ## Bootstrap
 
@@ -49,6 +49,7 @@ context:
 - Jira uses the default `Blocks` issue-link type for blockers. Set `JIRA_BLOCKER_LINK_TYPE` to a custom type ID or name when needed.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior creates pending tasks, preserves native status during updates, and uses projects instead of native parent tasks.
+- Logseq requires its local HTTP API server and the exact configured graph to be open. `LOGSEQ_GRAPH` selects its path; `LOGSEQ_TOKEN` authenticates the API. Native journal `TODO`/`DONE` blocks map to `open`/`completed`; item references are full block UUIDs and comments are child blocks. Preview again after midnight before creation.
 - Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
 - Never guess a state name. If setup reports an unavailable state, present the available states and ask the user to choose.
 
@@ -83,7 +84,7 @@ ttt check-project --request '{"note":"I archived invoices in Atlas","project":"B
    {"action":"update_item","item":"APP-123","comment":"Jade replied. Waiting for the revised timeline.","addLabels":["waiting"],"removeLabels":["blocked"]}
    ```
 
-   Taskwarrior creates new project and tag names implicitly. Other trackers can require existing projects and labels.
+   Taskwarrior creates new project and tag names implicitly. Other trackers can require existing projects and labels. Logseq journal items do not support projects, labels, or parent selection.
 
    To create only a change request, use:
 
