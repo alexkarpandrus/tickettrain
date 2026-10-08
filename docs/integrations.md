@@ -72,7 +72,7 @@ A descriptor has a required `:build` function and optional `:validate-config!` a
 
 ## Capability maps
 
-A forge declares every capability in `ttt.adapters/required-capabilities`, including inspection, identification, lookup, creation, update, commenting, closing, and title prefixing. A tracker declares configured scope, item listing, searches and resolvers, `:create-item!`/`:update-item!`, and `:comment-item!`. Each tracker also declares its supported work-item concepts in `:item-capabilities`: `:item-lifecycle`, `:item-priority`, `:item-due-dates`, `:item-availability`, and `:item-blockers`. Preview rejects a requested concept that the selected tracker does not declare.
+A forge declares every capability in `ttt.adapters/required-capabilities`. A tracker declares configured scope, listing, searches, resolvers, creation, updates, and commenting. Optional concepts include `:item-titles` and `:item-descriptions` for explicit replacement on `update_item`, plus lifecycle, priority, dates, availability, and blockers. Creation text and managed backlinks use existing mandatory operations, not replacement capabilities. Preview rejects undeclared concepts and validates native intents for both standalone and linked creation.
 
 ```clojure
 {:provider :example-tracker
@@ -86,7 +86,7 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
  :comment-item! (fn [item body] nil)}
 ```
 
-A tracker may provide `:approval-context (fn [request] context-or-nil)` for read-only, provider-owned destination metadata. It receives the normalized request. Non-nil data appears as `approvalContext.trackerContext` and participates in the proposal hash. Logseq binds creation to a journal date and checks that date again before writing; other adapters keep their existing approval context.
+A tracker may provide `:approval-context (fn [request] context-or-nil)` for read-only destination metadata. It receives the normalized request; non-nil data appears as `approvalContext.trackerContext` and participates in the proposal hash. Logseq file-graph default journal creation binds the journal date; explicit native page selection uses the page identity instead.
 
 `:list-items` receives a predicate over normalized items. It must continue provider pagination until it returns `limit` matching items or the provider is exhausted.
 
@@ -94,7 +94,7 @@ Shared code passes normalized label and blocker entities. Only the concrete trac
 
 Create and update intents contain only requested work-item fields. Omitted fields remain unchanged. A JSON `null` clears an optional scalar, and an empty `blockedBy` array clears blockers. Comments remain separate append-only operations.
 
-Taskwarrior implements lifecycle, priority, due dates, availability, and blockers. Linear and Jira implement lifecycle, priority, due dates, and blockers. Asana implements lifecycle, due dates, availability, and blockers. GitHub Issues and Logseq implement lifecycle. Adapters reject neutral values that the native tracker cannot represent, such as `active` for Asana, GitHub Issues, or Logseq. Jira discovers its default `Blocks` link type during preview; set `JIRA_BLOCKER_LINK_TYPE` to the native type ID or name when an administrator customized it.
+Taskwarrior implements lifecycle, priority, due dates, availability, and blockers. Linear and Jira implement lifecycle, priority, due dates, and blockers. Asana implements lifecycle, due dates, availability, and blockers. GitHub Issues implements lifecycle. Both `logseq` (file SDK) and `logseq-db` (native CLI) implement lifecycle and title updates; native pages are projects, bodies remain native text, and comments remain child blocks. Adapters reject unrepresentable values, such as `active` for Asana or GitHub Issues. Jira discovers its default `Blocks` link type during preview; set `JIRA_BLOCKER_LINK_TYPE` for a custom ID or name.
 
 ## Registering a bundled provider
 

@@ -28,7 +28,8 @@
    :github-issues "GitHub Issues"
    :asana "Asana"
    :taskwarrior "Taskwarrior"
-   :logseq "Logseq"})
+   :logseq "Logseq"
+   :logseq-db "Logseq DB"})
 
 (defn normalize-linear-workspace
   [workspace]
@@ -82,7 +83,10 @@
    [{:key :graph :label "Logseq graph path" :env "LOGSEQ_GRAPH" :required? true}
     {:key :token :label "Logseq HTTP API token" :env "LOGSEQ_TOKEN"
      :required? true :secret? true}
-    {:key :base-url :env "LOGSEQ_BASE_URL"}]})
+    {:key :base-url :env "LOGSEQ_BASE_URL"}]
+   [:tracker :logseq-db]
+   [{:key :graph :label "Logseq DB graph name" :env "LOGSEQ_DB_GRAPH" :required? true}
+    {:key :root-dir :label "Logseq CLI root directory" :env "LOGSEQ_ROOT_DIR"}]})
 
 (defn setting-environment-value
   [environment {:keys [env transform required?]}]

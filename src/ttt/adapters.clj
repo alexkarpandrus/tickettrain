@@ -29,7 +29,7 @@
               :comment-item!}})
 
 (def item-capabilities
-  #{:item-lifecycle
+  #{:item-titles :item-descriptions :item-lifecycle
     :item-priority
     :item-due-dates
     :item-availability

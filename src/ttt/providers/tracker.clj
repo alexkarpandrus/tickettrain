@@ -5,6 +5,7 @@
             [ttt.providers.tracker.jira :as jira]
             [ttt.providers.tracker.linear :as linear]
             [ttt.providers.tracker.logseq :as logseq]
+            [ttt.providers.tracker.logseq-db :as logseq-db]
             [ttt.providers.tracker.taskwarrior :as taskwarrior]))
 
 (def registry
@@ -43,4 +44,10 @@
             :setup-settings (get config/provider-settings [:tracker :logseq])
             :build logseq/neutral-adapter
             :validate-config! logseq/assert-ready!
-            :setup logseq/setup}})
+            :setup logseq/setup}
+   :logseq-db {:display-name "Logseq DB"
+               :setup-order 6
+               :setup-settings (get config/provider-settings [:tracker :logseq-db])
+               :build logseq-db/neutral-adapter
+               :validate-config! logseq-db/assert-ready!
+               :setup logseq-db/setup}})

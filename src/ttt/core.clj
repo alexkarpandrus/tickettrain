@@ -29,12 +29,16 @@
    :available-at :item-availability
    :blocked-by :item-blockers})
 
-(def work-item-fields (set (keys work-item-capability-by-field)))
+(def work-item-fields (into #{:title :description} (keys work-item-capability-by-field)))
 
 (defn requested-work-item-capabilities [request]
-  (->> work-item-capability-by-field
-       (keep (fn [[field capability]] (when (contains? request field) capability)))
-       set))
+  (cond-> (into #{} (keep (fn [[field capability]]
+                           (when (contains? request field) capability)))
+                work-item-capability-by-field)
+    (and (= :update-item (:action request)) (contains? request :title))
+    (conj :item-titles)
+    (and (= :update-item (:action request)) (contains? request :description))
+    (conj :item-descriptions)))
 
 (defn assert-work-item-capabilities! [runtime request]
   (let [requested (requested-work-item-capabilities request)
@@ -82,9 +86,9 @@
     (throw (ex-info "A tracker item cannot block itself."
                     {:code :invalid-blocker
                      :item (:ref target)})))
-  (when-let [validate (get-in runtime [:tracker :validate-work-item-intent!])]
-    (validate action target intent))
-  intent)
+  (if-let [validate (get-in runtime [:tracker :validate-work-item-intent!])]
+    (validate action target intent)
+    intent))
 
 (defn resolve-parent!
   [runtime parent-ref]
@@ -357,15 +361,18 @@
                        change-request)
                       (if item (:description item)
                           (base-item-description (:config runtime) planned-change-request)))
-        preview-item (or item {:display-id "<new tracker item>" :url "<created during apply>"})]
+        preview-item (or item {:display-id "<new tracker item>" :url "<created during apply>"})
+        tracker-intent (validate-work-item-intent!
+                        runtime action (if item item context)
+                        (cond-> {:description description :labels labels}
+                          (= :create-new action) (assoc :title title)))]
     {:source source
      :action action
      :request request
      :item item
      :context context
      :labels labels
-     :tracker-intent (cond-> {:description description :labels labels}
-                       (= :create-new action) (assoc :title title))
+     :tracker-intent tracker-intent
      :change-request-update (change-request-update runtime planned-source preview-item context)}))
 
 (defn preview
@@ -489,7 +496,7 @@
 
     :update-item
     (let [labels-changed? (some seq (vals (:label-changes proposal)))
-          work-item-changed? (some #(contains? (:tracker-intent proposal) %) work-item-fields)
+          work-item-changed? (some #(contains? (:request proposal) %) work-item-fields)
           item (if (or labels-changed? work-item-changed?)
                  (update-item! runtime (:item proposal) (:tracker-intent proposal))
                  (:item proposal))]

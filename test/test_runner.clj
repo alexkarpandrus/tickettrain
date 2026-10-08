@@ -19,6 +19,7 @@
             [ttt.linear-test]
             [ttt.links-test]
             [ttt.logseq-test]
+            [ttt.logseq-db-test]
             [ttt.main-test]
             [ttt.pr-body-test]
             [ttt.provider-integration-test]
@@ -38,7 +39,7 @@
    'ttt.fuzzy-test 'ttt.git-test 'ttt.github-issues-test 'ttt.github-test
    'ttt.github-taskwarrior-integration-test
    'ttt.gitlab-jira-integration-test 'ttt.gitlab-test 'ttt.jira-test
-   'ttt.linear-test 'ttt.links-test 'ttt.logseq-test 'ttt.main-test
+   'ttt.linear-test 'ttt.links-test 'ttt.logseq-test 'ttt.logseq-db-test 'ttt.main-test
    'ttt.pr-body-test 'ttt.provider-integration-test
    'ttt.remote-test 'ttt.setup-test 'ttt.shell-test 'ttt.taskwarrior-test
    'ttt.tracker-state-test 'ttt.typesafe-test 'ttt.ui-test 'ttt.workflow-test])
