@@ -112,6 +112,27 @@ Change-request bodies and tracker descriptions use validated managed Markdown se
 
 `bb test` is local and deterministic: it runs pure core tests, provider unit tests, and registry-backed provider integration tests with GraphQL/subprocess stubs. Tests must not require credentials, `gh auth`, or network access. Provider contract tests cover capabilities, normalized identities/scopes, native payload translation, and tracker mutation before forge mutation.
 
+## Review feedback
+
+Forge feedback is optional. Adapters declare `:feedback-capabilities` from `:reply`, `:edit-note`, `:resolve-discussion`, and `:update-reviewers`, plus `:get-feedback`, `:resolve-reviewer`, and `:apply-feedback!` functions in their capability map. GitLab implements all four operations. Other bundled forges remain unchanged and reject feedback actions clearly. `ttt version` reports `forgeFeedbackCapabilities` per provider.
+
+`ttt inspect --feedback --change-request ID` reads an explicit change request in the current repository. `get-feedback` validates the native project ID, MR IID, note ownership, and source head, follows all discussion pages, and returns normalized discussion/note identities, text, authors, timestamps, diff positions, reviewer identities, and unresolved discussion refs. Discussion/note containers include both the repository and MR IID. Native user identities include the GitLab instance URL.
+
+The schema-v2 `review_change_request` action requires `changeRequest` (positive IID string), a unique repository-local `batchId`, and a non-empty `operations` array. Batch IDs use one to 120 ASCII letters, numbers, dots, underscores, or hyphens, beginning with a letter or number. Optional `expectedHead` asserts the reviewed source commit. A one-operation batch provides each individual operation:
+
+| Type | Required fields | Behavior |
+| --- | --- | --- |
+| `reply` | `discussion`, `body` | Add a note inside the selected existing thread; never replace it with a top-level comment. |
+| `edit_note` | `discussion`, `note`, `body` | Edit the exact existing non-system note in that discussion. |
+| `resolve_discussion` | `discussion`, boolean `resolved` | Resolve or reopen a resolvable discussion. |
+| `update_reviewers` | `reviewers` (native user ID strings) | Add reviewers while retaining current reviewers. Optional `replace: true` explicitly replaces the full set; an empty array requires replacement. |
+
+A batch cannot repeat an operation on the same target. Feedback change requests carry an additional normalized `:native-ref` (public `nativeIdentity`) with immutable project and MR IDs; logical slug/IID identities stay unchanged. Preview pins that identity, the exact source head, and requested changes. Apply rechecks the immutable identity, head, and pending target before each native write; GitLab writes address the pinned numeric project ID. Reviewer mutation sends only `reviewer_ids`; unrelated MR metadata stays untouched. A new source head or native target requires a new preview and batch. Fixing/testing/pushing code remains separately authorized. GitLab has no atomic compare-and-set for these writes, so a remote edit between the last check and the API write remains a race.
+
+Feedback batches stop at the first failed or unknown operation. Successful responses and `error.partialResult` contain per-operation status, native affected IDs, final `feedback`, and `feedback.unresolvedDiscussions`; failed final readback adds `readbackError` rather than claiming completion. Preview/apply preflight failure also returns durable saved outcomes when the request, profile, and configuration match the approved journal; it never authorizes writes without successful live validation. Unresolved discussions remain visible even when all requested mutations succeed. A checkpoint-storage failure adds `recoveryError` and retains any acknowledged affected IDs.
+
+Only approved apply creates an owner-only journal in `<git-common-dir>/ttt-feedback` (`git rev-parse --git-common-dir`). Local worktrees share journals and repository/MR-scoped mutation locks; a competing apply fails before writing and must revalidate after the active batch finishes. Batch-ID locks also protect recovery identity. The journal contains the approved proposal and per-operation outcomes, including review text but no credentials. Files use atomic replacement and file/directory sync before a provider write. Retry with the unchanged request, profile, configuration, and proposal ID skips successful mutations. Confirmed HTTP 4xx rejections (except timeout 408) and pre-write failures can retry; lost responses, interrupted writes, and HTTP 5xx outcomes stop without resending. Inspect native feedback before manual recovery, then preview only safe unattempted operations under a new batch ID. Do not discard the journal, reuse a batch on another machine, or assume an identical note body proves ownership of an unknown reply. Remove an abandoned `.lock` or `.target-lock` only after confirming no process owns it and inspecting both the journal and native feedback. Filesystems that cannot restrict permissions or atomically replace and sync checkpoints fail closed before mutation.
+
 ## Recovery boundary
 
 This release does not implement durable create-and-link recovery, idempotency, or native attachments. If tracker creation succeeds and a later forge mutation fails, operators must inspect the tracker before retrying. Branch ticket metadata is only a no-change-request retry hint, not a saga.
