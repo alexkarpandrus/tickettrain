@@ -48,3 +48,45 @@ Feature: Approval-gated GitLab review feedback
     When I approve replacement with a concrete reviewer ID array
     Then only the reviewer set is replaced
     And an empty reviewer set requires explicit replacement
+
+
+  Scenario: Replacing a project or MR cannot retain an old approval
+    Given a preview for a specific immutable native project and MR
+    When the project or MR is replaced without changing its slug, IID, head, or presentation
+    Then the old approval cannot authorize a native write
+    And replacement before a pending write stops that batch
+    And acknowledged outcomes remain visible during recovery
+
+  Scenario: Local batches cannot overwrite an acknowledged reviewer addition
+    Given two approved batches based on the same reviewer set
+    When they apply concurrently in the same repository
+    Then the active MR batch owns the mutation lock through final readback
+    And the competing batch stops before writing
+    And its old approval cannot overwrite the updated reviewer set
+
+  Scenario: Outage retry still reports acknowledged native results
+    Given a reply succeeded and its outcome is durably journaled
+    When feedback inspection is unavailable during preview or apply retry
+    Then the matching request reports the saved successful outcome and native note ID
+    And no native write occurs
+    And a different request, profile, or configuration cannot claim those outcomes
+
+  Scenario: HTTP rejection and ambiguous acceptance have different retry behavior
+    Given native responses are decoded through the real HTTP error boundary
+    When a reply receives HTTP 403 rejection or HTTP 408 or 500 after acceptance
+    Then rejected operations can retry while ambiguous operations remain unknown
+    And subsequent operations remain pending until safe recovery
+    And retry never sends another ambiguously accepted reply
+
+  Scenario: Mutation targets a non-first thread and note exactly
+    Given two populated discussions with multiple notes
+    When I approve a reply, note edit, and resolution in the second discussion
+    Then the non-first selected note and thread change as requested
+    And unrelated feedback remains unchanged
+    And absent discussions and notes belonging to another thread fail before writes
+
+  Scenario: Native JSON discussion arrays are accepted and malformed bodies are rejected
+    Given a native HTTP discussion response
+    When I inspect feedback or preview a batch
+    Then a valid decoded JSON array is accepted
+    And null, scalar, or object discussion bodies fail before writes

@@ -111,11 +111,15 @@
     (throw (ex-info "The source head changed. Inspect feedback and preview a new batch."
                     {:code :stale-feedback-head}))))
 
+(defn assert-target! [expected feedback]
+  (when-not (domain/same-identity? (:native-ref expected) (get-in feedback [:change-request :native-ref]))
+    (throw (ex-info "The native feedback target changed. Inspect feedback and approve a new batch."
+                    {:code :stale-feedback-target}))))
 (defn preview [runtime request]
   (require-capability! runtime :apply-feedback!)
-  (let [{:keys [repository feedback]} (inspect runtime (:change-request-ref request))
-        source {:repository repository :change-request (:change-request feedback)}
-        saved (some-> (journal/read-batch (:batch-id request)) :proposal)]
+  (let [saved (some-> (journal/read-batch (:batch-id request)) :proposal)
+        {:keys [repository feedback]} (inspect runtime (:change-request-ref request))
+        source {:repository repository :change-request (:change-request feedback)}]
     (when (:expected-head request) (assert-head! (:expected-head request) feedback))
     (if saved
       (do
@@ -123,6 +127,7 @@
                        (domain/same-identity? (:ref repository) (get-in saved [:source :repository :ref])))
           (throw (ex-info "batchId already belongs to a different approved feedback request."
                           {:code :feedback-batch-mismatch})))
+        (assert-target! (:change-request saved) feedback)
         (assert-head! (get-in saved [:change-request :head-sha]) feedback)
         (dissoc saved :proposal-id :profile :config-id))
       {:action :review-change-request :request request :source source
@@ -160,6 +165,7 @@
       (let [feedback ((get-in runtime [:forge :get-feedback])
                       (get-in proposal [:source :repository])
                       (get-in proposal [:change-request :ref :id]))]
+        (assert-target! (:change-request proposal) feedback)
         (assert-head! (get-in proposal [:change-request :head-sha]) feedback)
         (assert-operation-current! feedback operation))
       (journal/write-batch! batch-id (assoc-in batch [:outcomes index] {:status :started}))
@@ -204,41 +210,45 @@
     (journal/with-batch-lock
      batch-id
      (fn []
-       (let [saved (journal/read-batch batch-id)
-             _ (when (and saved (not= proposal (:proposal saved)))
-                 (throw (ex-info "The approved batch or configuration changed; preserve its recovery journal."
-                                 {:code :feedback-batch-mismatch})))
-             initial (or saved {:version 1 :proposal proposal
-                                :outcomes (mapv (constantly {:status :pending}) (:operations proposal))})
-             batch (loop [index 0 batch initial]
-                     (if (= index (count (:operations proposal))) batch
-                       (case (get-in batch [:outcomes index :status])
-                         :succeeded (recur (inc index) batch)
-                         (:started :unknown) batch
-                         (let [updated (attempt-operation! runtime proposal batch index)]
-                           (if (and (not (:recovery-error updated))
-                                    (= :succeeded (get-in updated [:outcomes index :status])))
-                             (recur (inc index) updated) updated)))))
-             result {:change-request (:change-request proposal)
-                     :operations (:operations proposal) :outcomes (:outcomes batch)
-                     :recovery-error (:recovery-error batch)}
-             result (try
-                      (assoc result :feedback
-                             ((get-in runtime [:forge :get-feedback])
-                              (get-in proposal [:source :repository])
-                              (get-in proposal [:change-request :ref :id])))
-                      (catch Exception ex
-                        (assoc result :readback-error (remote/sanitize-detail (.getMessage ex)))))
-             result (if-let [feedback (:feedback result)]
-                      (try
-                        (assert-head! (get-in proposal [:change-request :head-sha]) feedback)
-                        (assert-readback! feedback (:operations proposal) (:outcomes batch))
-                        result
-                        (catch Exception ex
-                          (assoc result :readback-error (remote/sanitize-detail (.getMessage ex)))))
-                      result)]
-         (when (or (:recovery-error result) (:readback-error result)
-                   (not-every? #(= :succeeded (:status %)) (:outcomes batch)))
-           (throw (ex-info "Feedback batch is incomplete. Inspect per-operation results; never resend an unknown reply."
-                           {:code :feedback-partial-failure :partial-result result})))
-         result)))))
+       (journal/with-target-lock
+        (:change-request proposal)
+        (fn []
+          (let [saved (journal/read-batch batch-id)
+                _ (when (and saved (not= proposal (:proposal saved)))
+                    (throw (ex-info "The approved batch or configuration changed; preserve its recovery journal."
+                                    {:code :feedback-batch-mismatch})))
+                initial (or saved {:version 1 :proposal proposal
+                                   :outcomes (mapv (constantly {:status :pending}) (:operations proposal))})
+                batch (loop [index 0 batch initial]
+                        (if (= index (count (:operations proposal))) batch
+                          (case (get-in batch [:outcomes index :status])
+                            :succeeded (recur (inc index) batch)
+                            (:started :unknown) batch
+                            (let [updated (attempt-operation! runtime proposal batch index)]
+                              (if (and (not (:recovery-error updated))
+                                       (= :succeeded (get-in updated [:outcomes index :status])))
+                                (recur (inc index) updated) updated)))))
+                result {:change-request (:change-request proposal)
+                        :operations (:operations proposal) :outcomes (:outcomes batch)
+                        :recovery-error (:recovery-error batch)}
+                result (try
+                         (let [feedback ((get-in runtime [:forge :get-feedback])
+                                         (get-in proposal [:source :repository])
+                                         (get-in proposal [:change-request :ref :id]))]
+                           (assert-target! (:change-request proposal) feedback)
+                           (assoc result :feedback feedback))
+                         (catch Exception ex
+                           (assoc result :readback-error (remote/sanitize-detail (.getMessage ex)))))
+                result (if-let [feedback (:feedback result)]
+                         (try
+                           (assert-head! (get-in proposal [:change-request :head-sha]) feedback)
+                           (assert-readback! feedback (:operations proposal) (:outcomes batch))
+                           result
+                           (catch Exception ex
+                             (assoc result :readback-error (remote/sanitize-detail (.getMessage ex)))))
+                         result)]
+            (when (or (:recovery-error result) (:readback-error result)
+                      (not-every? #(= :succeeded (:status %)) (:outcomes batch)))
+              (throw (ex-info "Feedback batch is incomplete. Inspect per-operation results; never resend an unknown reply."
+                              {:code :feedback-partial-failure :partial-result result})))
+            result)))))))
