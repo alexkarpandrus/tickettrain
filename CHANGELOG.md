@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.12.0...v0.13.0) (2026-10-08)
+
+
+### Features
+
+* **feedback:** add GitHub and Bitbucket review parity ([8aa1518](https://github.com/alexkarpandrus/tickettrain/commit/8aa1518a56d08de5b3ae4137b25565f3a2280b36))
+* **logseq:** extend native graph support ([cb2567c](https://github.com/alexkarpandrus/tickettrain/commit/cb2567c374fd37c610ca67cc5a3fdcbf264ff256))
+
 ## [0.12.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.11.0...v0.12.0) (2026-10-08)
 
 
