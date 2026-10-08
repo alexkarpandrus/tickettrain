@@ -1,6 +1,6 @@
 ---
 name: tickettrain
-description: Create, update, or comment on a GitHub, GitLab, or Bitbucket change request or a Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq item. Use when the user wants to open or update a pull or merge request, manage a tracker item, or track work for the current branch.
+description: Create, update, comment on, or manage review feedback for a GitHub, GitLab, or Bitbucket change request, or manage a Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq item. Use for approval-gated PR/MR, review-discussion, reviewer, and tracker workflows.
 origin: https://github.com/alexkarpandrus/tickettrain
 license: MIT
 compatibility: Requires tickettrain (ttt), Git, Babashka 1.12.217 or newer, and configured provider credentials.
@@ -114,15 +114,15 @@ ttt check-project --request '{"note":"I archived invoices in Atlas","project":"B
    {"action":"close_change_request","changeRequest":"73","comment":"Superseded by #74 and #76."}
    ```
 
-   To handle GitLab review feedback, first run `ttt inspect --feedback --change-request 7`. Use exact native discussion/note IDs and a unique repository-local batch ID:
+   To handle GitHub, GitLab, or Bitbucket review feedback, first run `ttt inspect --feedback --change-request 7`. Use exact native discussion/note IDs and a unique repository-local batch ID:
 
    ```json
    {"action":"review_change_request","changeRequest":"7","batchId":"review-fix-1","operations":[{"type":"reply","discussion":"native-thread-id","body":"Fixed and verified"},{"type":"resolve_discussion","discussion":"native-thread-id","resolved":true}]}
    ```
 
-   `edit_note` needs `discussion`, `note`, and `body`. `resolve_discussion` needs a boolean `resolved`. `update_reviewers` needs native user ID strings in `reviewers`; preserve existing reviewers unless `replace: true` is explicitly approved. Check `version.forgeFeedbackCapabilities` for provider support. Preview pins the immutable `nativeIdentity` and head; optional `expectedHead` validates the reviewed revision. Fixing and pushing code need separate authorization, then a new preview if the head changes.
+   Keep discussion operations (`reply`, `edit_note`, `resolve_discussion`) and reviewer management (`update_reviewers`) in the same approved batch workflow, separate from top-level comments or PR metadata. `edit_note` needs `discussion`, `note`, and `body`; resolution needs boolean `resolved`. Reviewer IDs are GitLab numeric user IDs, GitHub GraphQL node IDs (users or teams), or Bitbucket braced UUIDs. Preserve existing reviewers unless `replace: true` is explicitly approved; empty clearing requires replacement. Bitbucket reviewer changes require an open PR. Check `version.forgeFeedbackCapabilities` for provider support. Preview pins immutable `nativeIdentity` and source head; optional `expectedHead` asserts the reviewed revision. Fixing and pushing code need separate authorization, then a new preview if the head changes.
 
-   On partial failure, retain the request, profile, configuration, proposal ID, and recovery journal in `<git-common-dir>/ttt-feedback`. Local worktrees share the journal and MR mutation lock; a competing apply stops before writing. Retry skips successful writes. Matching saved outcomes remain visible if retry inspection fails. `started` or `unknown` outcomes stop without resending; inspect native feedback before manual recovery. Read final `feedback.unresolvedDiscussions`, not only a top-level summary.
+   On partial failure, retain the request, profile, configuration, proposal ID, and recovery journal in `<git-common-dir>/ttt-feedback`. Local worktrees share the journal and change-request mutation lock; a competing apply stops before writing. Retry skips successful writes. Matching saved outcomes remain visible if retry inspection fails. `started` or `unknown` outcomes stop without resending; inspect native feedback before manual recovery. Read final `feedback.unresolvedDiscussions`, not only a top-level summary.
 
    Push the current branch before previewing `create_change_request`.
 
