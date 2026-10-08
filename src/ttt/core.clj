@@ -3,6 +3,7 @@
             [clojure.string :as str]
             [ttt.text.change-request :as change-request]
             [ttt.domain :as domain]
+            [ttt.feedback :as feedback]
             [ttt.text.links :as links]))
 
 (defn inspect
@@ -369,7 +370,7 @@
 
 (defn preview
   ([runtime request]
-   (if (contains? #{:create-item :update-item :comment-item} (:action request))
+   (if (contains? #{:create-item :update-item :comment-item :review-change-request} (:action request))
      (preview runtime nil request)
      (preview runtime
               (if (or (= :close-change-request (:action request))
@@ -379,6 +380,7 @@
               request)))
   ([runtime source request]
    (case (:action request)
+     :review-change-request (feedback/preview runtime request)
      :create-item (standalone-item-proposal runtime request)
      :update-item (update-item-proposal runtime request)
      :create-change-request (standalone-change-request-proposal source request)
@@ -471,6 +473,7 @@
 (defn apply!
   [runtime proposal]
   (case (:action proposal)
+    :review-change-request (feedback/apply-batch! runtime proposal)
     :create-item
     (let [item (create-item! runtime (:context proposal) (:tracker-intent proposal))
           comment (:comment proposal)]

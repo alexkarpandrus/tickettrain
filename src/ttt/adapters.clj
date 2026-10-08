@@ -35,6 +35,9 @@
     :item-availability
     :item-blockers})
 
+(def feedback-capabilities #{:reply :edit-note :resolve-discussion :update-reviewers})
+(def feedback-functions #{:get-feedback :resolve-reviewer :apply-feedback!})
+
 (defn provider
   [app-config role]
   (case role
@@ -51,11 +54,16 @@
 
 (defn assert-capabilities!
   [role adapter]
-  (let [required (get required-capabilities role)
+  (let [required (cond-> (get required-capabilities role)
+                   (and (= :forge role) (seq (:feedback-capabilities adapter))) (set/union feedback-functions))
         declared (set (:capabilities adapter))
         declared-item-capabilities (set (:item-capabilities adapter))
         missing-declarations (set/difference required declared)
         missing-functions (set (remove #(fn? (get adapter %)) required))]
+    (when (and (= :forge role)
+               (not (set/subset? (set (:feedback-capabilities adapter)) feedback-capabilities)))
+      (throw (ex-info "The forge adapter declares unknown feedback capabilities."
+                      {:code :invalid-adapter-capabilities :provider (:provider adapter)})))
     (when (and (= :tracker role)
                (not (set/subset? declared-item-capabilities item-capabilities)))
       (throw (ex-info "The tracker adapter declares unknown item capabilities."

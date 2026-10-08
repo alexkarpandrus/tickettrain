@@ -102,3 +102,11 @@
                                  [:data :relation]))))
   (is (str/includes? main/help-text "ttt check-project"))
   (is (str/includes? (main/llm-doc) "invalid responses return errors without a fallback match")))
+
+
+(deftest feedback-help-and-agent-guidance-publish-the-complete-contract
+  (is (str/includes? (main/help-for "inspect") "--feedback --change-request ID"))
+  (doseq [text ["review_change_request" "expectedHead" "edit_note" "update_reviewers"
+                "stop without resending" "unresolvedDiscussions"]]
+    (is (str/includes? (main/llm-doc) text)))
+  (is (= (str (main/llm-doc) "\n") (slurp "llm.txt"))))
