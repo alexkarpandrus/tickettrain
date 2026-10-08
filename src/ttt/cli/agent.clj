@@ -149,13 +149,17 @@
 
 (defn wire-feedback-entity [entity]
   (cond-> (wire-entity entity)
-    (contains? entity :body) (assoc :body (:body entity))
+    (contains? entity :body) (assoc :body (:body entity)
+                                   :createdAt (:created-at entity) :updatedAt (:updated-at entity)
+                                   :system (:system? entity) :position (:position entity))
     (contains? entity :resolvable) (assoc :resolvable (:resolvable entity) :resolved (:resolved entity))
     (contains? entity :individual?) (assoc :individualNote (:individual? entity))
+    (contains? entity :editable?) (assoc :editable (:editable? entity))
+    (contains? entity :replyable?) (assoc :replyable (:replyable? entity))
+    (contains? entity :can-resolve?) (assoc :canResolve (:can-resolve? entity))
+    (contains? entity :can-unresolve?) (assoc :canUnresolve (:can-unresolve? entity))
     (:notes entity) (assoc :notes (mapv wire-feedback-entity (:notes entity)))
-    (:author entity) (assoc :author (wire-entity (:author entity))
-                           :createdAt (:created-at entity) :updatedAt (:updated-at entity)
-                           :system (:system? entity) :position (:position entity))))
+    (:author entity) (assoc :author (wire-entity (:author entity)))))
 
 (defn wire-feedback [feedback]
   {:changeRequest (wire-entity (:change-request feedback))

@@ -55,7 +55,10 @@
 (defn assert-capabilities!
   [role adapter]
   (let [required (cond-> (get required-capabilities role)
-                   (and (= :forge role) (seq (:feedback-capabilities adapter))) (set/union feedback-functions))
+                   (and (= :forge role) (seq (:feedback-capabilities adapter)))
+                   (set/union (disj feedback-functions :resolve-reviewer))
+                   (and (= :forge role) (contains? (:feedback-capabilities adapter) :update-reviewers))
+                   (conj :resolve-reviewer))
         declared (set (:capabilities adapter))
         declared-item-capabilities (set (:item-capabilities adapter))
         missing-declarations (set/difference required declared)

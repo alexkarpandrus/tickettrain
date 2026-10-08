@@ -97,6 +97,18 @@ Every registered adapter implements the shared contract for its role. Provider-n
 | Setup/auth check | ✓ | ✓ | ✓ |
 | Transport | `gh` CLI | REST API | REST API |
 
+Review feedback uses one approval-gated `review_change_request` batch. Keep its two operation groups separate from general PR/MR comments and metadata:
+
+| Group | Capability | GitHub | GitLab | Bitbucket |
+| --- | --- | :---: | :---: | :---: |
+| Discussions | Inspect threads, notes, and unresolved feedback | ✓ | ✓ | ✓ |
+| Discussions | Reply in an existing thread | ✓ | ✓ | ✓ |
+| Discussions | Edit an own note | ✓ | ✓ | ✓ |
+| Discussions | Resolve or reopen a thread | ✓ | ✓ | ✓ |
+| Reviewers | Add, replace, or clear reviewers | ✓ | ✓ | ✓¹ |
+
+¹ Bitbucket reviewer changes require an open PR. Use native IDs from `ttt inspect --feedback --change-request ID`: GitHub GraphQL node IDs, GitLab numeric user IDs, or Bitbucket braced reviewer UUIDs. Additions preserve reviewers; replacement and clearing require explicit approval. GitHub shows pending review requests, not completed reviews. See [review feedback](docs/integrations.md#review-feedback) for native limits and safe recovery.
+
 ### Trackers
 
 | Capability | Linear | Jira | GitHub Issues | Asana | Taskwarrior | Logseq files | Logseq DB |

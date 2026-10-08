@@ -27,12 +27,12 @@
     (when (contains? fields :body)
       (when-not (nonblank? (:body operation)) (invalid! "Feedback requires a non-blank body.")))
     (case type
-      "edit_note" (when-not (native-id? (:note operation)) (invalid! "edit_note requires a positive note ID string."))
+      "edit_note" (when-not (nonblank? (:note operation)) (invalid! "edit_note requires a native note ID string."))
       "resolve_discussion" (when-not (boolean? (:resolved operation)) (invalid! "resolved must be a boolean."))
       "update_reviewers"
       (do
-        (when-not (and (vector? (:reviewers operation)) (every? native-id? (:reviewers operation)))
-          (invalid! "reviewers must be an array of positive user ID strings."))
+        (when-not (and (vector? (:reviewers operation)) (every? nonblank? (:reviewers operation)))
+          (invalid! "reviewers must be an array of native reviewer ID strings."))
         (when (and (contains? operation :replace) (not (boolean? (:replace operation))))
           (invalid! "replace must be a boolean."))
         (when (and (empty? (:reviewers operation)) (not (true? (:replace operation))))
@@ -90,10 +90,16 @@
                       {:code :unsupported-forge-operation :operation type})))
     (when (and (= :reply type) (:individual? discussion))
       (throw (ex-info "Cannot reply to an individual top-level note as a discussion." {:code :discussion-not-threaded})))
-    (when (and (= :edit-note type) (:system? note))
-      (throw (ex-info "Cannot edit a system note." {:code :note-not-editable})))
-    (when (and (= :resolve-discussion type) (not (:resolvable discussion)))
-      (throw (ex-info "The selected discussion is not resolvable." {:code :discussion-not-resolvable})))
+    (when (and (= :reply type) (false? (:replyable? discussion)))
+      (throw (ex-info "The current user cannot reply to this discussion." {:code :discussion-not-replyable})))
+    (when (and (= :edit-note type) (or (:system? note) (false? (:editable? note))))
+      (throw (ex-info "The selected note is not editable by the current user." {:code :note-not-editable})))
+    (when (and (= :resolve-discussion type)
+               (or (not (:resolvable discussion))
+                   (false? (get discussion (if (:resolved operation) :can-resolve? :can-unresolve?)))))
+      (throw (ex-info "The selected discussion cannot reach this resolution state." {:code :discussion-not-resolvable})))
+    (when (and (= :update-reviewers type) (false? (get-in feedback [:change-request :metadata-editable?])))
+      (throw (ex-info "The change request no longer allows reviewer updates." {:code :change-request-not-editable})))
     (cond-> {:type type}
       discussion (assoc :discussion (dissoc discussion :notes))
       note (assoc :note note)
@@ -102,6 +108,7 @@
       (= :update-reviewers type)
       (assoc :replace (true? (:replace operation))
              :previous-reviewers (:reviewers feedback)
+             :metadata-editable? (get-in feedback [:change-request :metadata-editable?])
              :reviewers (let [requested (mapv (get-in runtime [:forge :resolve-reviewer]) (:reviewers operation))]
                           (distinct-reviewers (if (:replace operation) requested
                                                   (concat (:reviewers feedback) requested))))))))
@@ -138,16 +145,18 @@
   (let [discussion (when-let [target (:discussion operation)]
                      (find-discussion feedback (get-in target [:ref :id])))
         current (case (:type operation)
-                  :reply (select-keys discussion [:ref :individual?])
+                  :reply (select-keys discussion [:ref :individual? :replyable?])
                   :edit-note (select-keys (find-note discussion (get-in operation [:note :ref :id]))
-                                          [:ref :body :updated-at :system?])
-                  :resolve-discussion (select-keys discussion [:ref :resolvable :resolved])
-                  :update-reviewers (set (map :ref (:reviewers feedback))))
+                                          [:ref :body :updated-at :system? :editable?])
+                  :resolve-discussion (select-keys discussion [:ref :resolvable :resolved :can-resolve? :can-unresolve?])
+                  :update-reviewers {:reviewers (set (map :ref (:reviewers feedback)))
+                                     :metadata-editable? (get-in feedback [:change-request :metadata-editable?])})
         expected (case (:type operation)
-                   :reply (select-keys (:discussion operation) [:ref :individual?])
-                   :edit-note (select-keys (:note operation) [:ref :body :updated-at :system?])
-                   :resolve-discussion (select-keys (:discussion operation) [:ref :resolvable :resolved])
-                   :update-reviewers (set (map :ref (:previous-reviewers operation))))]
+                   :reply (select-keys (:discussion operation) [:ref :individual? :replyable?])
+                   :edit-note (select-keys (:note operation) [:ref :body :updated-at :system? :editable?])
+                   :resolve-discussion (select-keys (:discussion operation) [:ref :resolvable :resolved :can-resolve? :can-unresolve?])
+                   :update-reviewers {:reviewers (set (map :ref (:previous-reviewers operation)))
+                                      :metadata-editable? (:metadata-editable? operation)})]
     (when-not (= current expected)
       (throw (ex-info "The feedback target changed since approval; do not overwrite it."
                       {:code :stale-feedback-target})))))

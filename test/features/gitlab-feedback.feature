@@ -1,6 +1,6 @@
 @acceptance
 Feature: Approval-gated GitLab review feedback
-  Native-boundary CLI scenarios are implemented in ttt.feedback-test.
+  Native-boundary CLI scenarios are implemented in ttt.gitlab-feedback-test.
 
   Scenario: Preview does not change review feedback
     Given an MR with a threaded note and existing reviewers
