@@ -181,6 +181,109 @@
            :title title
            :description (or body "")})))
 
+
+(defn paginated-get
+  [app-config path query]
+  (loop [page 1 result []]
+    (let [items (api! app-config :get path (assoc query :page page :per_page 100))]
+      (when-not (vector? items)
+        (throw (ex-info "GitLab returned an invalid paginated response." {:code :provider-response-invalid})))
+      (let [result (into result items)]
+        (if (= 100 (count items)) (recur (inc page) result) result)))))
+
+(defn normalize-reviewer
+  [app-config user]
+  {:ref (domain/contained-identity :gitlab :user (base-url app-config) (:id user))
+   :display-id (:username user)
+   :title (:name user)})
+
+(defn feedback-path
+  [repository change-request]
+  (str "/projects/" (url-encode (get-in repository [:ref :id]))
+       "/merge_requests/" (url-encode (get-in change-request [:ref :id]))))
+
+(defn normalize-discussion
+  [app-config repository mr discussion]
+  (let [container (str (get-in repository [:ref :id]) "!" (:iid mr))
+        notes (mapv (fn [note]
+                      (when-not (and (= (:project_id mr) (:project_id note))
+                                     (= (:id mr) (:noteable_id note))
+                                     (= "MergeRequest" (:noteable_type note)))
+                        (throw (ex-info "GitLab returned a note outside the selected merge request."
+                                        {:code :feedback-identity-mismatch})))
+                      {:ref (domain/contained-identity :gitlab :note container (:id note))
+                       :display-id (str (:id note))
+                       :body (:body note)
+                       :author (normalize-reviewer app-config (:author note))
+                       :created-at (:created_at note)
+                       :updated-at (:updated_at note)
+                       :system? (boolean (:system note))
+                       :resolvable (boolean (:resolvable note))
+                       :resolved (boolean (:resolved note))
+                       :position (:position note)})
+                    (:notes discussion))
+        resolvable (filter :resolvable notes)]
+    {:ref (domain/contained-identity :gitlab :discussion container (:id discussion))
+     :display-id (:id discussion)
+     :individual? (boolean (:individual_note discussion))
+     :resolvable (boolean (seq resolvable))
+     :resolved (boolean (and (seq resolvable) (every? :resolved resolvable)))
+     :notes notes}))
+
+(defn get-feedback
+  [app-config repository reference]
+  (let [slug (get-in repository [:ref :id])
+        _ (when-not (= slug (remote-slug))
+            (throw (ex-info "The feedback project does not match the current repository."
+                            {:code :feedback-identity-mismatch})))
+        project (api! app-config :get (str "/projects/" (url-encode slug)) nil)
+        mr-path (str "/projects/" (url-encode slug) "/merge_requests/" (url-encode reference))
+        mr (api! app-config :get mr-path nil)]
+    (when-not (and (= slug (:path_with_namespace project))
+                   (some? (:id project))
+                   (= (:id project) (:project_id mr))
+                   (= (str reference) (str (:iid mr)))
+                   (some? (:id mr))
+                   (not (str/blank? (:sha mr))))
+      (throw (ex-info "GitLab returned a different project, merge request, or missing source head."
+                      {:code :feedback-identity-mismatch})))
+    (let [discussions (mapv #(normalize-discussion app-config repository mr %)
+                            (paginated-get app-config (str mr-path "/discussions") {}))]
+      {:change-request (assoc (normalize-change-request repository mr) :head-sha (:sha mr))
+       :reviewers (mapv #(normalize-reviewer app-config %) (:reviewers mr))
+       :discussions discussions
+       :unresolved (mapv :ref (filter #(and (:resolvable %) (not (:resolved %))) discussions))})))
+
+(defn resolve-reviewer
+  [app-config reference]
+  (let [user (api! app-config :get (str "/users/" (url-encode reference)) nil)]
+    (when-not (and (= (str reference) (str (:id user))) (= "active" (:state user)))
+      (throw (ex-info "GitLab reviewer ID does not identify an active user."
+                      {:code :reviewer-not-found})))
+    (normalize-reviewer app-config user)))
+
+(defn apply-feedback!
+  [app-config repository change-request operation]
+  (let [path (feedback-path repository change-request)
+        discussion (some-> operation :discussion :ref :id url-encode)
+        note (some-> operation :note :ref :id url-encode)]
+    (case (:type operation)
+      :reply (let [created (api! app-config :post (str path "/discussions/" discussion "/notes")
+                                {:body (:body operation)})]
+               (when-not (some? (:id created))
+                 (throw (ex-info "GitLab did not return the created reply ID."
+                                 {:code :provider-response-invalid})))
+               {:note-id (str (:id created))})
+      :edit-note (do (api! app-config :put (str path "/discussions/" discussion "/notes/" note)
+                           {:body (:body operation)})
+                     {:note-id (get-in operation [:note :ref :id])})
+      :resolve-discussion (do (api! app-config :put (str path "/discussions/" discussion)
+                                    {:resolved (:resolved operation)})
+                              {:discussion-id (get-in operation [:discussion :ref :id])})
+      :update-reviewers (do (api! app-config :put path
+                                  {:reviewer_ids (mapv #(parse-long (get-in % [:ref :id])) (:reviewers operation))})
+                            {:reviewer-ids (mapv #(get-in % [:ref :id]) (:reviewers operation))}))))
+
 (def capabilities
   #{:current-branch
     :maybe-current-change-request
@@ -193,6 +296,9 @@
     :comment-change-request!
     :create-change-request!
     :close-change-request!
+    :get-feedback
+    :resolve-reviewer
+    :apply-feedback!
     :prefix-change-request-title})
 
 (defn assert-ready!
@@ -212,6 +318,10 @@
   [app-config]
   {:provider :gitlab
    :capabilities capabilities
+   :feedback-capabilities #{:reply :edit-note :resolve-discussion :update-reviewers}
+   :get-feedback #(get-feedback app-config %1 %2)
+   :resolve-reviewer #(resolve-reviewer app-config %)
+   :apply-feedback! #(apply-feedback! app-config %1 %2 %3)
    :current-branch current-branch
    :maybe-current-change-request #(maybe-current-change-request app-config)
    :current-change-request #(current-change-request app-config)
