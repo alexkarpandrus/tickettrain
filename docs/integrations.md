@@ -62,7 +62,10 @@ Bundled registries live at the composition boundary:
          :setup asana/setup}
  :taskwarrior {:build taskwarrior/neutral-adapter
                :validate-config! taskwarrior/assert-ready!
-               :setup taskwarrior/setup}}
+               :setup taskwarrior/setup}
+ :logseq {:build logseq/neutral-adapter
+          :validate-config! logseq/assert-ready!
+          :setup logseq/setup}}
 ```
 
 A descriptor has a required `:build` function and optional `:validate-config!` and `:setup` functions. Runtime construction calls `:validate-config!` before `:build`; `ttt setup` calls `:setup`. `ttt.adapters/build` rejects unknown providers, registry/provider mismatches, undeclared capabilities, and missing capability functions. Dynamic plugin discovery and config-resolved symbols are intentionally unsupported.
@@ -83,13 +86,15 @@ A forge declares every capability in `ttt.adapters/required-capabilities`, inclu
  :comment-item! (fn [item body] nil)}
 ```
 
+A tracker may provide `:approval-context (fn [request] context-or-nil)` for read-only, provider-owned destination metadata. It receives the normalized request. Non-nil data appears as `approvalContext.trackerContext` and participates in the proposal hash. Logseq binds creation to a journal date and checks that date again before writing; other adapters keep their existing approval context.
+
 `:list-items` receives a predicate over normalized items. It must continue provider pagination until it returns `limit` matching items or the provider is exhausted.
 
 Shared code passes normalized label and blocker entities. Only the concrete tracker translates them to native IDs. `ttt.core` passes the configured scope to label resolution and validates resolved labels and blockers before mutation. A missing or ambiguous blocker reference fails preview.
 
 Create and update intents contain only requested work-item fields. Omitted fields remain unchanged. A JSON `null` clears an optional scalar, and an empty `blockedBy` array clears blockers. Comments remain separate append-only operations.
 
-Taskwarrior implements lifecycle, priority, due dates, availability, and blockers. Linear and Jira implement lifecycle, priority, due dates, and blockers. Asana implements lifecycle, due dates, availability, and blockers. GitHub Issues implements lifecycle. Adapters reject neutral values that the native tracker cannot represent, such as `active` for Asana or GitHub Issues. Jira discovers its default `Blocks` link type during preview; set `JIRA_BLOCKER_LINK_TYPE` to the native type ID or name when an administrator customized it.
+Taskwarrior implements lifecycle, priority, due dates, availability, and blockers. Linear and Jira implement lifecycle, priority, due dates, and blockers. Asana implements lifecycle, due dates, availability, and blockers. GitHub Issues and Logseq implement lifecycle. Adapters reject neutral values that the native tracker cannot represent, such as `active` for Asana, GitHub Issues, or Logseq. Jira discovers its default `Blocks` link type during preview; set `JIRA_BLOCKER_LINK_TYPE` to the native type ID or name when an administrator customized it.
 
 ## Registering a bundled provider
 

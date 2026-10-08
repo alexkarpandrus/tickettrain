@@ -10,11 +10,11 @@
   <a href="https://github.com/alexkarpandrus/tickettrain/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/alexkarpandrus/tickettrain/actions/workflows/test.yml/badge.svg"></a>
   <img alt="Babashka 1.12.217+" src="https://img.shields.io/badge/Babashka-1.12.217%2B-8b5cf6?logo=clojure&logoColor=white">
   <img alt="Agent API v2" src="https://img.shields.io/badge/Agent_API-v2-06b6d4">
-  <img alt="8 providers" src="https://img.shields.io/badge/providers-8-14b8a6">
+  <img alt="9 providers" src="https://img.shields.io/badge/providers-9-14b8a6">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-e85d3f"></a>
 </p>
 
-**tickettrain** (`ttt`) gives coding agents one safe workflow for pull requests, tracker items, and comments. It works with GitHub, GitLab, or Bitbucket and Linear, Jira, GitHub Issues, Asana, or Taskwarrior—without provider-specific prompts or API code.
+**tickettrain** (`ttt`) gives coding agents one safe workflow for pull requests, tracker items, and comments. It works with GitHub, GitLab, or Bitbucket and Linear, Jira, GitHub Issues, Asana, Taskwarrior, or Logseq—without provider-specific prompts or API code.
 
 - **One prompt:** find or create the PR/MR and tracker item, link both sides, and comment on either.
 - **Safe by default:** agents can inspect and preview freely; only an exact approved proposal can mutate a provider.
@@ -99,24 +99,24 @@ Every registered adapter implements the shared contract for its role. Provider-n
 
 ### Trackers
 
-| Capability | Linear | Jira | GitHub Issues | Asana | Taskwarrior |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| Search and resolve items | ✓ | ✓ | ✓ | ✓¹ | ✓ |
-| List normalized items | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Parent hierarchy | ✓ | ✓ | —² | ✓ | —⁴ |
-| Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ |
-| Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Create items | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ |
-| Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ |
-| Set neutral priority | ✓ | ✓ | — | — | ✓⁶ |
-| Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ |
-| Set availability | — | — | — | ✓ | ✓⁶ |
-| Set blockers | ✓ | ✓ | — | ✓ | ✓⁶ |
-| Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI |
+| Capability | Linear | Jira | GitHub Issues | Asana | Taskwarrior | Logseq |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Search and resolve items | ✓ | ✓ | ✓ | ✓¹ | ✓ | ✓ |
+| List normalized items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Parent hierarchy | ✓ | ✓ | —² | ✓ | —⁴ | — |
+| Search and resolve projects | ✓ | ✓ | ✓² | ✓ | ✓ | — |
+| Search and resolve labels | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Create items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Comment on items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ | — |
+| Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ | ✓⁷ |
+| Set neutral priority | ✓ | ✓ | — | — | ✓⁶ | — |
+| Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ | — |
+| Set availability | — | — | — | ✓ | ✓⁶ | — |
+| Set blockers | ✓ | ✓ | — | ✓ | ✓⁶ | — |
+| Update items and backlinks | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Setup/auth check | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Transport | GraphQL | REST API | `gh` CLI | REST API | `task` CLI | Local HTTP API |
 
 1. Asana's full-workspace search requires a paid plan. On HTTP 402, `ttt` searches only tasks assigned to the authenticated user.
 2. GitHub Issues does not support parent issues. GitHub milestones provide the project scope.
@@ -124,8 +124,17 @@ Every registered adapter implements the shared contract for its role. Provider-n
 4. Taskwarrior does not support native parent tasks. Use Taskwarrior projects for hierarchy.
 5. Taskwarrior creates pending tasks and preserves native status during updates.
 6. Unsupported neutral fields or values fail during read-only preview.
+7. Logseq maps `open` to native `TODO` and `completed` to `DONE`. It lists journal tasks only, including nested tasks.
 
-All 15 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
+All 18 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
+
+### Logseq journals
+
+Enable Logseq's local HTTP API server and keep the selected file graph open. The server must expose the [Logseq SDK](https://github.com/logseq/logseq/blob/0.10.15/src/main/logseq/api.cljs) methods `App.getCurrentGraph` and the file-graph page/block read and write methods, including `Editor.getAllPages` and `Editor.createPage`. Set `LOGSEQ_GRAPH` to the exact graph path reported by `App.getCurrentGraph` and `LOGSEQ_TOKEN` to the API token, then select Logseq in `ttt setup`. `LOGSEQ_BASE_URL` defaults to `http://127.0.0.1:12315`; only loopback HTTP URLs are accepted.
+
+Use `create_item` to append a native `TODO` in today's journal. Search and list return full native block UUIDs. Use that UUID with `update_item` and `state: "completed"` to change only its marker to `DONE`. Descriptions remain in the block content; comments append native child blocks. Comments starting with a native task marker (`NOW`, `LATER`, `TODO`, `DOING`, `DONE`, `WAITING`, `WAIT`, `CANCELED`, `CANCELLED`, `IN-PROGRESS`, or `STARTED`), including leading whitespace or Markdown headings, are Markdown-quoted (`> ` on each line) so they remain comments, not tasks; other comments are unchanged. Tracker reads still expose only `TODO`/`DONE` tasks. New tasks use Logseq's native `id` property to persist their UUID, not separate `ttt` task storage.
+
+Preview does not create journal pages or blocks. Creation approval includes the journal date; preview again after midnight. An API failure after creation can leave a task behind. Inspect the reported block UUID before retrying `create_item`. The desktop API has no graph-scoped transaction: do not switch graphs or edit the selected block while apply runs.
 
 ## Human workflow
 

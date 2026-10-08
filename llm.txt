@@ -1,6 +1,6 @@
 # tickettrain
 
-`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, or Taskwarrior items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Forge actions run inside the target application repository; standalone item actions do not need Git.
+`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Forge actions run inside the target application repository; standalone item actions do not need Git.
 
 ## Preconditions
 
@@ -18,6 +18,7 @@ Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local
 - Linear and Jira discover configured workflow states. Jira applies a direct transition after creation and requires a parent, request project, or `JIRA_PROJECT`.
 - GitHub Issues supports `open` and `closed`. Asana supports `incomplete` and `completed`.
 - Taskwarrior translates native lifecycle values to `open`, `active`, `waiting`, `completed`, or `canceled`; updates preserve lifecycle when `state` is omitted.
+- Logseq creates native TODO blocks in today's journal. Its neutral states are `open` (TODO) and `completed` (DONE); comments are native child blocks. Set LOGSEQ_GRAPH to the exact open graph path and LOGSEQ_TOKEN to its HTTP API token. LOGSEQ_BASE_URL defaults to http://127.0.0.1:12315 and must be a loopback HTTP URL. Creation approval includes the journal date; preview again after midnight.
 - Set `GH_REPO=owner/repository` before `ttt setup` for GitHub Issues standalone actions outside Git or when targeting a repository other than the current Git repository.
 - Never guess a state name. Present the available states and ask the user to choose.
 
@@ -128,13 +129,13 @@ Rules:
 - `create_item` accepts `title`, optional `description`, `comment`, `project`, `labels`, `state`, `priority`, `dueAt`, `availableAt`, and `blockedBy`; it needs no forge configuration or repository context. The optional comment is previewed separately and appended through the tracker's native comment operation after approved creation.
 - If the create succeeds but its comment fails, `apply` returns `ok: false`, code `item-comment-failed`, and the created item under `error.partialResult.item`. Inspect that item before retrying with `comment_item`; do not repeat `create_item`. Creation plus commenting is not atomic, and retries are not automatically deduplicated.
 - `update_item` accepts `item` plus comments, label changes, or work-item fields. Omitted fields stay unchanged; `null` clears optional scalars and `blockedBy: []` clears blockers.
-- Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name.
+- Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues and Logseq support lifecycle. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.
 - `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request; it needs no tracker configuration.
 - `comment_item` accepts `item` and `body`; it needs no forge configuration or repository context.
 - `comment_change_request` accepts `body` and targets the current branch's open change request; it needs no tracker configuration.
 - `close_change_request` accepts an explicit `changeRequest` ID and optional `comment`; it closes that open change request in the current repository and needs no tracker configuration.
-- Projects and labels must already exist, except Taskwarrior projects and tags, which are created implicitly.
+- Projects and labels must already exist, except Taskwarrior projects and tags, which are created implicitly. The Logseq journal tracker does not support projects, labels, or parent selection.
 - Standalone item previews include the exact target or creation intent, comment, and label changes. Comment and close previews include the exact target and comment body. Change-request update previews include the exact target and `changeRequestUpdate`. Link previews include `approvalContext`, `item`, `trackerIntent`, and `changeRequestUpdate`; change-request create previews include `changeRequestIntent`.
 
 ## Managed metadata
