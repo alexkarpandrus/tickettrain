@@ -604,3 +604,37 @@
                     http/post reject-write http/put reject-write]
         (is (= "provider-response-invalid" (get-in (cli-preview (request [reply])) [:envelope :error :code])))
         (is (empty? @writes))))))
+
+
+(deftest invalid-native-target-in-a-saved-journal-fails-clearly-without-replay
+  (let [state (state) request (request [reply])]
+    (with-gitlab state
+      (fn []
+        (let [id (proposal-id request)]
+          (is (= 0 (:exit (cli-apply request id))))
+          (let [saved (journal/read-batch "batch-one") mutations @(:mutations state)
+                target (get-in saved [:proposal :change-request :native-ref])]
+            (doseq [invalid [nil {} (assoc target :id "")]]
+              (journal/write-batch! "batch-one" (assoc-in saved [:proposal :change-request :native-ref] invalid))
+              (let [bytes (slurp (journal/path "batch-one"))]
+                (doseq [result [(cli-preview request) (cli-apply request id)]]
+                  (is (= "feedback-journal-invalid" (get-in result [:envelope :error :code])))
+                  (is (not (str/blank? (get-in result [:envelope :error :message])))))
+                (is (= bytes (slurp (journal/path "batch-one")))))
+              (is (= mutations @(:mutations state))))))))))
+
+(deftest changing-gitlab-instance-cannot-reuse-approval-or-saved-outcomes
+  (let [state (state) request (request [reply])]
+    (with-gitlab state
+      (fn []
+        (let [id (proposal-id request)
+              other-instance (assoc-in cfg [:forge :base-url] "https://other.invalid")]
+          (with-redefs [config/load-config (fn [& _] other-instance)]
+            (is (not= id (proposal-id request)))
+            (is (= "stale-proposal" (get-in (cli-apply request id) [:envelope :error :code])))
+            (is (empty? @(:mutations state))))
+          (is (= 0 (:exit (cli-apply request id))))
+          (let [mutations @(:mutations state)]
+            (with-redefs [config/load-config (fn [& _] other-instance)]
+              (is (= "stale-proposal" (get-in (cli-apply request id) [:envelope :error :code]))))
+            (is (= mutations @(:mutations state)))))))))
