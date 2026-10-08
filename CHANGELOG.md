@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.11.0...v0.12.0) (2026-10-08)
+
+
+### Features
+
+* **gitlab:** add approval-gated review feedback batches ([cda7c59](https://github.com/alexkarpandrus/tickettrain/commit/cda7c59513f8e883906be7ad4a230a8e61f26da6))
+* **inference:** check task project relations with Jev ([9b2687d](https://github.com/alexkarpandrus/tickettrain/commit/9b2687d1e07fa64286e167a0538780da6f72bf30)), closes [#89](https://github.com/alexkarpandrus/tickettrain/issues/89)
+* **items:** append native comments during item creation ([dd6786f](https://github.com/alexkarpandrus/tickettrain/commit/dd6786fd072bd3eff7d96caa60966a8ecf76b99e)), closes [#87](https://github.com/alexkarpandrus/tickettrain/issues/87)
+* **logseq:** track native journal TODO blocks ([efe6eef](https://github.com/alexkarpandrus/tickettrain/commit/efe6eef346031b1fc9ddcafe7db6709645e4ee53)), closes [#90](https://github.com/alexkarpandrus/tickettrain/issues/90)
+
+
+### Fixes
+
+* **agent:** keep generated guidance current ([08952e9](https://github.com/alexkarpandrus/tickettrain/commit/08952e9a4725fe090e6fd63fece53f087b154eec))
+* **agent:** link merged and closed change requests ([d6feb2e](https://github.com/alexkarpandrus/tickettrain/commit/d6feb2e4f59662f5a9a932edd7e56ee0357efd44))
+* **bitbucket:** reject immutable pull request links before tracker writes ([84c4080](https://github.com/alexkarpandrus/tickettrain/commit/84c408012a5db8ed4506907a103c363908f3e977))
+* **gitlab:** pin review targets and serialize local feedback ([552fe3b](https://github.com/alexkarpandrus/tickettrain/commit/552fe3bcb063292e2fed8d72ee5a7154352bac87))
+* **gitlab:** reject invalid feedback journal targets ([57fd6ba](https://github.com/alexkarpandrus/tickettrain/commit/57fd6ba8d198606940c6a5a260c5c3d201260621))
+* **logseq:** guard native comment markers with prefix matching ([cb57fb9](https://github.com/alexkarpandrus/tickettrain/commit/cb57fb95f553082ce450a97f578f09209d40542f))
+* **logseq:** quote STARTED task comments ([6ad6b64](https://github.com/alexkarpandrus/tickettrain/commit/6ad6b64b466973b6554a3a93f0abdea40ae32a5b))
+* **logseq:** quote task-looking comments ([86d750e](https://github.com/alexkarpandrus/tickettrain/commit/86d750e32338a8ba7a546730c11c3f5afd7e3895))
+* **taskwarrior:** keep item details out of annotations ([d1dd6cd](https://github.com/alexkarpandrus/tickettrain/commit/d1dd6cd5af32e24c834ed19b74093955ecaef3e5))
+
 ## [0.11.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.10.0...v0.11.0) (2026-09-22)
 
 
