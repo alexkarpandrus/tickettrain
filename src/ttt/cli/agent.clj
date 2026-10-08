@@ -100,6 +100,7 @@
         (:title entity) (assoc :title (:title entity))
         (:url entity) (assoc :url (:url entity))
         (:head-sha entity) (assoc :headSha (:head-sha entity))
+        (:native-ref entity) (assoc :nativeIdentity (wire-identity {:ref (:native-ref entity)}))
         (or item? (:description entity)) (assoc :description (:description entity))
         item? (assoc :state (:state entity)
                      :priority (or (:priority entity) "none")
@@ -551,11 +552,28 @@
 (defn preview-proposal [runtime request]
   (validate-request! request)
   (let [profile (get-in runtime [:config :profile])
-        proposal (cond-> (core/preview runtime (core-request request))
-                   (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime (core-request request)))
-                   profile (assoc :profile profile)
-                   true (assoc :config-id (sha256 (:config runtime))))]
-    (assoc proposal :proposal-id (proposal-id proposal))))
+        config-id (sha256 (:config runtime))
+        core-request (core-request request)
+        saved (when (= "review_change_request" (:action request))
+                (journal/read-batch (:batchId request)))]
+    (try
+      (let [proposal (cond-> (core/preview runtime core-request)
+                       (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime core-request))
+                       profile (assoc :profile profile)
+                       true (assoc :config-id config-id))]
+        (assoc proposal :proposal-id (proposal-id proposal)))
+      (catch Exception ex
+        (if (and saved (= core-request (get-in saved [:proposal :request]))
+                 (= profile (get-in saved [:proposal :profile]))
+                 (= config-id (get-in saved [:proposal :config-id])))
+          (throw (ex-info (.getMessage ex)
+                          (assoc (ex-data ex) :partial-result
+                                 {:change-request (get-in saved [:proposal :change-request])
+                                  :operations (get-in saved [:proposal :operations])
+                                  :outcomes (:outcomes saved)
+                                  :readback-error (remote/sanitize-detail (.getMessage ex))})
+                          ex))
+          (throw ex))))))
 (defn preview-data [runtime request] (proposal->wire (preview-proposal runtime request)))
 (defn apply-data! [runtime request approval]
   (let [proposal (preview-proposal runtime request)]

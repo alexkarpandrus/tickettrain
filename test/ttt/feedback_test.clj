@@ -1,11 +1,14 @@
 (ns ttt.feedback-test
   (:require [cheshire.core :as json]
+            [babashka.http-client :as http]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [ttt.adapters :as adapters]
             [ttt.cli.agent :as agent]
             [ttt.config :as config]
             [ttt.feedback :as feedback]
             [ttt.platform.feedback-journal :as journal]
+            [ttt.platform.shell :as shell]
             [ttt.providers.forge.gitlab :as gitlab]))
 
 (use-fixtures :each
@@ -19,7 +22,9 @@
 (def project {:id 17 :path_with_namespace "group/proj" :default_branch "main"})
 (def old-reviewer {:id 1 :username "existing" :name "Existing" :state "active"})
 (def new-reviewer {:id 2 :username "requested" :name "Requested" :state "active"})
-(def mr-path "/projects/group%2Fproj/merge_requests/7")
+(def mr-path "/projects/17/merge_requests/7")
+(def read-mr-path "/projects/group%2Fproj/merge_requests/7")
+(def native-directory journal/directory)
 
 (defn native-note [id]
   {:id id :body "Original review" :author old-reviewer :project_id 17
@@ -36,8 +41,9 @@
    :calls (atom []) :mutations (atom []) :failure (atom nil) :next-note (atom 1000)})
 
 (defn native-api [state]
-  (fn [_ method path query]
-    (swap! (:calls state) conj [method path query])
+  (fn [_ method native-path query]
+    (swap! (:calls state) conj [method native-path query])
+    (let [path (str/replace native-path "/projects/group%2Fproj/" "/projects/17/")]
     (if (= :get method)
       (cond
         (= "/projects/group%2Fproj" path) project
@@ -48,28 +54,32 @@
         (= "/users/2" path) new-reviewer
         :else (throw (ex-info "Unexpected GET" {:path path})))
       (do
-        (swap! (:mutations state) conj [method path query])
+        (swap! (:mutations state) conj [method native-path query])
         (when-let [failure @(:failure state)]
           (when (= path (:path failure))
             (reset! (:failure state) nil)
             (throw (ex-info "Simulated provider failure" (dissoc failure :path)))))
-        (cond
-          (and (= :post method) (= (str mr-path "/discussions/thread-one/notes") path))
+        (let [[_ thread-id note-id] (re-matches #"/projects/17/merge_requests/7/discussions/([^/]+)(?:/notes(?:/(\d+))?)?" path)
+              thread-index (first (keep-indexed #(when (= thread-id (:id %2)) %1) @(:discussions state)))
+              note-index (first (keep-indexed #(when (= note-id (str (:id %2))) %1)
+                                             (get-in @(:discussions state) [thread-index :notes])))]
+          (cond
+          (and (= :post method) (str/ends-with? path "/notes"))
           (let [note (assoc (native-note (swap! (:next-note state) inc)) :body (:body query))]
-            (swap! (:discussions state) update-in [0 :notes] conj note)
+            (swap! (:discussions state) update-in [thread-index :notes] conj note)
             note)
-          (and (= :put method) (= (str mr-path "/discussions/thread-one/notes/10") path))
-          (do (swap! (:discussions state) update-in [0 :notes 0] assoc
+          (and (= :put method) note-id)
+          (do (swap! (:discussions state) update-in [thread-index :notes note-index] assoc
                      :body (:body query) :updated_at "2026-10-02T10:00:00Z")
-              (get-in @(:discussions state) [0 :notes 0]))
-          (and (= :put method) (= (str mr-path "/discussions/thread-one") path))
-          (do (swap! (:discussions state) update-in [0 :notes]
+              (get-in @(:discussions state) [thread-index :notes note-index]))
+          (and (= :put method) thread-id)
+          (do (swap! (:discussions state) update-in [thread-index :notes]
                      #(mapv (fn [note] (if (:resolvable note) (assoc note :resolved (:resolved query)) note)) %))
-              (first @(:discussions state)))
+              (get @(:discussions state) thread-index))
           (and (= :put method) (= mr-path path))
           (swap! (:mr state) assoc :reviewers
                  (mapv {1 old-reviewer 2 new-reviewer} (:reviewer_ids query)))
-          :else (throw (ex-info "Unexpected mutation" {:path path :query query})))))))
+          :else (throw (ex-info "Unexpected mutation" {:path path :query query})))))))))
 
 (defn with-gitlab [state run]
   (with-redefs [gitlab/remote-slug (constantly "group/proj")
@@ -101,6 +111,8 @@
       #(let [data (get-in (cli-preview request) [:envelope :data])]
          (is (= "group/proj" (get-in data [:changeRequest :identity :container])))
          (is (= "head-a" (get-in data [:changeRequest :headSha])))
+         (is (= "17" (get-in data [:changeRequest :nativeIdentity :container])))
+         (is (= "200" (get-in data [:changeRequest :nativeIdentity :id])))
          (is (= "thread-one" (get-in data [:operations 0 :discussion :identity :id])))
          (is (= "group/proj!7" (get-in data [:operations 1 :note :identity :container])))
          (is (= "10" (get-in data [:operations 1 :note :identity :id])))
@@ -213,7 +225,7 @@
          (is (= {:head_sha "head-a" :new_path "file.clj" :new_line 7}
                 (get-in data [:discussions 100 :notes 0 :position])))
          (is (= [1 2] (mapv (fn [[_ _ query]] (:page query))
-                            (filter (fn [[_ path]] (= (str mr-path "/discussions") path)) @(:calls state))))) ))))
+                            (filter (fn [[_ path]] (= (str read-mr-path "/discussions") path)) @(:calls state))))) ))))
 
 (deftest non-resolvable-and-individual-discussions-are-rejected
   (doseq [[field value operation code] [[[:notes 0 :resolvable] false resolve-thread "discussion-not-resolvable"]
@@ -378,6 +390,7 @@
                         gitlab/api! (fn [cfg method path query]
                                      (when (= :post method)
                                        (is (= [(.getParentFile (.getAbsoluteFile (journal/directory)))
+                                               (.getParentFile (.getAbsoluteFile (journal/directory)))
                                                (journal/directory)] @synced))
                                        (is (= :started (get-in (journal/read-batch "batch-one") [:outcomes 0 :status]))))
                                      (native cfg method path query))]
@@ -405,3 +418,189 @@
       (fn []
         (is (= 0 (:exit (cli-apply request (proposal-id request)))))
         (is (= [1 2] (mapv :id (:reviewers @(:mr state)))))))))
+
+
+(defn replacement-api [native replacement]
+  (fn [cfg method path query]
+    (let [result (native cfg method path query)
+          [project-id mr-id] @replacement]
+      (if (and (= :get method) @replacement)
+        (cond
+          (= "/projects/group%2Fproj" path) (assoc result :id project-id)
+          (= read-mr-path path) (assoc result :id mr-id :project_id project-id)
+          (= (str read-mr-path "/discussions") path)
+          (mapv #(update % :notes (fn [notes]
+                                   (mapv (fn [note] (-> note (assoc :project_id project-id :noteable_id mr-id)
+                                                        (update :id + 10000))) notes))) result)
+          :else result)
+        result))))
+
+(deftest same-slug-and-iid-replacement-invalidates-the-original-approval
+  (doseq [ids [[17 900] [99 900]]]
+    (let [state (state) request (request [reviewers]) replacement (atom nil)]
+      (with-gitlab state
+        (fn []
+          (with-redefs [gitlab/api! (replacement-api gitlab/api! replacement)]
+            (let [id (proposal-id request)]
+              (reset! replacement ids)
+              (is (= "stale-proposal" (get-in (cli-apply request id) [:envelope :error :code])))
+              (is (empty? @(:mutations state))))))))))
+
+(deftest native-replacement-before-a-pending-write-stops-the-batch-and-recovery
+  (doseq [stage [2 3]]
+    (let [state (state) operations (if (= 2 stage) [reviewers] [reply reviewers])
+          request (assoc (request operations) :batchId (str "replacement-stage-" stage))
+          replacement (atom nil) calls (atom 0)]
+      (with-gitlab state
+        (fn []
+          (with-redefs [gitlab/api! (replacement-api gitlab/api! replacement)]
+            (let [id (proposal-id request) native-feedback gitlab/get-feedback]
+              (with-redefs [gitlab/get-feedback (fn [& args]
+                                                  (when (= stage (swap! calls inc))
+                                                    (reset! replacement [99 900]))
+                                                  (apply native-feedback args))]
+                (let [result (cli-apply request id) partial (get-in result [:envelope :error :partialResult])]
+                  (is (= "stale-feedback-target" (get-in partial [:operations (dec (count operations)) :error :code])))
+                  (is (= (if (= 2 stage) ["failed"] ["succeeded" "failed"])
+                         (mapv :status (:operations partial))))
+                  (is (nil? (:feedback partial)))
+                  (is (string? (:readbackError partial)))
+                  (is (= (- stage 2) (count @(:mutations state))))
+                  (let [retry (cli-apply request id)]
+                    (is (= "stale-feedback-target" (get-in retry [:envelope :error :code])))
+                    (is (= (- stage 2) (count @(:mutations state))))
+                    (when (= 3 stage)
+                      (is (= "1001" (get-in retry [:envelope :error :partialResult :operations 0 :affectedIds :noteId]))))))))))))))
+
+(deftest different-batches-cannot-overwrite-an-acknowledged-reviewer-addition
+  (let [state (state) first-request (request [reviewers])
+        second-request (assoc (request [(assoc reviewers :reviewers ["1"])]) :batchId "batch-two")
+        entered (promise) release (promise)]
+    (with-gitlab state
+      (fn []
+        (let [first-id (proposal-id first-request) second-id (proposal-id second-request)
+              native gitlab/api!]
+          (with-redefs [gitlab/api! (fn [cfg method path query]
+                                     (when (and (= :put method) (= [1 2] (:reviewer_ids query)))
+                                       (deliver entered true)
+                                       (when-not (deref release 5000 false)
+                                         (throw (ex-info "Test mutation barrier timed out" {}))))
+                                     (native cfg method path query))]
+            (let [first-apply (future (cli-apply first-request first-id))]
+              (try
+                (is (true? (deref entered 5000 false)))
+                (is (= "feedback-batch-locked" (get-in (cli-apply second-request second-id) [:envelope :error :code])))
+                (is (empty? @(:mutations state)))
+                (finally (deliver release true)))
+              (is (= 0 (:exit (deref first-apply 5000 nil))))))
+          (is (= [1 2] (mapv :id (:reviewers @(:mr state)))))
+          (is (= "stale-proposal" (get-in (cli-apply second-request second-id) [:envelope :error :code])))
+          (is (= 1 (count @(:mutations state))))
+          (is (= 0 (:exit (cli-apply second-request (proposal-id second-request)))))
+          (is (= [1 2] (mapv :id (:reviewers @(:mr state))))))))))
+
+(deftest matching-saved-outcomes-remain-visible-when-retry-inspection-is-unavailable
+  (let [state (state) request (request [reply])]
+    (with-gitlab state
+      (fn []
+        (let [id (proposal-id request)]
+          (is (= 0 (:exit (cli-apply request id))))
+          (let [mutations @(:mutations state)]
+            (with-redefs [gitlab/api! (fn [& _] (throw (ex-info "Feedback inspection unavailable" {:code :provider-unavailable})))]
+              (doseq [result [(cli-preview request) (cli-apply request id)]]
+                (is (= "provider-unavailable" (get-in result [:envelope :error :code])))
+                (is (= "succeeded" (get-in result [:envelope :error :partialResult :operations 0 :status])))
+                (is (= "1001" (get-in result [:envelope :error :partialResult :operations 0 :affectedIds :noteId])))
+                (is (= "Feedback inspection unavailable" (get-in result [:envelope :error :partialResult :readbackError]))))
+              (is (nil? (get-in (cli-preview (assoc-in request [:operations 0 :body] "Different request"))
+                               [:envelope :error :partialResult])))
+              (doseq [different-config [(assoc cfg :profile "different-profile")
+                                       (assoc-in cfg [:forge :base-url] "https://other.invalid")]]
+                (with-redefs [config/load-config (fn [& _] different-config)]
+                  (is (nil? (get-in (cli-preview request) [:envelope :error :partialResult]))))))
+            (is (= mutations @(:mutations state)))))))))
+
+(deftest real-http-error-adaptation-distinguishes-rejections-from-ambiguous-accepted-replies
+  (doseq [status [403 408 500]]
+    (let [state (state) request (assoc (request [reply resolve-thread]) :batchId (str "http-" status))
+          native (native-api state) fail? (atom true) posts (atom [])
+          send (fn [method url options]
+                 (let [path (subs (.getRawPath (java.net.URI. url)) (count gitlab/api-version))
+                       query (if (= :get method) (:query-params options) (json/parse-string (:body options) true))]
+                   (when (= :post method) (swap! posts conj url))
+                   (if (and (= :post method) @fail?)
+                     (do (reset! fail? false)
+                         (when (not= 403 status) (native cfg method path query))
+                         {:status status :body (json/generate-string {:message "Simulated HTTP failure"})})
+                     {:status 200 :body (json/generate-string (native cfg method path query))})))]
+      (with-redefs [gitlab/remote-slug (constantly "group/proj")
+                    config/load-config (fn [& _] cfg)
+                    http/get (partial send :get) http/post (partial send :post) http/put (partial send :put)]
+        (let [id (proposal-id request) result (cli-apply request id)]
+          (is (= "feedback-partial-failure" (get-in result [:envelope :error :code])))
+          (is (= [(if (= 403 status) "failed" "unknown") "pending"]
+                 (mapv :status (get-in result [:envelope :error :partialResult :operations]))))
+          (is (= "remote-api-error" (get-in result [:envelope :error :partialResult :operations 0 :error :code])))
+          (is (= ["https://gitlab.com/api/v4/projects/17/merge_requests/7/discussions/thread-one/notes"] @posts))
+          (is (= (if (= 403 status) 1 2) (count (get-in @(:discussions state) [0 :notes]))))
+          (let [retry (cli-apply request id)]
+            (is (= (if (= 403 status) 0 2) (:exit retry)))
+            (is (= (if (= 403 status) 2 1) (count @posts)))
+            (is (= 2 (count (get-in @(:discussions state) [0 :notes]))))))))))
+
+(deftest exact-second-discussion-and-non-first-note-mutations-preserve-other-feedback
+  (let [state (state) first-thread (first @(:discussions state))
+        second-thread {:id "thread-two" :individual_note false :notes [(native-note 20) (native-note 21)]}
+        request (request [(assoc reply :discussion "thread-two")
+                          (assoc edit :discussion "thread-two" :note "21")
+                          (assoc resolve-thread :discussion "thread-two")])]
+    (swap! (:discussions state) conj second-thread)
+    (with-gitlab state
+      (fn []
+        (let [result (cli-apply request (proposal-id request))]
+          (is (= 0 (:exit result)) (pr-str result))
+          (is (= first-thread (first @(:discussions state))))
+          (is (= "Original review" (get-in @(:discussions state) [1 :notes 0 :body])))
+          (is (= "Corrected note" (get-in @(:discussions state) [1 :notes 1 :body])))
+          (is (= "Fixed and verified" (get-in @(:discussions state) [1 :notes 2 :body])))
+          (is (every? :resolved (get-in @(:discussions state) [1 :notes])))
+          (is (= [(str mr-path "/discussions/thread-two/notes")
+                  (str mr-path "/discussions/thread-two/notes/21")
+                  (str mr-path "/discussions/thread-two")]
+                 (mapv second @(:mutations state)))))))))
+
+(deftest missing-discussions-and-notes-from-another-thread-fail-before-writing
+  (doseq [operation [(assoc reply :discussion "missing-thread")
+                     (assoc edit :note "999")
+                     (assoc edit :note "20")]]
+    (let [state (state) before (conj @(:discussions state)
+                                   {:id "thread-two" :individual_note false :notes [(native-note 20)]})]
+      (reset! (:discussions state) before)
+      (with-gitlab state
+        (fn []
+          (is (= (if (= "reply" (:type operation)) "discussion-not-found" "note-not-found")
+                 (get-in (cli-preview (request [operation])) [:envelope :error :code])))
+          (is (empty? @(:mutations state)))
+          (is (= before @(:discussions state))))))))
+
+(deftest journal-directory-is-shared-through-the-git-common-directory
+  (with-redefs [shell/run (fn [& args]
+                           (is (= ["git" "rev-parse" "--git-common-dir"] (vec args)))
+                           "/tmp/shared-git-directory\n")]
+    (is (= "/tmp/shared-git-directory/ttt-feedback" (.getPath (native-directory))))))
+
+
+(deftest malformed-http-discussion-bodies-fail-before-any-native-write
+  (doseq [body [nil {:unexpected "object"} "unexpected scalar"]]
+    (let [state (state) native (native-api state) writes (atom [])
+          reject-write (fn [& args] (swap! writes conj args) (throw (ex-info "Unexpected preview write" {})))]
+      (with-redefs [gitlab/remote-slug (constantly "group/proj")
+                    config/load-config (fn [& _] cfg)
+                    http/get (fn [url options]
+                               (let [path (subs (.getRawPath (java.net.URI. url)) (count gitlab/api-version))]
+                                 {:status 200 :body (json/generate-string
+                                                    (if (str/ends-with? path "/discussions") body
+                                                        (native cfg :get path (:query-params options))))}))
+                    http/post reject-write http/put reject-write]
+        (is (= "provider-response-invalid" (get-in (cli-preview (request [reply])) [:envelope :error :code])))
+        (is (empty? @writes))))))

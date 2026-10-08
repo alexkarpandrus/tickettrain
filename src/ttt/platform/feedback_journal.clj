@@ -4,7 +4,7 @@
             [ttt.platform.shell :as shell]))
 
 (defn directory []
-  (java.io.File. (str/trim (shell/run "git" "rev-parse" "--git-path" "ttt-feedback"))))
+  (java.io.File. (str/trim (shell/run "git" "rev-parse" "--git-common-dir")) "ttt-feedback"))
 
 (defn path [batch-id]
   (java.io.File. (directory) (str batch-id ".edn")))
@@ -56,13 +56,23 @@
       (sync-directory! parent)
       (finally (.delete temp)))))
 
-(defn with-batch-lock [batch-id run]
+(defn- with-lock [name run]
   (let [parent (directory)
         _ (.mkdirs parent)
         _ (owner-only! parent true)
         _ (sync-directory! (.getParentFile (.getAbsoluteFile parent)))
-        lock (java.io.File. parent (str batch-id ".lock"))]
+        lock (java.io.File. parent name)]
     (when-not (.mkdir lock)
-      (throw (ex-info "This feedback batch is locked. Inspect any active process before removing an abandoned lock."
+      (throw (ex-info "This feedback target or batch is locked. Inspect any active process before removing an abandoned lock."
                       {:code :feedback-batch-locked})))
     (try (run) (finally (.delete lock)))))
+
+(defn with-batch-lock [batch-id run]
+  (with-lock (str batch-id ".lock") run))
+
+(defn with-target-lock [change-request run]
+  (let [target (:native-ref change-request)
+        digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                        (.getBytes (pr-str (mapv target [:provider :kind :container :id])) "UTF-8"))
+        key (format "%064x" (java.math.BigInteger. 1 digest))]
+    (with-lock (str key ".target-lock") run)))

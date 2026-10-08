@@ -186,7 +186,7 @@
   [app-config path query]
   (loop [page 1 result []]
     (let [items (api! app-config :get path (assoc query :page page :per_page 100))]
-      (when-not (vector? items)
+      (when-not (sequential? items)
         (throw (ex-info "GitLab returned an invalid paginated response." {:code :provider-response-invalid})))
       (let [result (into result items)]
         (if (= 100 (count items)) (recur (inc page) result) result)))))
@@ -198,8 +198,8 @@
    :title (:name user)})
 
 (defn feedback-path
-  [repository change-request]
-  (str "/projects/" (url-encode (get-in repository [:ref :id]))
+  [change-request]
+  (str "/projects/" (url-encode (get-in change-request [:native-ref :container]))
        "/merge_requests/" (url-encode (get-in change-request [:ref :id]))))
 
 (defn normalize-discussion
@@ -240,16 +240,19 @@
         mr-path (str "/projects/" (url-encode slug) "/merge_requests/" (url-encode reference))
         mr (api! app-config :get mr-path nil)]
     (when-not (and (= slug (:path_with_namespace project))
-                   (some? (:id project))
+                   (integer? (:id project)) (pos? (:id project))
                    (= (:id project) (:project_id mr))
                    (= (str reference) (str (:iid mr)))
-                   (some? (:id mr))
+                   (integer? (:id mr)) (pos? (:id mr))
                    (not (str/blank? (:sha mr))))
       (throw (ex-info "GitLab returned a different project, merge request, or missing source head."
                       {:code :feedback-identity-mismatch})))
     (let [discussions (mapv #(normalize-discussion app-config repository mr %)
                             (paginated-get app-config (str mr-path "/discussions") {}))]
-      {:change-request (assoc (normalize-change-request repository mr) :head-sha (:sha mr))
+      {:change-request (assoc (normalize-change-request repository mr)
+                              :head-sha (:sha mr)
+                              :native-ref (domain/contained-identity :gitlab :change-request
+                                                           (str (:id project)) (str (:id mr))))
        :reviewers (mapv #(normalize-reviewer app-config %) (:reviewers mr))
        :discussions discussions
        :unresolved (mapv :ref (filter #(and (:resolvable %) (not (:resolved %))) discussions))})))
@@ -264,7 +267,7 @@
 
 (defn apply-feedback!
   [app-config repository change-request operation]
-  (let [path (feedback-path repository change-request)
+  (let [path (feedback-path change-request)
         discussion (some-> operation :discussion :ref :id url-encode)
         note (some-> operation :note :ref :id url-encode)]
     (case (:type operation)
