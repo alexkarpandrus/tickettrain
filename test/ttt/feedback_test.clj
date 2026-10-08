@@ -614,7 +614,8 @@
           (is (= 0 (:exit (cli-apply request id))))
           (let [saved (journal/read-batch "batch-one") mutations @(:mutations state)
                 target (get-in saved [:proposal :change-request :native-ref])]
-            (doseq [invalid [nil {} (assoc target :id "")]]
+            (doseq [invalid [nil {} (dissoc target :provider) (dissoc target :kind)
+                            (assoc target :id "") (assoc target :container "")]]
               (journal/write-batch! "batch-one" (assoc-in saved [:proposal :change-request :native-ref] invalid))
               (let [bytes (slurp (journal/path "batch-one"))]
                 (doseq [result [(cli-preview request) (cli-apply request id)]]
