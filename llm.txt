@@ -1,6 +1,6 @@
 # tickettrain
 
-`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Forge actions run inside the target application repository; standalone item actions do not need Git.
+`ttt` (tickettrain) creates GitHub, GitLab, or Bitbucket change requests and links them with Linear, GitHub Issues, Jira, Asana, Taskwarrior, or Logseq items. It is a local CLI with a provider-neutral JSON API (schema v2) designed for humans and AI agents. Forge actions run inside the target application repository; standalone item actions do not need Git except transition_item, whose recovery journal requires a Git repository.
 
 ## Preconditions
 
@@ -9,6 +9,7 @@
 - Forge authentication is configured for forge actions
 - The current branch is pushed before applying an action that creates a change request
 - Credentials or local Taskwarrior configuration are ready for the selected tracker
+- `transition_item` runs inside a Git repository for durable recovery; it needs tracker configuration only, not a forge or change request.
 
 Config is loaded from `<ttt-repo>/.env`, `config/ttt.edn`, and `config/ttt.local.edn`, not from the target application repository. Named profiles use `:default-profile` and `:profiles`; pass `--profile NAME` to override the default. Credential helpers resolve secrets after local config; `.env` and then the process environment override them.
 
@@ -29,7 +30,7 @@ ttt
 
 Non-interactive API (schema v2):
   ttt version
-  ttt inspect [--feedback --change-request ID]
+  ttt inspect [--item ITEM | --feedback --change-request ID]
   ttt status
   ttt search --kind item|project|label --query TEXT [--semantic]
   ttt list --kind item [--state NAME] [--project NAME] [--label NAME] [--limit N]
@@ -96,6 +97,10 @@ Bitbucket Cloud cannot edit merged or declined pull requests. `ttt preview` reje
 ```
 
 ```json
+{"action":"transition_item","item":"APP-123","transitionId":"21","fields":{"customfield_123":[{"id":"101"}]},"comment":"Testing: bb test passed.","batchId":"jira-handoff-1"}
+```
+
+```json
 {"action":"create_change_request","title":"Improve agent guidance","body":"## What\n\nDocument the repository workflow."}
 ```
 
@@ -135,6 +140,12 @@ Rules:
 - If the create succeeds but its comment fails, `apply` returns `ok: false`, code `item-comment-failed`, and the created item under `error.partialResult.item`. Inspect that item before retrying with `comment_item`; do not repeat `create_item`. Creation plus commenting is not atomic, and retries are not automatically deduplicated.
 - `update_item` accepts `item` plus `title`, `description`, comments, label changes, or work-item fields. Explicit title/body replacements require item-titles/item-descriptions (both Logseq providers). Description must be a string; an empty string clears it. Omitted fields stay unchanged; `null` clears optional scalars and `blockedBy: []` clears blockers.
 - Work-item capabilities vary by tracker: Taskwarrior supports lifecycle, priority, due dates, availability, and blockers; Linear and Jira support lifecycle, priority, due dates, and blockers; Asana supports lifecycle, due dates, availability, and blockers; GitHub Issues supports lifecycle; both Logseq providers support lifecycle and explicit title/body replacement. Unsupported fields or values fail during preview. Jira uses its default Blocks issue-link type; set JIRA_BLOCKER_LINK_TYPE to a custom type ID or name.
+- `inspect --item ITEM` reads an exact existing Jira issue key or immutable numeric ID, native issue/status identity, available transition IDs/destinations, and required-field metadata. It needs tracker configuration only and can run outside Git. Native `nativeStatus` remains separate from normalized `state`; do not guess a transition from a destination name or category.
+- Jira-only `transition_item` accepts `item`, an exact available `transitionId`, a unique repository-local `batchId`, optional native `fields` object, and optional nonblank `comment`. Batch IDs have one to 120 ASCII letters, numbers, dots, underscores, or hyphens, starting with a letter or number. Other trackers reject this action. Fields must advertise the set operation; nested JSON is preserved. Missing required values fail preview unless the current issue or a native default supplies them. Explicit empty required values fail.
+- Transition preview pins the site/cloud, immutable issue, current native status, exact transition/destination, field metadata, and current/requested values. Apply checks again before each write. TTT_TRACKER_STATE is for creation, not this operation. Workflow validators can still reject a valid preview, and remote edits can race the last check because Jira has no atomic compare-and-set.
+- An optional testing comment is appended before the exact transition under one approval. Results and error.partialResult contain per-operation statuses, affected native IDs, and native issue/comment readback. Known comment IDs are verified; matching comment text or a matching destination never proves an unknown write was ours.
+- Only approved apply creates owner-only durable records in <git-common-dir>/ttt-item-transitions. Worktrees share batch/issue locks. Retry the unchanged request, profile, configuration, and proposal ID to skip acknowledged writes. Confirmed request rejections (400, 401, 403, 404, 405, 409, 410, 413, 414, 415, 422, 429) can retry; interrupted started checkpoints, lost responses, and other HTTP outcomes stop after native inspection without replay. The original approved snapshot remains visible during recovery; inspect --item shows current state.
+- Transition journals contain approved comment/field values and outcomes, not credentials. Failed checkpoint/readback reports preserve acknowledged IDs. Never delete journals, remove active locks, reuse a batch on another machine, or infer comment ownership from identical text to force a retry. Inspect the journal and native state first, then preview only safe remaining operations with a new batch ID.
 - `create_change_request` accepts `title` and optional `body`; it needs no tracker configuration.
 - `update_change_request` accepts `title`, `body`, or both and targets the current branch's open change request; it needs no tracker configuration.
 - `comment_item` accepts `item` and `body`; it needs no forge configuration or repository context.
@@ -167,7 +178,7 @@ Tracker item descriptions use a separate `ttt:pull-requests` managed section. Us
 
 1. For forge or tracker operations, run `ttt status`, choose the intended profile, and use the same `--profile NAME` for every command in the operation.
 2. For standalone change-request actions, including `review_change_request`, set the exact requested change, then skip tracker searches.
-3. For tracker actions, derive two or three short queries from the change request and search existing items first. Add `--semantic` only when Jev is configured and sending candidate text to TypeSafe AI is acceptable.
+3. For tracker actions, derive two or three short queries and search existing items first; exact transition_item instead uses inspect --item on the explicitly selected issue. Add --semantic only when Jev is configured and sending candidate text to TypeSafe AI is acceptable.
 4. Use `ttt list --kind item` when the user asks for current tracker items without a search query.
 5. If creating a new item, search projects, parent items, and relevant existing labels.
 6. Ask the user when candidates or hierarchy are ambiguous.
