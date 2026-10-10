@@ -14,6 +14,30 @@
   (fn [run]
     (support/with-journal #(with-redefs [journal/directory feedback-journal/directory] (run)))))
 
+(deftest journal-owner-permissions-are-enforced-not-assumed
+  (doseq [directory? [false true]]
+    (let [file (java.io.File. (journal/directory) (if directory? "permissions-dir" "permissions-file"))]
+      (if directory? (.mkdir file) (.createNewFile file))
+      (java.nio.file.Files/setPosixFilePermissions
+       (.toPath file) (java.nio.file.attribute.PosixFilePermissions/fromString
+                      (if directory? "rwxr-xr-x" "rw-r--r--")))
+      (storage/owner-only! file directory?)
+      (is (= (java.nio.file.attribute.PosixFilePermissions/fromString
+              (if directory? "rwx------" "rw-------"))
+             (java.nio.file.Files/getPosixFilePermissions
+              (.toPath file) (make-array java.nio.file.LinkOption 0))))))
+  (let [target (java.io.File. (journal/directory) "symlink-target")
+        link (java.io.File. (journal/directory) "permissions-link")
+        permissions (java.nio.file.attribute.PosixFilePermissions/fromString "rw-r--r--")]
+    (.createNewFile target)
+    (java.nio.file.Files/setPosixFilePermissions (.toPath target) permissions)
+    (java.nio.file.Files/createSymbolicLink (.toPath link) (.toPath target)
+                                           (make-array java.nio.file.attribute.FileAttribute 0))
+    (is (= :journal-unavailable (try (storage/owner-only! link false) nil
+                                     (catch Exception ex (:code (ex-data ex))))))
+    (is (= permissions (java.nio.file.Files/getPosixFilePermissions
+                        (.toPath target) (make-array java.nio.file.LinkOption 0))))))
+
 (def config {:tracker {:provider :jira :site-url "https://acme.atlassian.net"
                        :cloud-id "cloud-1" :target-state "Done"}})
 (def progress {:id "3" :name "In Progress" :statusCategory {:key "indeterminate"}})
@@ -389,6 +413,9 @@
           (let [partial (:partial-result (error-data #(agent/apply-data! (runtime config) request (:proposalId preview))))]
             (is (= :failed (get-in partial [:outcomes 0 :status])))
             (is (:recovery-error partial))))
+        (with-redefs [storage/owner-only! (fn [& _] (throw (java.io.IOException. "Permissions unavailable")))]
+          (is (= :item-transition-journal-unavailable
+                 (:code (error-data #(agent/apply-data! (runtime config) request (:proposalId preview)))))))
         (with-redefs [storage/sync-directory! (fn [_] (throw (java.io.IOException. "No directory sync")))]
           (is (= :item-transition-journal-unavailable
                  (:code (error-data #(agent/apply-data! (runtime config) request (:proposalId preview)))))))

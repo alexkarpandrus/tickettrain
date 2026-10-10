@@ -1,12 +1,20 @@
 (ns ttt.platform.journal)
 
 (defn owner-only! [file directory?]
-  (when-not (and (.setReadable file false false) (.setWritable file false false)
-                 (.setReadable file true true) (.setWritable file true true)
-                 (or (not directory?)
-                     (and (.setExecutable file false false) (.setExecutable file true true))))
-    (throw (ex-info "Cannot restrict recovery journal permissions to its owner."
-                    {:code :journal-unavailable}))))
+  ;; ponytail: POSIX-only journals; add a verified ACL backend if other filesystems are required.
+  (try
+    (let [path (.toPath file)
+          options (into-array java.nio.file.LinkOption [java.nio.file.LinkOption/NOFOLLOW_LINKS])
+          permissions (java.nio.file.attribute.PosixFilePermissions/fromString
+                       (if directory? "rwx------" "rw-------"))]
+      (when (java.nio.file.Files/isSymbolicLink path)
+        (throw (java.io.IOException. "Recovery storage must not be a symbolic link.")))
+      (java.nio.file.Files/setAttribute path "posix:permissions" permissions options)
+      (when-not (= permissions (java.nio.file.Files/getAttribute path "posix:permissions" options))
+        (throw (java.io.IOException. "Owner-only permissions were not enforced."))))
+    (catch Exception ex
+      (throw (ex-info "Cannot enforce owner-only recovery journal permissions on this filesystem."
+                      {:code :journal-unavailable} ex)))))
 
 (defn sync-directory! [directory]
   (with-open [channel (java.nio.channels.FileChannel/open
