@@ -2,6 +2,10 @@
   (:require [babashka.http-client :as http]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [cheshire.core :as json]
+            [ttt.adapters :as adapters]
+            [ttt.cli.agent :as agent]
+            [ttt.providers.tracker :as tracker]
             [ttt.cli.prompt :as prompt]
             [ttt.domain :as domain]
             [ttt.providers.tracker.jira :as jira]
@@ -173,16 +177,23 @@
 (deftest create-validation-uses-the-request-project-context
   (let [calls (atom [])]
     (with-redefs [jira/api! (fn [_ method path _]
-                              (swap! calls conj [method path])
-                              [{:name "Task"
-                                :statuses [{:name "In Progress"
-                                            :statusCategory {:key "indeterminate"}}]}])]
+                             (swap! calls conj [method path])
+                             (case path
+                               "/project/KAN/statuses"
+                               [{:name "Task" :statuses [{:name "In Progress"
+                                                        :statusCategory {:key "indeterminate"}}]}]
+                               "/issue/createmeta/KAN/issuetypes"
+                               {:startAt 0 :total 1 :issueTypes [{:id "10001" :name "Task"}]}
+                               "/issue/createmeta/KAN/issuetypes/10001"
+                               {:startAt 0 :total 0 :fields []}))]
       (jira/validate-work-item-intent!
        (update config :tracker dissoc :project)
        :create-item
        {:project {:ref (domain/identity :jira :project "KAN")}}
        {:state "active"}))
-    (is (= [[:get "/project/KAN/statuses"]] @calls))))
+    (is (= [[:get "/project/KAN/statuses"]
+            [:get "/issue/createmeta/KAN/issuetypes"]
+            [:get "/issue/createmeta/KAN/issuetypes/10001"]] @calls))))
 
 (deftest scoped-api-token-uses-cloud-gateway-and-basic-authentication
   (let [call (atom nil)]
@@ -528,6 +539,174 @@
   (let [adapter (jira/neutral-adapter config)]
     (is (= :jira (:provider adapter)))
     (is (= jira/capabilities (:capabilities adapter)))
-    (is (= #{:item-lifecycle :item-priority :item-due-dates :item-blockers}
+    (is (= #{:item-lifecycle :item-priority :item-due-dates :item-blockers :item-custom-fields}
            (:item-capabilities adapter)))
     (is (every? #(fn? (get adapter %)) jira/capabilities))))
+
+(defn creation-runtime []
+  {:config config :tracker (adapters/build config :tracker tracker/registry)})
+
+
+(defn create-metadata-stub
+  [path query fields]
+  (case path
+    "/issue/createmeta/APP/issuetypes"
+    {:startAt 0 :total 1 :issueTypes [{:id "10001" :name "Task"}]}
+    "/issue/createmeta/APP/issuetypes/10001"
+    {:startAt 0 :total (count fields) :fields fields}
+    (throw (ex-info "Unexpected create metadata request" {:path path :query query}))))
+
+(deftest custom-fields-are-approved-and-sent-in-the-initial-create
+  (let [writes (atom [])
+        fields {:customfield_10001 [{:id "10010"} {:value "Other"}]
+                :customfield_10002 {:nested [false 42 nil "Text"]}}
+        request {:action "create_item" :title "Bug" :description "Body"
+                 :customFields fields}
+        runtime (creation-runtime)]
+    (with-redefs [jira/api! (fn [_ method path body]
+                             (case [method path]
+                               [:get "/issue/createmeta/APP/issuetypes"] (create-metadata-stub path body [])
+                               [:get "/issue/createmeta/APP/issuetypes/10001"] (create-metadata-stub path body [])
+                               [:post "/issue"] (do (swap! writes conj body) {:key "APP-200"})
+                               [:get "/issue/APP-200"]
+                               {:key "APP-200" :fields {:summary "Bug" :description "Body"}}))]
+      (let [preview (agent/preview-data runtime request)]
+        (is (= fields (get-in preview [:request :customFields])))
+        (is (= fields (get-in preview [:trackerIntent :customFields])))
+        (is (empty? @writes))
+        (is (thrown-with-msg? Exception #"Approval does not match"
+                              (agent/apply-data! runtime
+                                                 (assoc-in request [:customFields :customfield_10001 0 :id] "10011")
+                                                 (:proposalId preview))))
+        (is (empty? @writes))
+        (is (= "APP-200" (get-in (agent/apply-data! runtime request (:proposalId preview))
+                                [:item :displayId])))
+        (is (= fields (select-keys (get-in @writes [0 :fields]) (keys fields))))
+        (is (= {:summary "Bug" :project {:key "APP"} :issuetype {:id "10001"}}
+               (select-keys (get-in @writes [0 :fields]) [:summary :project :issuetype])))
+        (is (= fields (get-in (json/parse-string (json/generate-string preview) true)
+                             [:trackerIntent :customFields])))))))
+
+(deftest custom-fields-cannot-override-built-in-fields
+  (doseq [field [:project :summary :priority :customfield_name :other/customfield_1]]
+    (is (thrown-with-msg? Exception #"customfield_<digits>"
+                          (agent/preview-data (creation-runtime)
+                                              {:action "create_item" :title "Bug"
+                                               :customFields {field "Override"}})))))
+
+(deftest rejected-jira-create-does-not-claim-a-created-item
+  (let [writes (atom [])
+        runtime (creation-runtime)
+        request {:action "create_item" :title "Bug" :comment "Testing"
+                 :customFields {:customfield_10001 [{:id "10010"}]}}]
+    (with-redefs [jira/api! (fn [_ method path query]
+                             (if (= method :get)
+                               (create-metadata-stub path query [])
+                               (do
+                                 (swap! writes conj [method path])
+                                 (throw (ex-info "Jira API request failed with status 400. Field Exchanges must have value"
+                                                 {:provider :jira :status 400
+                                                  :detail "Field Exchanges must have value"})))))
+                  agent/request-runtime (fn [_ _] runtime)]
+      (let [preview (agent/preview-data runtime request)
+            {:keys [exit envelope]} (agent/run ["apply" "--request" (json/generate-string request)
+                                               "--approve" (:proposalId preview)])]
+        (is (= 2 exit))
+        (is (= "remote-api-error" (get-in envelope [:error :code])))
+        (is (= 400 (get-in envelope [:error :status])))
+        (is (= "Field Exchanges must have value" (get-in envelope [:error :details])))
+        (is (not (contains? (:error envelope) :partialResult)))
+        (is (not (contains? envelope :data)))
+        (is (= [[:post "/issue"]] @writes))))))
+
+
+(deftest preview-reports-discoverable-missing-required-fields
+  (let [metadata [{:fieldId "customfield_10001" :name "Exchanges" :required true :hasDefaultValue false}]
+        runtime (creation-runtime)]
+    (with-redefs [jira/api! (fn [_ method path query]
+                             (is (= :get method))
+                             (create-metadata-stub path query metadata))]
+      (doseq [request [{:action "create_item" :title "Bug"}
+                       {:action "create_item" :title "Bug" :customFields {:customfield_10001 nil}}
+                       {:action "create_item" :title "Bug" :customFields {:customfield_10001 []}}]]
+        (is (thrown-with-msg? Exception #"Exchanges \(customfield_10001\)"
+                              (agent/preview-data runtime request))))
+      (let [preview (agent/preview-data runtime
+                                       {:action "create_item" :title "Bug"
+                                        :customFields {:customfield_10001 [{:id "10010"}]}})]
+        (is (= "10001" (get-in preview [:trackerIntent :validation :issueType :id])))
+        (is (= (mapv #(dissoc % :required) metadata)
+               (get-in preview [:trackerIntent :validation :requiredFields])))
+        (is (re-find #"does not check every workflow validator"
+                     (get-in preview [:trackerIntent :validation :limitation])))))))
+
+(deftest create-validation-honors-defaults-and-native-false-or-zero
+  (let [required {:fieldId "customfield_10001" :name "Value" :required true :hasDefaultValue true}
+        runtime (creation-runtime)]
+    (with-redefs [jira/api! (fn [_ _ path query] (create-metadata-stub path query [required]))]
+      (is (agent/preview-data runtime {:action "create_item" :title "Bug"}))
+      (doseq [value [false 0]]
+        (is (agent/preview-data runtime {:action "create_item" :title "Bug"
+                                         :customFields {:customfield_10001 value}})))
+      (doseq [value [nil "" " " [] {}]]
+        (is (thrown-with-msg? Exception #"Jira creation requires fields"
+                              (agent/preview-data runtime {:action "create_item" :title "Bug"
+                                                           :customFields {:customfield_10001 value}})))))))
+
+(deftest required-description-and-labels-use-the-complete-creation-intent
+  (with-redefs [jira/api! (fn [_ _ path query]
+                           (create-metadata-stub path query
+                                                 [{:fieldId "description" :name "Description" :required true}
+                                                  {:fieldId "labels" :name "Labels" :required true}]))]
+    (is (thrown-with-msg? Exception #"Description \(description\), Labels \(labels\)"
+                          (agent/preview-data (creation-runtime) {:action "create_item" :title "Bug"})))
+    (is (agent/preview-data (creation-runtime)
+                            {:action "create_item" :title "Bug" :description "Body" :labels ["bug"]}))))
+
+(deftest create-metadata-pagination-checks-all-issue-types-and-fields
+  (let [calls (atom [])]
+    (with-redefs [jira/api! (fn [_ method path {:keys [startAt] :as query}]
+                             (is (= :get method))
+                             (swap! calls conj [path startAt])
+                             (case [path startAt]
+                               ["/issue/createmeta/APP/issuetypes" 0]
+                               {:startAt 0 :total 2 :issueTypes [{:id "10000" :name "Other"}]}
+                               ["/issue/createmeta/APP/issuetypes" 1]
+                               {:startAt 1 :total 2 :issueTypes [{:id "10001" :name "Task"}]}
+                               ["/issue/createmeta/APP/issuetypes/10001" 0]
+                               {:startAt 0 :total 2 :fields [{:fieldId "summary" :name "Summary" :required true}]}
+                               ["/issue/createmeta/APP/issuetypes/10001" 1]
+                               {:startAt 1 :total 2 :fields [{:fieldId "customfield_10001" :name "Exchanges" :required true}]}))]
+      (is (thrown-with-msg? Exception #"Exchanges"
+                            (agent/preview-data (creation-runtime) {:action "create_item" :title "Bug"})))
+      (is (= [0 1 0 1] (mapv second @calls))))))
+
+(deftest create-metadata-errors-stop-preview-without-writing
+  (doseq [page [{:startAt 0 :total 1 :issueTypes []}
+               {:startAt 1 :total 2 :issueTypes [{:id "10001" :name "Task"}]}
+               {:startAt 0 :total 0}]]
+    (with-redefs [jira/api! (fn [& _] page)]
+      (is (thrown-with-msg? Exception #"invalid or incomplete create metadata"
+                            (agent/preview-data (creation-runtime) {:action "create_item" :title "Bug"})))))
+  (with-redefs [jira/api! (fn [_ method _ _]
+                           (is (= :get method))
+                           (throw (ex-info "Create metadata permission denied." {:provider :jira :status 403})))]
+    (is (thrown-with-msg? Exception #"permission denied"
+                          (agent/preview-data (creation-runtime) {:action "create_item" :title "Bug"})))))
+
+(deftest ambiguous-create-types-and-changed-type-ids-do-not-mutate
+  (with-redefs [jira/api! (fn [& _] {:startAt 0 :total 2
+                                    :issueTypes [{:id "1" :name "Task"} {:id "2" :name "Task"}]})]
+    (is (thrown-with-msg? Exception #"unavailable or ambiguous"
+                          (agent/preview-data (creation-runtime) {:action "create_item" :title "Bug"}))))
+  (let [id (atom "10001")
+        request {:action "create_item" :title "Bug"}]
+    (with-redefs [jira/api! (fn [_ method path _]
+                             (is (= :get method))
+                             (if (= path "/issue/createmeta/APP/issuetypes")
+                               {:startAt 0 :total 1 :issueTypes [{:id @id :name "Task"}]}
+                               {:startAt 0 :total 0 :fields []}))]
+      (let [preview (agent/preview-data (creation-runtime) request)]
+        (reset! id "10002")
+        (is (thrown-with-msg? Exception #"Approval does not match"
+                              (agent/apply-data! (creation-runtime) request (:proposalId preview))))))))

@@ -27,7 +27,8 @@
    :priority :item-priority
    :due-at :item-due-dates
    :available-at :item-availability
-   :blocked-by :item-blockers})
+   :blocked-by :item-blockers
+   :custom-fields :item-custom-fields})
 
 (def work-item-fields (into #{:title :description} (keys work-item-capability-by-field)))
 
@@ -74,6 +75,9 @@
 (defn work-item-intent
   [runtime request]
   (assert-work-item-capabilities! runtime request)
+  (when (and (contains? request :custom-fields) (not= :create-item (:action request)))
+    (throw (ex-info "customFields is supported only for create_item."
+                    {:code :unsupported-capability :capability :item-custom-fields})))
   (cond-> (select-keys request work-item-fields)
     (contains? request :blocked-by)
     (assoc :blocked-by (mapv #(resolve-item! runtime %) (:blocked-by request)))))
@@ -260,7 +264,8 @@
   (let [context (resolve-context runtime request)
         labels (resolve-labels runtime (:labels request))
         work-intent (validate-work-item-intent!
-                     runtime :create-item context (work-item-intent runtime request))]
+                     runtime :create-item context
+                     (assoc (work-item-intent runtime request) :labels labels))]
     (cond-> {:action :create-item
              :request request
              :context context

@@ -241,6 +241,17 @@ ttt apply --request "$REQUEST" --approve '<proposal ID from preview>'
 
 An optional `create_item` comment appears separately in preview and is appended through the tracker's native comment operation after approved creation. It does not change the title or description. If commenting fails after creation, `apply` returns `ok: false`, error code `item-comment-failed`, and the created item under `error.partialResult.item`. Inspect that item before retrying with `comment_item`; do not repeat `create_item`. Creation plus commenting is not atomic, and retries are not automatically deduplicated.
 
+
+For Jira creation, `create_item` also accepts native custom fields:
+
+```json
+{"action":"create_item","project":"DEMO","title":"Example bug","customFields":{"customfield_10001":[{"id":"10010"},{"value":"Other"}]}}
+```
+
+Use `customfield_<digits>` IDs and Jira's exact JSON values, including multiselect arrays. Preview shows them in `request.customFields` and `trackerIntent.customFields`; changing a nested value requires new approval. Built-in fields cannot be overridden this way. Other trackers, `create_new`, and `update_item` reject this input.
+
+Jira creation preview reads all create-metadata pages for the selected project and issue type. Missing required fields fail preview; omitted fields with native defaults remain omitted. Metadata errors stop preview. `trackerIntent.validation` pins the issue-type ID, lists required fields, and explains the limit: metadata does not check every workflow validator. Jira can still reject the approved create request; the actionable native error is retained without claiming an item was created. To use custom fields with a change request, create the item first, then use `link_existing`.
+
 Create a change request without a tracker item:
 
 ```bash
