@@ -54,6 +54,32 @@
     (is (= ["customfield_123"] (get-in result [:transitions 0 :requiredFields])))
     (is (= (get-in transitions [0 :fields]) (get-in result [:transitions 0 :fields])))))
 
+(deftest gateway-native-identity-verifies-the-cloud-site-before-approval
+  (let [selected (assoc issue :self (jira/api-endpoint config "/issue/10001"))
+        metadata (atom {:baseUrl "https://acme.atlassian.net/"})
+        calls (atom [])]
+    (with-redefs [jira/api! (fn [_ method path _]
+                             (swap! calls conj {:method method :path path})
+                             (is (= :get method))
+                             (case path
+                               "/serverInfo" (if (instance? Exception @metadata) (throw @metadata) @metadata)
+                               "/issue/10001/transitions" {:transitions transitions}
+                               "/issue/APP-1" selected))]
+      (let [a (:item (jira/get-item-transitions config "APP-1"))
+            b (:item (jira/get-item-transitions
+                      (assoc-in config [:tracker :site-url] "https://acme.atlassian.net/") "APP-1"))]
+        (is (= (:native-ref a) (:native-ref b)))
+        (is (= (storage/target-lock-name (:native-ref a)) (storage/target-lock-name (:native-ref b)))))
+      (is (= :native-item-mismatch
+             (:code (error-data #(jira/get-item-transitions
+                                 (assoc-in config [:tracker :site-url] "https://other.atlassian.net") "APP-1")))))
+      (doseq [invalid [{:baseUrl "https://other.atlassian.net"} {} {:baseUrl 42} nil]]
+        (reset! metadata invalid)
+        (is (= :native-item-mismatch (:code (error-data #(jira/get-item-transitions config "APP-1"))))))
+      (reset! metadata (ex-info "Site metadata denied" {:code :remote-api-error :status 403}))
+      (is (= 403 (:status (error-data #(jira/get-item-transitions config "APP-1")))))
+      (is (empty? (filter #(not= :get (:method %)) @calls))))))
+
 (deftest ordinary-jira-reads-retain-native-status-separately
   (doseq [normalize [jira/normalize-item jira/normalize-item-summary]]
     (let [item (normalize "https://acme.atlassian.net" issue)

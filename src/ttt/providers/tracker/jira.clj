@@ -811,7 +811,13 @@
                                 (str (base-url app-config) api-path "/issue/" id)}
                               (:self issue)))
       (throw (ex-info "Jira returned a different site/issue or incomplete native identity. Inspect the selected issue."
-                      {:code :native-item-mismatch})))))
+                      {:code :native-item-mismatch})))
+    ;; A gateway self URL identifies the cloud, not its human site URL.
+    (when (= (:self issue) (api-endpoint app-config (str "/issue/" id)))
+      (let [site (:baseUrl (api! app-config :get "/serverInfo" nil))]
+        (when-not (and (nonblank? site) (= (base-url app-config) (str/replace site #"/+$" "")))
+          (throw (ex-info "Jira cloud metadata does not confirm the configured site URL. Check JIRA_SITE_URL and JIRA_CLOUD_ID."
+                          {:code :native-item-mismatch})))))))
 
 (defn normalize-transition [transition]
   (let [fields (or (:fields transition) {})]
