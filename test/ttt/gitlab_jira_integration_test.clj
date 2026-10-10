@@ -68,6 +68,12 @@
       (and (= :get method) (= "/project/APP" path))
       {:issueTypes [{:id "10002" :name "Subtask" :subtask true}]}
 
+      (and (= :get method) (= "/issue/createmeta/APP/issuetypes" path))
+      {:startAt 0 :total 1 :issueTypes [{:id "10002" :name "Subtask"}]}
+
+      (and (= :get method) (= "/issue/createmeta/APP/issuetypes/10002" path))
+      {:startAt 0 :total 0 :fields []}
+
       (and (= :post method) (= "/issue" path))
       (do (swap! order conj :tracker-create) (reset! payload query) {:key "APP-200"})
 

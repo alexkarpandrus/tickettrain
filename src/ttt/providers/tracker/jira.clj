@@ -652,11 +652,100 @@
   [app-config]
   {:name (or (get-in app-config [:tracker :issue-type]) "Task")})
 
+(defn custom-fields-input
+  [intent]
+  (let [fields (:custom-fields intent)]
+    (doseq [field (keys fields)]
+      (when-not (re-matches #"customfield_\d+" (str/replace-first (str field) #"^:" ""))
+        (throw (ex-info "Jira customFields accepts only customfield_<digits> IDs; use neutral fields for built-in values."
+                        {:code :invalid-request :provider :jira :field field}))))
+    fields))
+
+(defn create-fields
+  [app-config context {:keys [title description labels] :as intent}]
+  (let [parent (some-> (:parent context) provider-id)
+        project (or (some-> (:parent context) :project provider-id)
+                    (some-> (:project context) provider-id)
+                    (get-in app-config [:tracker :project]))
+        _ (when (str/blank? (str project))
+            (throw (ex-info "Jira item creation requires a project. Set JIRA_PROJECT or supply a parent or project."
+                            {:code :project-required})))
+        issue-type (or (when-let [id (get-in intent [:validation :issueType :id])] {:id id})
+                       (if parent
+                         (subtask-issue-type app-config project)
+                         (configured-issue-type app-config)))]
+    (merge (cond-> {:summary title :description (text->adf description)
+                    :labels (vec (label-names labels))
+                    :project {:key project} :issuetype issue-type}
+             parent (assoc :parent {:key parent}))
+           (native-work-item-input app-config intent)
+           (custom-fields-input intent))))
+
+(defn create-metadata-pages
+  [app-config path field]
+  (loop [start 0 result []]
+    (let [page (api! app-config :get path {:startAt start :maxResults 50})
+          items (get page field)
+          total (:total page)
+          end (+ start (count items))]
+      (when-not (and (sequential? items) (integer? total) (<= 0 total)
+                     (= start (:startAt page)) (<= end total)
+                     (or (seq items) (= start total)))
+        (throw (ex-info "Jira returned invalid or incomplete create metadata. Preview again before creating."
+                        {:code :invalid-create-metadata :provider :jira})))
+      (if (< end total)
+        (recur end (into result items))
+        (into result items)))))
+
+(defn empty-field-value? [value]
+  (or (nil? value) (and (string? value) (str/blank? value))
+      (and (coll? value) (empty? value))))
+
+(defn validate-create-fields!
+  [app-config context intent]
+  (let [fields (create-fields app-config context intent)
+        project (get-in fields [:project :key])
+        path (str "/issue/createmeta/" (url-encode project) "/issuetypes")
+        wanted (:issuetype fields)
+        candidates (filter #(if-let [id (:id wanted)]
+                              (= (str id) (:id %))
+                              (= (str/lower-case (:name wanted)) (str/lower-case (:name %))))
+                           (create-metadata-pages app-config path :issueTypes))]
+    (when-not (and (= 1 (count candidates)) (not (str/blank? (:id (first candidates)))))
+      (throw (ex-info "Jira create issue type is unavailable or ambiguous for the selected project."
+                      {:code :create-issue-type-unavailable :provider :jira})))
+    (let [issue-type (first candidates)
+          metadata (create-metadata-pages app-config
+                                          (str path "/" (url-encode (:id issue-type))) :fields)
+          required (filter :required metadata)
+          missing (filter (fn [{:keys [fieldId hasDefaultValue]}]
+                            (let [key (keyword fieldId)
+                                  fields (assoc fields :description (:description intent))]
+                              (if (or (contains? fields key) (contains? fields fieldId))
+                                (empty-field-value? (get fields key (get fields fieldId)))
+                                (not hasDefaultValue))))
+                          required)]
+      (when (seq missing)
+        (throw (ex-info
+                (str "Jira creation requires fields: "
+                     (str/join ", " (map #(str (:name %) " (" (:fieldId %) ")") missing))
+                     ". Supply custom fields in customFields using their native JSON values.")
+                {:code :missing-required-fields :provider :jira})))
+      (assoc intent :validation
+             {:project project :issueType (select-keys issue-type [:id :name])
+              :requiredFields (mapv #(select-keys % [:fieldId :name :hasDefaultValue]) required)
+              :limitation "Create metadata does not check every workflow validator. Jira can still reject creation; inspect the returned error before retrying."}))))
 (defn validate-work-item-intent!
   [app-config action target intent]
   (let [item (when (= :update-item action) target)
-        context (when (= :create-item action) target)]
-    (native-work-item-input app-config intent)
+        context (when (contains? #{:create-item :create-new} action) target)]
+    (when-not (contains? #{:create-item :create-new} action)
+      (native-work-item-input app-config intent))
+    (when (contains? intent :custom-fields)
+      (when-not (= :create-item action)
+        (throw (ex-info "Jira customFields is supported only for create_item."
+                        {:code :unsupported-capability :provider :jira})))
+      (custom-fields-input intent))
     (when (contains? intent :blocked-by)
       (resolve-blocker-link-type app-config))
     (when-let [requested-state (and (contains? intent :state) (:state intent))]
@@ -683,37 +772,22 @@
                       {:code :invalid-blocker
                        :provider :jira
                        :item (provider-id item)})))
-    intent))
+    (if (contains? #{:create-item :create-new} action)
+      (validate-create-fields! app-config context intent)
+      intent)))
 
 (defn create-item-from-intent!
-  [app-config context {:keys [title description labels] :as intent}]
-  (let [parent (some-> (:parent context) provider-id)
-        project (or (some-> (:parent context) :project provider-id)
-                    (some-> (:project context) provider-id)
-                    (get-in app-config [:tracker :project]))
+  [app-config context intent]
+  (let [fields (create-fields app-config context intent)
+        project (get-in fields [:project :key])
+        issue-type (:issuetype fields)
         requested-target (if (contains? intent :state)
                            (:state intent)
                            (get-in app-config [:tracker :target-state]))
-        _ (when (str/blank? (str project))
-            (throw (ex-info "Jira item creation requires a project. Set JIRA_PROJECT or supply a parent or project."
-                            {:code :project-required})))
-        issue-type (if parent
-                     (subtask-issue-type app-config project)
-                     (configured-issue-type app-config))
         target (when-not (str/blank? (str requested-target))
                  (resolve-status-target requested-target
                                         (project-statuses app-config project issue-type)))
         cfg (cond-> app-config target (assoc-in [:tracker :target-state] (:name target)))
-        fields (merge
-                (cond-> {:summary title
-                         :description (text->adf description)
-                         :labels (vec (label-names labels))}
-                  parent (assoc :parent {:key parent}
-                                :project {:key project}
-                                :issuetype issue-type)
-                  (and (not parent) project) (assoc :project {:key project}
-                                                    :issuetype issue-type))
-                (native-work-item-input app-config intent))
         created (normalize-item (base-url app-config)
                                 (blocker-link-type-ref app-config)
                                 (apply-created-target-state! cfg (create-item! app-config fields)))]
@@ -805,7 +879,7 @@
   [app-config]
   {:provider :jira
    :capabilities capabilities
-   :item-capabilities #{:item-lifecycle :item-priority :item-due-dates :item-blockers}
+   :item-capabilities #{:item-lifecycle :item-priority :item-due-dates :item-blockers :item-custom-fields}
    :configured-scope #(configured-scope app-config)
    :list-items #(list-items app-config %1 %2)
    :search-parent-items #(parent-items app-config)
