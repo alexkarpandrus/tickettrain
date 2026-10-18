@@ -354,7 +354,9 @@ Change-request bodies use a managed block:
 <!-- ttt:end -->
 ```
 
-The heading and references follow the selected tracker. Resources without native URLs render as escaped plain text. Tracker descriptions use a separate `ttt:pull-requests` block. Taskwarrior stores that description in a reserved annotation and preserves other task fields and annotations. Content outside managed markers is preserved.
+The heading and references follow the selected tracker. Resources without native URLs render as escaped plain text. Tracker descriptions use a separate `ttt:pull-requests` block. Content outside managed markers is preserved.
+
+Taskwarrior stores managed descriptions in the `tttDescription` UDA, separate from native `details` and comment annotations. Approved item updates migrate legacy marked description annotations and preserve unrelated annotations and their timestamps. Unmarked `details` need manual migration: back up the task export, identify the legacy description, and copy it to `tttDescription` without overwriting a different existing value. See the [migration and conflict guidance](docs/integrations.md#managed-links-and-tests).
 
 ## Configuration
 

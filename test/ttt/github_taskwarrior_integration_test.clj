@@ -4,6 +4,8 @@
             [clojure.test :refer [deftest is]]
             [ttt.adapters :as adapters]
             [ttt.core :as core]
+            [ttt.cli.agent :as agent]
+            [ttt.config :as app-config]
             [ttt.platform.shell :as shell]
             [ttt.providers.forge :as forge]
             [ttt.providers.tracker :as tracker]
@@ -26,7 +28,9 @@
    :status "pending"
    :project "App"
    :tags ["existing" "Bug"]
-   :annotations [{:entry "20260907T120000Z"
+   :details "Native vendor phone numbers"
+   :annotations [{:entry "20260907T115900Z" :description "Exact user comment"}
+                 {:entry "20260907T120000Z"
                   :description (str taskwarrior/annotation-prefix "Tracker body")}]})
 
 (defn shell-stub
@@ -92,6 +96,10 @@
         (core/apply! runtime proposal)))
     (is (= [:tracker :forge] @order))
     (is (= ["existing" "Bug"] (:tags @task*)))
+    (is (= "Native vendor phone numbers" (:details @task*)))
+    (is (= [{:entry "20260907T115900Z" :description "Exact user comment"}]
+           (:annotations @task*)))
+    (is (str/starts-with? (:tttDescription @task*) "Tracker body"))
     (is (str/includes? (taskwarrior/tracker-description @task*)
                        "https://github.com/org/repo/pull/7"))
     (is (= "[a360fc44] Retry" (:title @forge-payload)))
@@ -112,3 +120,79 @@
     (is (= "App" (:project @task*)))
     (is (= ["Bug"] (:tags @task*)))
     (is (str/includes? (:body @forge-payload) "## Taskwarrior"))))
+
+
+(deftest approved-create-comment-and-completion-preserve-native-details-and-description
+  (let [task* (atom nil) order (atom []) forge-payload (atom nil)
+        native-run (shell-stub task* order forge-payload)
+        apply-request (fn [request]
+                        (let [preview (agent/run ["preview" "--request" (json/generate-string request)])]
+                          (is (= 0 (:exit preview)))
+                          (let [result (agent/run ["apply" "--request" (json/generate-string request)
+                                                   "--approve" (get-in preview [:envelope :data :proposalId])])]
+                            (is (= 0 (:exit result)))
+                            result)))]
+    (with-redefs [app-config/load-config (fn [& _] config)
+                  shell/run-input (input-stub task* order)
+                  shell/run (fn [& args]
+                              (if (= "annotate" (nth args 2 nil))
+                                (do (swap! task* update :annotations conj
+                                           {:entry "20261008T120000Z" :description (last args)})
+                                    "")
+                                (apply native-run args)))]
+      (apply-request {:action "create_item" :title "Review native details" :description "Managed body"})
+      (swap! task* assoc :details "Native details" :custom_uda "Keep this"
+             :entry "20260907T115800Z"
+             :annotations [{:entry "20260907T115900Z" :description "Existing comment"}])
+      (let [entry (:entry @task*) uuid (:uuid @task*)]
+        (apply-request {:action "comment_item" :item uuid :body "New comment"})
+        (let [annotations (:annotations @task*)
+              result (apply-request {:action "update_item" :item uuid :state "completed"})]
+          (is (= "completed" (get-in result [:envelope :data :item :state])))
+          (is (= "Managed body" (:tttDescription @task*)))
+          (is (= "Native details" (:details @task*)))
+          (is (= "Keep this" (:custom_uda @task*)))
+          (is (= entry (:entry @task*)))
+          (is (= [{:entry "20260907T115900Z" :description "Existing comment"}
+                  {:entry "20261008T120000Z" :description "New comment"}]
+                 annotations (:annotations @task*))))))))
+
+
+(deftest read-only-search-falls-back-without-weakening-selected-target-validation
+  (let [malformed (assoc (native-task) :description "Repair inventory" :project "Other"
+                         :tttDescription "Conflicting description")
+        healthy (assoc (native-task) :id 8 :uuid "b360fc44-315c-4366-b70c-ea7e7520b749"
+                       :description "Prepare inventory" :project "Healthy"
+                       :annotations [] :tttDescription "Healthy body")
+        native-run (shell-stub (atom malformed) (atom []) (atom nil))
+        export (fn [_ & [reference]]
+                 (if reference (filterv #(= reference (:uuid %)) [malformed healthy])
+                     [malformed healthy]))
+        search (fn [& options]
+                 (agent/run (into ["search" "--kind" "item" "--query" "Repair"] options)))]
+    (with-redefs [app-config/load-config (fn [& _] config)
+                  shell/run (fn [& args]
+                              (if (= ["task" "_unique" "project"] (vec args))
+                                "Other\nHealthy" (apply native-run args)))
+                  shell/run-input (fn [& _] (throw (ex-info "Search must not write" {})))
+                  taskwarrior/export-tasks export]
+      (let [unfiltered (search) filtered (search "--project" "Healthy")]
+        (is (= 0 (:exit unfiltered) (:exit filtered)))
+        (is (= "a360fc44" (get-in unfiltered [:envelope :data :candidates 0 :displayId])))
+        (is (= ["b360fc44"] (mapv :displayId (get-in filtered [:envelope :data :candidates])))))
+      (is (= "malformed-managed-section"
+             (get-in (agent/run ["preview" "--request"
+                                 (json/generate-string {:action "update_item" :item existing-uuid
+                                                        :state "completed"})])
+                     [:envelope :error :code])))
+      (with-redefs [taskwarrior/export-tasks (fn [_ & [reference]]
+                                             (if reference [] [malformed healthy]))]
+        (is (= 0 (:exit (search "--project" "Healthy")))))
+      (let [list-reads (atom 0)]
+        (with-redefs [taskwarrior/export-tasks (fn [_ & [reference]]
+                                               (if reference
+                                                 (throw (ex-info "Provider unavailable"
+                                                                 {:code :provider-unavailable}))
+                                                 (do (swap! list-reads inc) [malformed healthy])))]
+          (is (= "provider-unavailable" (get-in (search) [:envelope :error :code])))
+          (is (= 1 @list-reads)))))))
