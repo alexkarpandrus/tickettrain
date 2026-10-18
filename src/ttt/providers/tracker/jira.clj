@@ -272,6 +272,10 @@
   [due-date]
   (when due-date (str due-date "T00:00:00Z")))
 
+(defn native-identity [site issue]
+  (when-let [id (:id issue)]
+    (domain/contained-identity :jira :tracker-item site id)))
+
 (defn normalize-item-summary
   [base-url issue]
   {:ref (domain/identity :jira :tracker-item (:key issue))
@@ -279,6 +283,8 @@
    :title (get-in issue [:fields :summary])
    :url (str base-url "/browse/" (:key issue))
    :state (normalize-state (get-in issue [:fields :status]))
+   :native-ref (native-identity base-url issue)
+   :native-status (select-keys (get-in issue [:fields :status]) [:id :name])
    :scopes [(domain/scope-identity :jira base-url)]})
 
 (defn blocker-link-type?
@@ -310,6 +316,8 @@
         :url (str base-url "/browse/" key)
         :state (normalize-state (:status fields))
         :provider-state (:status fields)
+        :native-ref (native-identity base-url issue)
+        :native-status (select-keys (:status fields) [:id :name])
         :priority (normalize-priority (:priority fields))
         :due-at (normalize-due-at (:duedate fields))
         :blocked-by (mapv #(normalize-item-summary base-url (:outwardIssue %)) blockers)
@@ -861,12 +869,200 @@
                                   [:email :api-token :site-url :cloud-id :project :issue-type])
                      :target-state (some-> target :name))}))
 
+(defn native-id? [value]
+  (and (string? value) (boolean (re-matches #"[1-9]\d*" value))))
+
+(defn nonblank? [value]
+  (and (string? value) (not (str/blank? value))))
+
+(defn assert-native-issue! [app-config reference issue]
+  (let [id (:id issue)
+        status (get-in issue [:fields :status])]
+    (when-not (and (native-id? id) (string? (:key issue)) (re-matches key-pattern (or (:key issue) ""))
+                   (native-id? (:id status)) (nonblank? (:name status))
+                   (or (= reference id) (= reference (:key issue)))
+                   (contains? #{(api-endpoint app-config (str "/issue/" id))
+                                (str (base-url app-config) api-path "/issue/" id)}
+                              (:self issue)))
+      (throw (ex-info "Jira returned a different site/issue or incomplete native identity. Inspect the selected issue."
+                      {:code :native-item-mismatch})))
+    ;; A gateway self URL identifies the cloud, not its human site URL.
+    (when (= (:self issue) (api-endpoint app-config (str "/issue/" id)))
+      (let [site (:baseUrl (api! app-config :get "/serverInfo" nil))]
+        (when-not (and (nonblank? site) (= (base-url app-config) (str/replace site #"/+$" "")))
+          (throw (ex-info "Jira cloud metadata does not confirm the configured site URL. Check JIRA_SITE_URL and JIRA_CLOUD_ID."
+                          {:code :native-item-mismatch})))))))
+
+(defn normalize-transition [transition]
+  (let [fields (or (:fields transition) {})]
+    (when-not (and (native-id? (:id transition)) (nonblank? (:name transition))
+                   (native-id? (get-in transition [:to :id]))
+                   (nonblank? (get-in transition [:to :name]))
+                   (map? fields)
+                   (or (not (:hasScreen transition)) (map? (:fields transition)))
+                   (every? (fn [[_ metadata]]
+                             (and (map? metadata) (boolean? (:required metadata))
+                                  (vector? (:operations metadata)) (every? string? (:operations metadata))
+                                  (or (not (contains? metadata :hasDefaultValue))
+                                      (boolean? (:hasDefaultValue metadata))))) fields))
+      (throw (ex-info "Jira returned incomplete transition/field metadata. Check permissions and inspect the issue again."
+                      {:code :invalid-transition-metadata})))
+    {:id (:id transition) :name (:name transition)
+     :to (assoc (select-keys (:to transition) [:id :name])
+                :state (normalize-state (:to transition)))
+     :fields fields
+     :requiredFields (->> fields (keep (fn [[key metadata]] (when (:required metadata) (name key)))) sort vec)}))
+
+(defn get-item-transitions [app-config reference]
+  (when-not (and (string? reference)
+                 (or (re-matches key-pattern reference) (native-id? reference)))
+    (throw (ex-info "Jira transition inspection requires an exact issue key or immutable numeric ID, not a fuzzy query."
+                    {:code :invalid-item-reference})))
+  (let [issue (api! app-config :get (str "/issue/" (url-encode reference)) nil)
+        _ (assert-native-issue! app-config reference issue)
+        response (api! app-config :get (str "/issue/" (:id issue) "/transitions")
+                       {:expand "transitions.fields"})
+        transitions (:transitions response)]
+    (when-not (and (vector? transitions)
+                   (= (count transitions) (count (distinct (map :id transitions)))))
+      (throw (ex-info "Jira returned missing or ambiguous transition metadata."
+                      {:code :invalid-transition-metadata})))
+    {:item (normalize-item (base-url app-config)
+                           (get-in app-config [:tracker :blocker-link-type]) issue)
+     :native-context {:siteUrl (base-url app-config) :cloudId (cloud-id app-config)}
+     :field-values (:fields issue)
+     :transitions (mapv normalize-transition (remove #(false? (:isAvailable %)) transitions))}))
+
+(defn empty-field-value? [value]
+  (or (nil? value) (and (string? value) (str/blank? value))
+      (and (coll? value) (empty? value))))
+
+(defn plan-item-transition [app-config {:keys [item-ref transition-id fields] :as request}]
+  (let [inspection (get-item-transitions app-config item-ref)
+        transition (or (some #(when (= transition-id (:id %)) %) (:transitions inspection))
+                       (throw (ex-info "The exact transition ID is unavailable in this issue's current state/permissions. Inspect available transition IDs."
+                                       {:code :transition-unavailable})))
+        metadata (:fields transition)]
+    (doseq [[field _] fields]
+      (when-not (and (contains? metadata field)
+                     (some #{"set"} (get-in metadata [field :operations])))
+        (throw (ex-info (str "Jira transition cannot set field " (name field) ". Use fields advertised by transition inspection.")
+                        {:code :unsupported-transition-field :field field}))))
+    (doseq [[field details] metadata :when (:required details)]
+      (let [provided? (contains? fields field)
+            value (if provided? (get fields field) (get-in inspection [:field-values field]))]
+        (when (and (empty-field-value? value)
+                   (or provided? (not (:hasDefaultValue details))))
+          (throw (ex-info (str "Jira transition requires field " (or (:name details) (name field))
+                              " (" (name field) "). Supply its native value in fields.")
+                          {:code :transition-fields-required :field field})))))
+    (when (:comment request)
+      (let [permissions (api! app-config :get "/mypermissions"
+                              {:issueId (get-in inspection [:item :native-ref :id]) :permissions "ADD_COMMENTS"})
+            allowed? (get-in permissions [:permissions :ADD_COMMENTS :havePermission])]
+        (when-not (true? allowed?)
+          (throw (ex-info "Jira does not confirm Add comments permission for this issue. Check permissions before approving the handoff."
+                          {:code :item-comment-permission-denied})))))
+    (cond-> {:item (:item inspection) :native-context (:native-context inspection)
+             :transition transition :fields fields
+             :previous-fields (select-keys (:field-values inspection)
+                                           (concat (keys fields)
+                                                   (keep (fn [[field details]] (when (:required details) field)) metadata)))
+             :validation {:workflowValidators "Jira workflow validators can still reject this transition."
+                          :atomicity "Remote edits can race the last check; Jira has no atomic compare-and-set."}}
+      (:comment request) (assoc :comment-permitted true))))
+
+(defn transition-approval-target [plan]
+  (assoc (select-keys plan [:native-context :transition :fields :previous-fields])
+         :item (select-keys (:item plan) [:ref :native-ref :native-status])))
+
+(defn assert-native-comment! [app-config issue-id comment]
+  (when-not (and (native-id? (:id comment))
+                 (contains? #{(api-endpoint app-config (str "/issue/" issue-id "/comment/" (:id comment)))
+                              (str (base-url app-config) api-path "/issue/" issue-id "/comment/" (:id comment))}
+                            (:self comment)))
+    (throw (ex-info "Jira returned an unidentifiable comment; inspect native comments before recovery."
+                    {:code :native-comment-mismatch}))))
+
+(defn validate-item-transition! [app-config proposal operation]
+  (let [request (cond-> (:request proposal)
+                  (not= :comment (:type operation)) (dissoc :comment))
+        fresh (try (plan-item-transition app-config request)
+                   (catch Exception ex
+                     (throw (ex-info (.getMessage ex) (assoc (ex-data ex) :write-started? false) ex))))]
+    (when-not (= (transition-approval-target proposal) (transition-approval-target fresh))
+      (throw (ex-info "The native issue, status, transition, or fields changed after approval. Preview again."
+                      {:code :stale-transition-target :write-started? false})))))
+
+(defn apply-item-transition-operation! [app-config proposal operation]
+  (validate-item-transition! app-config proposal operation)
+  (let [id (get-in proposal [:item :native-ref :id])]
+    (case (:type operation)
+      :comment
+      (let [body (text->adf (:body operation))
+            comment (api! app-config :post (str "/issue/" id "/comment") {:body body})]
+        (assert-native-comment! app-config id comment)
+        {:item-id id :comment-id (:id comment) :comment-body (adf->text body)})
+      :transition
+      (do
+        (api! app-config :post (str "/issue/" id "/transitions")
+              (cond-> {:transition {:id (:transition-id operation)}}
+                (seq (:fields operation)) (assoc :fields (:fields operation))))
+        {:item-id id :transition-id (:transition-id operation)}))))
+
+(defn read-transition-comments [app-config id]
+  (let [comments (pagination/collect-matches
+                  (fn [cursor]
+                    (let [start (or cursor 0)
+                          response (api! app-config :get (str "/issue/" id "/comment") {:startAt start})
+                          comments (:comments response)
+                          total (:total response)
+                          _ (when-not (vector? comments)
+                              (throw (ex-info "Jira returned malformed native comments."
+                                              {:code :invalid-comment-metadata})))
+                          end (+ start (count comments))]
+                      (when-not (and (vector? comments) (= start (:startAt response))
+                                     (integer? total) (<= 0 total) (<= end total)
+                                     (or (seq comments) (= start total)))
+                        (throw (ex-info "Jira comment pagination is incomplete; inspect native comments before recovery."
+                                        {:code :invalid-comment-metadata})))
+                      (doseq [comment comments] (assert-native-comment! app-config id comment))
+                      {:items (mapv (fn [comment]
+                                      {:id (:id comment) :body (description->text (:body comment))
+                                       :author (select-keys (:author comment) [:accountId :displayName])
+                                       :createdAt (:created comment) :updatedAt (:updated comment)}) comments)
+                       :next-cursor (when (< end total) end)}))
+                  (constantly true) Long/MAX_VALUE)]
+    (when-not (= (count comments) (count (distinct (map :id comments))))
+      (throw (ex-info "Jira returned duplicate native comment IDs; inspect before recovery."
+                      {:code :invalid-comment-metadata})))
+    comments))
+
+(defn read-item-transition [app-config proposal]
+  (when-not (= (:native-context proposal)
+               {:siteUrl (base-url app-config) :cloudId (cloud-id app-config)})
+    (throw (ex-info "Jira site changed; inspect the originally approved site/issue."
+                    {:code :native-item-mismatch})))
+  (let [id (get-in proposal [:item :native-ref :id])
+        issue (api! app-config :get (str "/issue/" id) nil)]
+    (assert-native-issue! app-config id issue)
+    {:item (normalize-item (base-url app-config)
+                           (get-in app-config [:tracker :blocker-link-type]) issue)
+     :fields (select-keys (:fields issue) (keys (:fields proposal)))
+     :comments (when (get-in proposal [:request :comment])
+                 (read-transition-comments app-config id))}))
+
 (def capabilities
   #{:configured-scope
     :list-items
     :search-parent-items
     :resolve-parent-item
     :resolve-item
+    :get-item-transitions
+    :plan-item-transition
+    :validate-item-transition!
+    :apply-item-transition-operation!
+    :read-item-transition
     :search-projects
     :resolve-project
     :search-labels
@@ -885,6 +1081,11 @@
    :search-parent-items #(parent-items app-config)
    :resolve-parent-item #(resolve-item app-config %)
    :resolve-item #(resolve-item app-config %)
+   :get-item-transitions #(get-item-transitions app-config %)
+   :plan-item-transition #(plan-item-transition app-config %)
+   :validate-item-transition! #(validate-item-transition! app-config %1 %2)
+   :apply-item-transition-operation! #(apply-item-transition-operation! app-config %1 %2)
+   :read-item-transition #(read-item-transition app-config %)
    :search-projects #(projects app-config)
    :resolve-project #(resolve-project app-config %)
    :search-labels #(labels app-config)

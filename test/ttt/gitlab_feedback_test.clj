@@ -9,6 +9,7 @@
             [ttt.feedback :as feedback]
             [ttt.feedback-test-support :as support]
             [ttt.platform.feedback-journal :as journal]
+            [ttt.platform.journal :as storage]
             [ttt.platform.shell :as shell]
             [ttt.providers.forge.gitlab :as gitlab]))
 
@@ -379,8 +380,8 @@
     (with-gitlab state
       (fn []
         (let [id (proposal-id request) native gitlab/api!
-              sync journal/sync-directory! synced (atom [])]
-          (with-redefs [journal/sync-directory! (fn [directory]
+              sync storage/sync-directory! synced (atom [])]
+          (with-redefs [storage/sync-directory! (fn [directory]
                                                  (swap! synced conj directory)
                                                  (sync directory))
                         gitlab/api! (fn [cfg method path query]
@@ -402,7 +403,7 @@
   (let [state (state) request (request [reply])]
     (with-gitlab state
       #(let [id (proposal-id request)]
-         (with-redefs [journal/sync-directory! (fn [_]
+         (with-redefs [storage/sync-directory! (fn [_]
                                                 (throw (ex-info "Directory sync failed"
                                                                 {:code :feedback-journal-unavailable})))]
            (is (= "feedback-journal-unavailable" (get-in (cli-apply request id) [:envelope :error :code])))

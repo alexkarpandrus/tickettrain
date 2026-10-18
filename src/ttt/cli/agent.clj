@@ -8,7 +8,9 @@
             [ttt.core :as core]
             [ttt.domain :as domain]
             [ttt.feedback :as feedback]
+            [ttt.transitions :as transitions]
             [ttt.platform.feedback-journal :as journal]
+            [ttt.platform.transition-journal :as transition-journal]
             [ttt.platform.remote :as remote]
             [ttt.platform.shell :as shell]
             [ttt.providers.forge :as forge]
@@ -26,6 +28,7 @@
                   :profile {:coerce :string}
                   :kind {:coerce :string}
                   :change-request {:coerce :string}
+                  :item {:coerce :string}
                   :feedback {:coerce :boolean}
                   :query {:coerce :string}
                   :limit {:coerce :long}
@@ -42,7 +45,7 @@
 (defn exception-chain [ex] (take-while some? (iterate #(.getCause %) ex)))
 (defn first-ex-data [chain pred]
   (some #(let [data (ex-data %)] (when (pred data) data)) chain))
-(declare wire-entity wire-feedback-result)
+(declare wire-entity wire-feedback-result wire-transition-result)
 (defn failure [command ex]
   (let [chain (exception-chain ex)
         remote-data (first-ex-data chain #(or (:provider %) (:status %) (:detail %)))
@@ -65,9 +68,11 @@
               provider (assoc :provider (name provider))
               (:status remote-data) (assoc :status (:status remote-data))
               details (assoc :details details)
-              partial-result (assoc :partialResult (if (:outcomes partial-result)
-                                                     (wire-feedback-result partial-result)
-                                                     (update partial-result :item wire-entity))))}))
+              partial-result (assoc :partialResult
+                                    (cond
+                                      (= :item-transition (:kind partial-result)) (wire-transition-result partial-result)
+                                      (:outcomes partial-result) (wire-feedback-result partial-result)
+                                      :else (update partial-result :item wire-entity))))}))
 (defn require-option [options option]
   (or (get options option) (throw (ex-info (str "--" (name option) " is required.") {:code :invalid-request}))))
 (defn parse-options [args] (:opts (cli/parse-args args {:spec option-spec})))
@@ -101,6 +106,7 @@
         (:url entity) (assoc :url (:url entity))
         (:head-sha entity) (assoc :headSha (:head-sha entity))
         (:native-ref entity) (assoc :nativeIdentity (wire-identity {:ref (:native-ref entity)}))
+        (seq (:native-status entity)) (assoc :nativeStatus (:native-status entity))
         (or item? (:description entity)) (assoc :description (:description entity))
         item? (assoc :state (:state entity)
                      :priority (or (:priority entity) "none")
@@ -117,7 +123,7 @@
 (defn wire-source [{:keys [branch repository change-request]}]
   {:branch branch :repository (wire-entity repository) :changeRequest (wire-entity change-request)})
 (defn wire-context [{:keys [parent project]}] {:parent (wire-entity parent) :project (wire-entity project)})
-(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-item "create_item" :update-item "update_item" :create-change-request "create_change_request" :update-change-request "update_change_request" :close-change-request "close_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request" :review-change-request "review_change_request"))
+(defn wire-action [action] (case action :link-existing "link_existing" :create-new "create_new" :create-item "create_item" :update-item "update_item" :create-change-request "create_change_request" :update-change-request "update_change_request" :close-change-request "close_change_request" :comment-item "comment_item" :comment-change-request "comment_change_request" :transition-item "transition_item" :review-change-request "review_change_request"))
 (defn wire-request [request]
   (cond-> {:action (wire-action (:action request))}
     (contains? request :labels) (assoc :labels (vec (:labels request)))
@@ -125,8 +131,11 @@
     (contains? request :remove-labels) (assoc :removeLabels (vec (:remove-labels request)))
     (:item-ref request) (assoc :item (:item-ref request))
     (:change-request-ref request) (assoc :changeRequest (:change-request-ref request))
-    (:batch-id request) (assoc :batchId (:batch-id request) :operations (:operations request))
+    (:batch-id request) (assoc :batchId (:batch-id request))
+    (:operations request) (assoc :operations (:operations request))
     (:expected-head request) (assoc :expectedHead (:expected-head request))
+    (:transition-id request) (assoc :transitionId (:transition-id request))
+    (contains? request :fields) (assoc :fields (:fields request))
     (:parent-ref request) (assoc :parent (:parent-ref request))
     (:project-ref request) (assoc :project (:project-ref request))
     (:title request) (assoc :title (:title request))
@@ -195,6 +204,26 @@
     (:feedback result) (assoc :feedback (wire-feedback (:feedback result)))
     (:recovery-error result) (assoc :recoveryError (:recovery-error result))
     (:readback-error result) (assoc :readbackError (:readback-error result))))
+
+(defn wire-transition-operation [operation]
+  (cond-> {:type (name (:type operation))}
+    (:transition-id operation) (assoc :transitionId (:transition-id operation) :fields (:fields operation))
+    (:body operation) (assoc :body (:body operation))))
+
+(defn wire-transition-outcomes [operations outcomes]
+  (mapv (fn [index operation outcome]
+          (cond-> {:index index :operation (wire-transition-operation operation) :status (name (:status outcome))}
+            (:error outcome) (assoc :error (:error outcome))
+            (:result outcome) (assoc :affectedIds (set/rename-keys (select-keys (:result outcome) [:item-id :comment-id :transition-id])
+                                                                 {:item-id :itemId :comment-id :commentId :transition-id :transitionId}))))
+        (range) operations outcomes))
+
+(defn wire-transition-result [result]
+  (cond-> {:item (wire-entity (:item result)) :nativeContext (:native-context result)
+           :operations (wire-transition-outcomes (:operations result) (:outcomes result))}
+    (:readback result) (assoc :readback (update (:readback result) :item wire-entity))
+    (:readback-error result) (assoc :readbackError (:readback-error result))
+    (:recovery-error result) (assoc :recoveryError (:recovery-error result))))
 (defn proposal->wire [proposal]
   (let [base (cond-> {:proposalId (:proposal-id proposal)
                       :action (wire-action (:action proposal))
@@ -202,6 +231,13 @@
                (:source proposal) (assoc :source (wire-source (:source proposal)))
                (:profile proposal) (assoc :profile (name (:profile proposal))))]
     (case (:action proposal)
+      :transition-item
+      (let [saved (transition-journal/read-batch (get-in proposal [:request :batch-id]))]
+        (cond-> (assoc base :item (wire-entity (:item proposal)) :nativeContext (:native-context proposal)
+                       :transition (:transition proposal) :fields (:fields proposal)
+                       :previousFields (:previous-fields proposal) :validation (:validation proposal)
+                       :operations (mapv wire-transition-operation (:operations proposal)))
+          saved (assoc :recovery (wire-transition-outcomes (:operations proposal) (:outcomes saved)))))
       :review-change-request
       (let [saved (journal/read-batch (get-in proposal [:request :batch-id]))]
         (cond-> (assoc base :changeRequest (wire-entity (:change-request proposal))
@@ -398,6 +434,7 @@
    "create_new" #{:action :parent :project :title :labels}
    "create_item" (set/union #{:action :title :description :project :labels :comment :customFields} (set work-item-fields))
    "update_item" (set/union #{:action :item :comment :addLabels :removeLabels} (set work-item-fields))
+   "transition_item" #{:action :item :transitionId :fields :batchId :comment}
    "create_change_request" #{:action :title :body}
    "update_change_request" #{:action :title :body}
    "close_change_request" #{:action :changeRequest :comment}
@@ -438,6 +475,7 @@
   (assert-request-shape! request)
   (case (:action request)
     "review_change_request" (feedback/validate-request! request)
+    "transition_item" (transitions/validate-request! request)
     "link_existing" (do
                       (when-not (seq (:item request)) (invalid-request! "link_existing requires item."))
                       (when (and (contains? request :changeRequest)
@@ -508,6 +546,10 @@
 
 (defn core-request [request]
   (case (:action request)
+    "transition_item" (cond-> {:action :transition-item :item-ref (:item request)
+                       :transition-id (:transitionId request) :batch-id (:batchId request)
+                       :fields (or (:fields request) {})}
+                       (contains? request :comment) (assoc :comment (:comment request)))
     "review_change_request" (cond-> {:action :review-change-request
                                     :change-request-ref (:changeRequest request)
                                     :batch-id (:batchId request) :operations (:operations request)}
@@ -568,24 +610,40 @@
   (let [profile (get-in runtime [:config :profile])
         config-id (sha256 (:config runtime))
         core-request (core-request request)
-        saved (when (= "review_change_request" (:action request))
-                (journal/read-batch (:batchId request)))]
+        transition? (= "transition_item" (:action request))
+        saved (cond
+                transition? (transition-journal/read-batch (:batchId request))
+                (= "review_change_request" (:action request)) (journal/read-batch (:batchId request)))
+        same-batch? (and saved (= core-request (get-in saved [:proposal :request]))
+                         (= profile (get-in saved [:proposal :profile]))
+                         (= config-id (get-in saved [:proposal :config-id])))]
+    (when (and transition? saved)
+      (when-not same-batch?
+        (throw (ex-info "The transition batch request, profile, or configuration changed. Preserve its journal and use a new approval."
+                        {:code :item-transition-batch-mismatch})))
+      (when-not (= (get-in saved [:proposal :proposal-id])
+                   (proposal-id (dissoc (:proposal saved) :proposal-id)))
+        (throw (ex-info "The saved approved transition proposal is invalid; preserve its journal."
+                        {:code :item-transition-journal-invalid}))))
     (try
-      (let [proposal (cond-> (core/preview runtime core-request)
-                       (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request)) (assoc :approval-context (approval-context runtime core-request))
-                       profile (assoc :profile profile)
-                       true (assoc :config-id config-id))]
-        (assoc proposal :proposal-id (proposal-id proposal)))
+      (if (and transition? saved)
+        (transitions/recovery-proposal runtime saved)
+        (let [proposal (cond-> (core/preview runtime core-request)
+                         (contains? #{"link_existing" "create_new" "create_item" "update_item" "comment_item"} (:action request))
+                         (assoc :approval-context (approval-context runtime core-request))
+                         profile (assoc :profile profile)
+                         true (assoc :config-id config-id))]
+          (assoc proposal :proposal-id (proposal-id proposal))))
       (catch Exception ex
-        (if (and saved (= core-request (get-in saved [:proposal :request]))
-                 (= profile (get-in saved [:proposal :profile]))
-                 (= config-id (get-in saved [:proposal :config-id])))
+        (if (and same-batch? (not (:partial-result (ex-data ex))))
           (throw (ex-info (.getMessage ex)
                           (assoc (ex-data ex) :partial-result
-                                 {:change-request (get-in saved [:proposal :change-request])
-                                  :operations (get-in saved [:proposal :operations])
-                                  :outcomes (:outcomes saved)
-                                  :readback-error (remote/sanitize-detail (.getMessage ex))})
+                                 (if transition?
+                                   (assoc (transitions/batch-result saved) :readback-error (remote/sanitize-detail (.getMessage ex)))
+                                   {:change-request (get-in saved [:proposal :change-request])
+                                    :operations (get-in saved [:proposal :operations])
+                                    :outcomes (:outcomes saved)
+                                    :readback-error (remote/sanitize-detail (.getMessage ex))}))
                           ex))
           (throw ex))))))
 (defn preview-data [runtime request] (proposal->wire (preview-proposal runtime request)))
@@ -593,13 +651,14 @@
   (let [proposal (preview-proposal runtime request)]
     (when-not (= approval (:proposal-id proposal)) (throw (ex-info "Approval does not match the current proposal. Preview again before applying." {:code :stale-proposal})))
     (let [result (core/apply! runtime proposal)]
-      (if (= :review-change-request (:action proposal))
-        (assoc (wire-feedback-result result) :proposalId (:proposal-id proposal))
-      (cond-> {:proposalId (:proposal-id proposal)
-               :item (wire-entity (:item result))
-               :changeRequest (wire-entity (:change-request result))}
-        (:change-request-update result) (assoc :changeRequestUpdate (:change-request-update result))
-        (:comment result) (assoc :comment (:comment result)))))))
+      (case (:action proposal)
+        :transition-item (assoc (wire-transition-result result) :proposalId (:proposal-id proposal))
+        :review-change-request (assoc (wire-feedback-result result) :proposalId (:proposal-id proposal))
+        (cond-> {:proposalId (:proposal-id proposal)
+                 :item (wire-entity (:item result))
+                 :changeRequest (wire-entity (:change-request result))}
+          (:change-request-update result) (assoc :changeRequestUpdate (:change-request-update result))
+          (:comment result) (assoc :comment (:comment result)))))))
 (defn forge-runtime [options]
   (let [app-config (config/load-config (or (:config options) config/default-config-path)
                                        (:profile options)
@@ -617,7 +676,7 @@
 (defn request-runtime [options request]
   (case (:action request)
     ("create_change_request" "update_change_request" "close_change_request" "comment_change_request" "review_change_request") (forge-runtime options)
-    ("create_item" "update_item" "comment_item") (tracker-runtime options)
+    ("create_item" "update_item" "comment_item" "transition_item") (tracker-runtime options)
     (runtime options)))
 
 
@@ -640,16 +699,29 @@
         forge/registry))
 
 (defn inspect-command-data [options]
-  (let [runtime (forge-runtime options)]
-    (if (:feedback options)
-      (let [reference (require-option options :change-request)]
-        (when-not (feedback/native-id? reference) (invalid-request! "--change-request requires a positive ID string."))
-        (let [{:keys [repository feedback]} (feedback/inspect runtime reference)]
-          {:repository (wire-entity repository) :feedback (wire-feedback feedback)}))
-      (inspect-data runtime))))
+  (if-let [reference (:item options)]
+    (do
+      (when (or (:feedback options) (:change-request options))
+        (invalid-request! "--item cannot be combined with forge inspection options."))
+      (let [tracker (:tracker (tracker-runtime options))]
+        (when-not (and (contains? (:capabilities tracker) :get-item-transitions)
+                       (fn? (:get-item-transitions tracker)))
+          (throw (ex-info "The selected tracker does not support native transition inspection."
+                          {:code :unsupported-tracker-operation})))
+        (let [inspection ((:get-item-transitions tracker) reference)]
+          {:item (wire-entity (:item inspection))
+           :nativeContext (:native-context inspection)
+           :transitions (:transitions inspection)})))
+    (let [runtime (forge-runtime options)]
+      (if (:feedback options)
+        (let [reference (require-option options :change-request)]
+          (when-not (feedback/native-id? reference) (invalid-request! "--change-request requires a positive ID string."))
+          (let [{:keys [repository feedback]} (feedback/inspect runtime reference)]
+            {:repository (wire-entity repository) :feedback (wire-feedback feedback)}))
+        (inspect-data runtime)))))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :forgeFeedbackCapabilities (forge-feedback-capabilities) :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "inspect-change-request-feedback" "review-change-requests" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-titles" "item-descriptions" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "item-custom-fields" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :forgeFeedbackCapabilities (forge-feedback-capabilities) :capabilities ["named-profiles" "configuration-status" "inspect-item-transitions" "transition-items" "inspect-current-change-request" "inspect-change-request-feedback" "review-change-requests" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-titles" "item-descriptions" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "item-custom-fields" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

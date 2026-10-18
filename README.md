@@ -120,6 +120,7 @@ Review feedback uses one approval-gated `review_change_request` batch. Keep its 
 | Create and comment on items | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Configure target state at creation | ✓ | ✓³ | ✓ | ✓ | —⁵ | — | — |
 | Set neutral lifecycle | ✓ | ✓ | ✓ | ✓ | ✓⁶ | ✓⁷ | ✓⁷ |
+| Inspect and apply exact native transitions | — | ✓ | — | — | — | — | — |
 | Set neutral priority | ✓ | ✓ | — | — | ✓⁶ | — | — |
 | Set due dates | ✓ | ✓ | — | ✓ | ✓⁶ | — | — |
 | Set availability | — | — | — | ✓ | ✓⁶ | — | — |
@@ -139,6 +140,26 @@ Review feedback uses one approval-gated `review_change_request` batch. Keep its 
 7. Logseq files map TODO/LATER to `open`, NOW/DOING/STARTED/IN-PROGRESS to `active`, WAIT/WAITING to `waiting`, DONE to `completed`, and CANCELED/CANCELLED to `canceled`. DB graphs map Backlog/Todo to `open`, Doing to `active`, In Review to `waiting`, Done to `completed`, and Canceled to `canceled`. Body edits and same-neutral-state updates preserve the native marker/status.
 
 All 21 forge/tracker pairings use the provider-neutral core. Provider tests use local stubs and do not require credentials or network access.
+
+### Exact Jira handoffs
+
+Read an explicitly selected existing issue; this does not need a forge or current PR:
+
+```bash
+ttt inspect --item APP-123
+```
+
+Jira reads include immutable `nativeIdentity` and exact `nativeStatus` beside normalized `state`. Inspection exposes available transition IDs, destination status IDs/names, and required-field metadata. `In Progress` and `Review` can both be `active`; select the inspected transition ID, never a name or category.
+
+Prepare a request file with the actual inspected IDs and native field values:
+
+```json
+{"action":"transition_item","item":"APP-123","transitionId":"21","fields":{"customfield_123":[{"id":"101"}]},"comment":"Testing: bb test passed.","batchId":"jira-handoff-1"}
+```
+
+`transition_item` is Jira-only and needs a Git repository for durable recovery, but no forge configuration. `fields` and `comment` are optional. Preview pins the site/cloud, immutable issue, current native status, exact transition/destination, and field changes. Apply checks again before each write, appends the optional comment, then performs the exact transition. Unrelated content stays unchanged. `TTT_TRACKER_STATE` configures creation and does not select this transition.
+
+Use the normal `preview` → exact approval → `apply` workflow. Workflow validators can still reject a valid preview, and remote edits can race the last check. Results include per-operation statuses/IDs and native readback. Local worktrees share owner-only checkpoints and issue locks in `<git-common-dir>/ttt-item-transitions`; retry the unchanged request/configuration/proposal to skip accepted writes. Unknown or interrupted writes stop after native inspection, without resend. Equal comment text or an observed destination is not proof of ownership. Do not discard the journal or reuse the batch on another machine to force a retry. See [native transitions](docs/integrations.md#native-item-transitions) for recovery limits.
 
 ### Logseq file graphs
 
