@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.14.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.13.0...v0.14.0) (2026-10-18)
+
+
+### Features
+
+* **jira:** add approved exact native transitions ([ea20016](https://github.com/alexkarpandrus/tickettrain/commit/ea20016bdc25b78447e3326462c4f63e771ef0d2)), closes [#103](https://github.com/alexkarpandrus/tickettrain/issues/103)
+
+
+### Fixes
+
+* **jira:** approve required custom fields during item creation ([4a13910](https://github.com/alexkarpandrus/tickettrain/commit/4a139100147b58cfcb1528bc4152f67b30b309bb)), closes [#104](https://github.com/alexkarpandrus/tickettrain/issues/104)
+* **jira:** verify site identity behind cloud gateway URLs ([f364f44](https://github.com/alexkarpandrus/tickettrain/commit/f364f4454b73a3b9b27f531e5d563d05cdc8fd66))
+* **journal:** verify owner-only recovery permissions ([cfc6ee5](https://github.com/alexkarpandrus/tickettrain/commit/cfc6ee526c05adf54c9d6788045ff0277bde16db))
+
+
+### Documentation
+
+* **taskwarrior:** correct description migration guidance ([0fe79a1](https://github.com/alexkarpandrus/tickettrain/commit/0fe79a1193975e7a5be7cebc771ff969319a8b2d))
+
 ## [0.13.0](https://github.com/alexkarpandrus/tickettrain/compare/v0.12.0...v0.13.0) (2026-10-08)
 
 
