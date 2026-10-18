@@ -33,7 +33,8 @@
     :item-priority
     :item-due-dates
     :item-availability
-    :item-blockers})
+    :item-blockers
+    :item-custom-fields})
 
 (def feedback-capabilities #{:reply :edit-note :resolve-discussion :update-reviewers})
 (def feedback-functions #{:get-feedback :resolve-reviewer :apply-feedback!})

@@ -134,6 +134,7 @@
     (contains? request :comment) (assoc :comment (:comment request))
     (contains? request :body) (assoc :body (:body request))
     (contains? request :state) (assoc :state (:state request))
+    (contains? request :custom-fields) (assoc :customFields (:custom-fields request))
     (contains? request :priority) (assoc :priority (:priority request))
     (contains? request :due-at) (assoc :dueAt (:due-at request))
     (contains? request :available-at) (assoc :availableAt (:available-at request))
@@ -142,6 +143,8 @@
   (cond-> {:description (:description intent) :labels (mapv wire-entity (:labels intent))}
     (:title intent) (assoc :title (:title intent))
     (contains? intent :state) (assoc :state (:state intent))
+    (contains? intent :custom-fields) (assoc :customFields (:custom-fields intent))
+    (:validation intent) (assoc :validation (:validation intent))
     (contains? intent :priority) (assoc :priority (:priority intent))
     (contains? intent :due-at) (assoc :dueAt (:due-at intent))
     (contains? intent :available-at) (assoc :availableAt (:available-at intent))
@@ -393,7 +396,7 @@
 (def action-fields
   {"link_existing" #{:action :item :labels :changeRequest}
    "create_new" #{:action :parent :project :title :labels}
-   "create_item" (set/union #{:action :title :description :project :labels :comment} (set work-item-fields))
+   "create_item" (set/union #{:action :title :description :project :labels :comment :customFields} (set work-item-fields))
    "update_item" (set/union #{:action :item :comment :addLabels :removeLabels} (set work-item-fields))
    "create_change_request" #{:action :title :body}
    "update_change_request" #{:action :title :body}
@@ -414,6 +417,8 @@
   (doseq [field [:labels :addLabels :removeLabels :blockedBy] :when (contains? request field)]
     (when-not (and (sequential? (get request field)) (every? string? (get request field)))
       (invalid-request! (str (name field) " must be a collection of strings."))))
+  (when (and (contains? request :customFields) (not (map? (:customFields request))))
+    (invalid-request! "customFields must be a JSON object."))
   (when (and (contains? request :state) (not (contains? item-states (:state request))))
     (invalid-request! "state must be open, active, waiting, completed, or canceled."))
   (when (and (contains? request :priority)
@@ -513,6 +518,7 @@
                              :description (or (:description request) "")
                              :labels (vec (or (:labels request) []))}
                       (:project request) (assoc :project-ref (:project request))
+                      (contains? request :customFields) (assoc :custom-fields (:customFields request))
                       (contains? request :comment) (assoc :comment (:comment request)))
                     request)
     "update_item" (assoc-work-item-fields
@@ -643,7 +649,7 @@
       (inspect-data runtime))))
 (defn execute-command [command args]
   (if (= "version" command)
-    {:name "ttt" :version product-version :agentApiVersion schema-version :forgeFeedbackCapabilities (forge-feedback-capabilities) :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "inspect-change-request-feedback" "review-change-requests" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-titles" "item-descriptions" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
+    {:name "ttt" :version product-version :agentApiVersion schema-version :forgeFeedbackCapabilities (forge-feedback-capabilities) :capabilities ["named-profiles" "configuration-status" "inspect-current-change-request" "inspect-change-request-feedback" "review-change-requests" "search-items" "search-projects" "search-labels" "list-items" "semantic-search" "check-project" "link-existing" "link-historical-change-requests" "create-new" "create-items" "update-items" "item-titles" "item-descriptions" "item-lifecycle" "item-priority" "item-due-dates" "item-availability" "item-blockers" "item-custom-fields" "create-change-request" "update-change-requests" "close-change-requests" "comment-items" "comment-change-requests" "approval-gated-apply"]}
     (let [options (parse-options args)]
       (case command
         "status" (status-data options)

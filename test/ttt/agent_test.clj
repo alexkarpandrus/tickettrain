@@ -748,3 +748,20 @@
       (is (= "APP-100" (get-in result [:item :blockedBy 0 :displayId])))
       (is (= #{:description :labels :state :priority :due-at :available-at :blocked-by}
              (set (keys (first @intents))))))))
+
+
+(deftest custom-fields-require-an-object-and-a-capable-create-action
+  (doseq [fields [nil [] "customfield_10001" 42]]
+    (is (thrown-with-msg? Exception #"customFields must be a JSON object"
+                          (agent/validate-request! {:action "create_item" :title "Bug"
+                                                    :customFields fields}))))
+  (doseq [action ["update_item" "create_new"]]
+    (is (thrown-with-msg? Exception #"does not accept fields: customFields"
+                          (agent/validate-request! {:action action :title "Bug" :item "APP-123"
+                                                    :customFields {}}))))
+  (let [calls (atom [])]
+    (is (thrown-with-msg? Exception #"does not support the requested work-item fields"
+                          (agent/preview-data (runtime calls)
+                                              {:action "create_item" :title "Bug"
+                                               :customFields {:customfield_10001 []}})))
+    (is (empty? @calls))))
